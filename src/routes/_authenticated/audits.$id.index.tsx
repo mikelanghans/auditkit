@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2, Github, Filter, Circle } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -29,7 +30,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null };
+type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null };
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -65,12 +66,14 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes")
+        .select("checklist_item_id, status, notes, auto_scanned")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
     },
   });
+
+  const hasAutoScanned = useMemo(() => (findings.data ?? []).some((f) => f.auto_scanned), [findings.data]);
 
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
@@ -191,7 +194,6 @@ function AuditView() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <AutoScanButton auditId={id} onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })} />
           <GithubScanButton auditId={id} onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })} />
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>
@@ -241,6 +243,11 @@ function AuditView() {
         </aside>
 
         <div className="space-y-3">
+          <ShieldScanBanner
+            auditId={id}
+            hasScanned={hasAutoScanned}
+            onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+          />
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
@@ -285,6 +292,7 @@ function AuditView() {
                 key={it.id}
                 item={it}
                 finding={f}
+                autoScanned={!!f?.auto_scanned}
                 onSet={(status, notes) => {
                   // Block changing another item while a Fail in this category has no notes
                   const blocker = rawCatItems.find((other) => {
@@ -317,32 +325,82 @@ function BackLink() {
   );
 }
 
-function AutoScanButton({ auditId, onDone }: { auditId: string; onDone: () => void }) {
+function ShieldScanBanner({
+  auditId, hasScanned, onDone,
+}: { auditId: string; hasScanned: boolean; onDone: () => void }) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  // Animated indeterminate-ish progress while pending
+  useEffect(() => {
+    if (!pending) { setProgress(0); return; }
+    setProgress(8);
+    const iv = setInterval(() => {
+      setProgress((p) => (p < 90 ? p + Math.max(1, (90 - p) * 0.08) : p));
+    }, 250);
+    return () => clearInterval(iv);
+  }, [pending]);
+
+  const run = async () => {
+    setPending(true);
+    const tid = toast.loading("Running SHIELD Surface Scan…");
+    try {
+      const res = await scan({ data: { auditId } });
+      setProgress(100);
+      toast.success(
+        `Surface scan complete — ${res.passes} passed, ${res.fails} failed, ${res.warnings} warnings`,
+        { id: tid, description: res.target },
+      );
+      onDone();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Scan failed", { id: tid });
+    } finally {
+      setTimeout(() => setPending(false), 400);
+    }
+  };
+
   return (
-    <Button
-      variant="outline"
-      disabled={pending}
-      onClick={async () => {
-        setPending(true);
-        const tid = toast.loading("Auto-scanning client app…");
-        try {
-          const res = await scan({ data: { auditId } });
-          const passes = res.results.filter((r) => r.status === "pass").length;
-          const fails = res.results.filter((r) => r.status === "fail").length;
-          toast.success(`Scan complete: ${passes} pass, ${fails} fail`, { id: tid, description: res.target });
-          onDone();
-        } catch (e: any) {
-          toast.error(e?.message ?? "Scan failed", { id: tid });
-        } finally {
-          setPending(false);
-        }
-      }}
-    >
-      {pending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Radar className="h-4 w-4 mr-1" />}
-      Auto-scan
-    </Button>
+    <Card className="p-4 border-l-4 border-l-primary bg-primary/[0.03]">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="rounded-md bg-primary/10 p-2 shrink-0">
+            <Shield className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-semibold leading-tight">SHIELD Surface Scan</h3>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Automatically probes the client&apos;s live site for SSL, security headers, CSP, error verbosity, exposed secrets, and debug mode.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            onClick={run}
+            disabled={pending}
+            variant={hasScanned ? "outline" : "default"}
+          >
+            {pending ? (
+              <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Running SHIELD Surface Scan…</>
+            ) : hasScanned ? (
+              <><Radar className="h-4 w-4 mr-1" /> Re-scan</>
+            ) : (
+              <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
+            )}
+          </Button>
+        </div>
+      </div>
+      {pending && (
+        <div className="mt-3">
+          <Progress value={progress} />
+        </div>
+      )}
+      {hasScanned && !pending && (
+        <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1.5">
+          <CheckCircle2 className="h-3.5 w-3.5 text-status-pass" /> Scan complete — items marked with the “Auto-detected” badge were populated by the scanner.
+        </p>
+      )}
+    </Card>
   );
 }
 
@@ -376,8 +434,8 @@ function GithubScanButton({ auditId, onDone }: { auditId: string; onDone: () => 
 }
 
 function ItemRow({
-  item, finding, onSet,
-}: { item: Item; finding: Finding | undefined; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
+  item, finding, autoScanned, onSet,
+}: { item: Item; finding: Finding | undefined; autoScanned: boolean; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
   const [notes, setNotes] = useState(finding?.notes ?? "");
   const status = finding?.status ?? null;
   const showNotes = status === "fail";
@@ -420,10 +478,17 @@ function ItemRow({
             <SeverityBadge severity={item.severity} />
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
-          <StatusBtn label="Fail" icon={<X className="h-4 w-4" />} active={status === "fail"} color="fail" onClick={() => onSet("fail", notes || null)} />
-          <StatusBtn label="N/A" icon={<Minus className="h-4 w-4" />} active={status === "na"} color="na" onClick={() => onSet("na", null)} />
+        <div className="flex items-center gap-2 shrink-0">
+          {autoScanned && (
+            <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide">
+              <Sparkles className="h-3 w-3" /> Auto-detected
+            </Badge>
+          )}
+          <div className="flex items-center gap-1">
+            <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
+            <StatusBtn label="Fail" icon={<X className="h-4 w-4" />} active={status === "fail"} color="fail" onClick={() => onSet("fail", notes || null)} />
+            <StatusBtn label="N/A" icon={<Minus className="h-4 w-4" />} active={status === "na"} color="na" onClick={() => onSet("na", null)} />
+          </div>
         </div>
       </div>
 

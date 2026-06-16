@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-type CheckResult = { title: string; status: "pass" | "fail"; notes: string };
+type ScanStatus = "pass" | "fail" | "warn";
+type CheckResult = { key: string; status: ScanStatus; notes: string };
 
 const TIMEOUT_MS = 10_000;
 
@@ -15,89 +16,90 @@ async function timedFetch(url: string, init: RequestInit = {}): Promise<Response
   }
 }
 
+function normalizeUrl(raw: string): string {
+  let u = raw.trim();
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u.replace(/\/+$/, "");
+}
+
 function checkSsl(url: string, ok: boolean, err?: string): CheckResult {
-  const title = "Custom domain with valid SSL";
-  if (!url.startsWith("https://")) {
-    return { title, status: "fail", notes: `URL is not HTTPS: ${url}` };
-  }
-  if (!ok) {
-    return { title, status: "fail", notes: `HTTPS request failed: ${err ?? "unknown error"}` };
-  }
-  return { title, status: "pass", notes: `HTTPS reachable and certificate validated by runtime fetch (${url}).` };
+  if (!url.startsWith("https://")) return { key: "ssl_valid", status: "fail", notes: `URL is not HTTPS: ${url}` };
+  if (!ok) return { key: "ssl_valid", status: "fail", notes: `HTTPS request failed: ${err ?? "unknown error"}` };
+  return { key: "ssl_valid", status: "pass", notes: `HTTPS reachable and certificate validated by runtime fetch (${url}).` };
 }
 
-function checkSecurityHeaders(headers: Headers): CheckResult {
-  const title = "Security headers configured";
-  const xfo = headers.get("x-frame-options");
-  const xcto = headers.get("x-content-type-options");
-  const ref = headers.get("referrer-policy");
-  const hsts = headers.get("strict-transport-security");
-  const required = [
-    ["X-Frame-Options", xfo],
-    ["X-Content-Type-Options", xcto],
-    ["Referrer-Policy", ref],
-    ["Strict-Transport-Security", hsts],
-  ] as const;
-  const missing = required.filter(([, v]) => !v).map(([k]) => k);
-  const present = required.filter(([, v]) => !!v).map(([k, v]) => `${k}: ${v}`);
-  if (missing.length === 0) {
-    return { title, status: "pass", notes: `All four headers present.\n${present.join("\n")}` };
-  }
-  return {
-    title,
-    status: "fail",
-    notes: `Missing: ${missing.join(", ")}\n\nPresent:\n${present.join("\n") || "(none)"}`,
-  };
+function header(h: Headers, name: string, key: string, friendly: string): CheckResult {
+  const v = h.get(name);
+  return v
+    ? { key, status: "pass", notes: `${friendly} present: ${name}: ${v}` }
+    : { key, status: "fail", notes: `Missing ${name} header.` };
 }
 
-function checkCsp(headers: Headers): CheckResult {
-  const title = "Content Security Policy set";
-  const csp = headers.get("content-security-policy") ?? headers.get("content-security-policy-report-only");
-  if (!csp) {
-    return { title, status: "fail", notes: "No Content-Security-Policy header on the response." };
-  }
+function checkCsp(h: Headers): CheckResult {
+  const csp = h.get("content-security-policy") ?? h.get("content-security-policy-report-only");
+  if (!csp) return { key: "csp_header", status: "fail", notes: "No Content-Security-Policy header on the response." };
   const unsafe = /unsafe-inline|unsafe-eval|\*/.test(csp);
   return {
-    title,
+    key: "csp_header",
     status: unsafe ? "fail" : "pass",
     notes: `CSP found:\n${csp}${unsafe ? "\n\nWarning: contains wildcard or unsafe-* directive." : ""}`,
   };
 }
 
 function checkErrorVerbosity(body: string, statusCode: number): CheckResult {
-  const title = "Verbose error messages suppressed in production";
   const lower = body.toLowerCase();
-  const markers = [
-    "stack trace",
-    "at /",
-    "node_modules",
-    ".js:",
-    ".ts:",
-    "traceback",
-    "exception in",
-    "error:",
-    "syntaxerror",
-    "referenceerror",
-  ];
+  const markers = ["stack trace", "at /", "node_modules", ".js:", ".ts:", "traceback", "exception in", "syntaxerror", "referenceerror"];
   const hit = markers.filter((m) => lower.includes(m));
   if (hit.length > 1) {
-    return {
-      title,
-      status: "fail",
-      notes: `Probe (${statusCode}) returned response containing developer-detail markers: ${hit.join(", ")}.`,
-    };
+    return { key: "error_verbosity", status: "fail", notes: `Probe (${statusCode}) returned response containing developer-detail markers: ${hit.join(", ")}.` };
   }
-  return {
-    title,
-    status: "pass",
-    notes: `404/error probe returned a clean response (${statusCode}); no stack-trace markers detected.`,
-  };
+  return { key: "error_verbosity", status: "pass", notes: `404/error probe returned a clean response (${statusCode}); no stack-trace markers detected.` };
 }
 
-function normalizeUrl(raw: string): string {
-  let u = raw.trim();
-  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
-  return u.replace(/\/+$/, "");
+function checkSensitiveUrlParams(body: string, base: string): CheckResult {
+  const re = /[?&](?:token|access_token|api_key|apikey|password|secret|sessionid|auth)=([^&"'<\s]{4,})/gi;
+  const hits: string[] = [];
+  let m;
+  while ((m = re.exec(body)) !== null && hits.length < 5) hits.push(m[0]);
+  if (hits.length === 0) {
+    return { key: "sensitive_url_params", status: "pass", notes: `No obvious sensitive query parameters detected in HTML returned from ${base}.` };
+  }
+  return { key: "sensitive_url_params", status: "fail", notes: `Found possible sensitive query parameters in HTML:\n${hits.join("\n")}` };
+}
+
+function checkBundleSecrets(body: string): CheckResult {
+  const patterns: Array<[RegExp, string]> = [
+    [/sk_live_[A-Za-z0-9]{16,}/g, "Stripe live secret key"],
+    [/sk_test_[A-Za-z0-9]{16,}/g, "Stripe test secret key"],
+    [/AKIA[0-9A-Z]{16}/g, "AWS access key"],
+    [/AIza[0-9A-Za-z\-_]{35}/g, "Google API key"],
+    [/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "JWT-like token"],
+    [/service_role[^A-Za-z0-9]{0,5}[:=][^,\n]{20,}/gi, "service_role reference"],
+  ];
+  const hits: string[] = [];
+  for (const [re, label] of patterns) {
+    const matches = body.match(re);
+    if (matches) hits.push(`${label} (${matches.length} match${matches.length > 1 ? "es" : ""})`);
+  }
+  if (hits.length === 0) {
+    return { key: "bundle_secrets", status: "pass", notes: "No obvious secret patterns detected in the served HTML." };
+  }
+  return { key: "bundle_secrets", status: "fail", notes: `Possible secret patterns detected in served HTML:\n- ${hits.join("\n- ")}` };
+}
+
+function checkDebugMode(body: string, h: Headers): CheckResult {
+  const lower = body.toLowerCase();
+  const markers = ["debug=true", "vite-plugin", "__vite_", "react devtools", "redux devtools", "process.env.node_env\":\"development", '"development"'];
+  const hit = markers.filter((m) => lower.includes(m));
+  const xpb = h.get("x-powered-by");
+  if (hit.length === 0 && !xpb) {
+    return { key: "debug_mode", status: "pass", notes: "No debug/development markers found in served HTML or response headers." };
+  }
+  const notes = [
+    hit.length ? `Markers in HTML: ${hit.join(", ")}` : null,
+    xpb ? `X-Powered-By: ${xpb}` : null,
+  ].filter(Boolean).join("\n");
+  return { key: "debug_mode", status: "fail", notes: `Possible debug-mode signals:\n${notes}` };
 }
 
 export const runAutoScan = createServerFn({ method: "POST" })
@@ -109,7 +111,6 @@ export const runAutoScan = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase } = context;
 
-    // Load audit + client URL (RLS ensures ownership)
     const { data: audit, error: aerr } = await supabase
       .from("audits")
       .select("id, client:clients(id, app_url, name)")
@@ -117,17 +118,16 @@ export const runAutoScan = createServerFn({ method: "POST" })
       .single();
     if (aerr) throw new Error(aerr.message);
     const appUrl = (audit as any)?.client?.app_url as string | null | undefined;
-    if (!appUrl) {
-      throw new Error("Client has no app URL set. Add one on the client and try again.");
-    }
+    if (!appUrl) throw new Error("Client has no app URL set. Add one on the client and try again.");
     const base = normalizeUrl(appUrl);
 
-    // Main request
     const results: CheckResult[] = [];
     let mainResp: Response | null = null;
     let mainErr: string | undefined;
+    let body = "";
     try {
       mainResp = await timedFetch(base, { method: "GET", headers: { "user-agent": "AuditKit-Scanner/1.0" } });
+      body = (await mainResp.text()).slice(0, 200_000);
     } catch (e: any) {
       mainErr = e?.message ?? String(e);
     }
@@ -135,11 +135,21 @@ export const runAutoScan = createServerFn({ method: "POST" })
     results.push(checkSsl(base, !!mainResp, mainErr));
 
     if (mainResp) {
-      results.push(checkSecurityHeaders(mainResp.headers));
-      results.push(checkCsp(mainResp.headers));
+      const h = mainResp.headers;
+      results.push(header(h, "x-frame-options", "xframe_header", "X-Frame-Options"));
+      results.push(header(h, "x-content-type-options", "xcontent_type", "X-Content-Type-Options"));
+      results.push(header(h, "referrer-policy", "referrer_policy", "Referrer-Policy"));
+      results.push(header(h, "strict-transport-security", "hsts_header", "HSTS"));
+      results.push(header(h, "permissions-policy", "permissions_policy", "Permissions-Policy"));
+      results.push(checkCsp(h));
+      results.push(checkSensitiveUrlParams(body, base));
+      results.push(checkBundleSecrets(body));
+      results.push(checkDebugMode(body, h));
     } else {
-      results.push({ title: "Security headers configured", status: "fail", notes: `Could not fetch ${base}: ${mainErr}` });
-      results.push({ title: "Content Security Policy set", status: "fail", notes: `Could not fetch ${base}: ${mainErr}` });
+      const warnKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "sensitive_url_params", "bundle_secrets", "debug_mode"];
+      for (const key of warnKeys) {
+        results.push({ key, status: "warn", notes: `Could not fetch ${base}: ${mainErr ?? "unknown error"}` });
+      }
     }
 
     // Error verbosity probe
@@ -149,29 +159,31 @@ export const runAutoScan = createServerFn({ method: "POST" })
       const text = (await probe.text()).slice(0, 50_000);
       results.push(checkErrorVerbosity(text, probe.status));
     } catch (e: any) {
-      results.push({
-        title: "Verbose error messages suppressed in production",
-        status: "fail",
-        notes: `Probe request failed: ${e?.message ?? String(e)}`,
-      });
+      results.push({ key: "error_verbosity", status: "warn", notes: `Probe request failed: ${e?.message ?? String(e)}` });
     }
 
-    // Map check titles → checklist item ids
-    const titles = results.map((r) => r.title);
+    // Map keys → checklist item ids
+    const keys = results.map((r) => r.key);
     const { data: items, error: ierr } = await supabase
       .from("checklist_items")
-      .select("id, title")
-      .in("title", titles);
+      .select("id, checklist_key")
+      .in("checklist_key", keys);
     if (ierr) throw new Error(ierr.message);
-    const byTitle = new Map<string, string>();
-    (items ?? []).forEach((it: any) => byTitle.set(it.title, it.id));
+    const byKey = new Map<string, string>();
+    (items ?? []).forEach((it: any) => byKey.set(it.checklist_key, it.id));
 
-    const written: { title: string; status: string; matched: boolean }[] = [];
     const stamp = new Date().toISOString();
+    const written: { key: string; status: ScanStatus; matched: boolean }[] = [];
+
     for (const r of results) {
-      const itemId = byTitle.get(r.title);
+      const itemId = byKey.get(r.key);
       if (!itemId) {
-        written.push({ title: r.title, status: r.status, matched: false });
+        written.push({ key: r.key, status: r.status, matched: false });
+        continue;
+      }
+      // Warn results: skip writing — leave for manual review
+      if (r.status === "warn") {
+        written.push({ key: r.key, status: r.status, matched: true });
         continue;
       }
       const note = `[Auto-scan ${stamp}]\nTarget: ${base}\n\n${r.notes}`;
@@ -181,12 +193,17 @@ export const runAutoScan = createServerFn({ method: "POST" })
           checklist_item_id: itemId,
           status: r.status,
           notes: note,
+          auto_scanned: true,
         },
         { onConflict: "audit_id,checklist_item_id" },
       );
       if (upErr) throw new Error(upErr.message);
-      written.push({ title: r.title, status: r.status, matched: true });
+      written.push({ key: r.key, status: r.status, matched: true });
     }
 
-    return { target: base, results: written };
+    const passes = written.filter((w) => w.status === "pass").length;
+    const fails = written.filter((w) => w.status === "fail").length;
+    const warnings = written.filter((w) => w.status === "warn").length;
+
+    return { target: base, results: written, passes, fails, warnings };
   });
