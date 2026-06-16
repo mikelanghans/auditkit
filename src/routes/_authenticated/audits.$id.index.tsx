@@ -157,7 +157,8 @@ function AuditView() {
     },
   });
 
-  const catItems = categories.find((c) => c.name === currentCat)?.items ?? [];
+  const rawCatItems = categories.find((c) => c.name === currentCat)?.items ?? [];
+  const catItems = rawCatItems.filter((it) => selectedSeverities.includes(it.severity));
 
   if (items.data && items.data.length === 0) {
     return (
