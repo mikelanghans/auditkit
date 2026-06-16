@@ -8,14 +8,17 @@ const styles: Record<string, string> = {
 };
 
 export function SeverityBadge({ severity }: { severity: string }) {
+  const label = severity.charAt(0).toUpperCase() + severity.slice(1);
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium uppercase tracking-wide",
+        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium tracking-normal",
         styles[severity] ?? styles.medium,
       )}
+      title={`Severity: ${label} — how serious this issue would be if it failed`}
     >
-      {severity}
+      <span className="text-muted-foreground font-normal">Severity:</span>
+      {label}
     </span>
   );
 }
