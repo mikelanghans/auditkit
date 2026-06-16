@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2, Github } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2, Github, Filter } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -94,6 +95,18 @@ function AuditView() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const currentCat = activeCategory ?? categories[0]?.name ?? null;
 
+  const allSeverities = useMemo(() => {
+    if (!items.data) return [] as string[];
+    const set = new Set<string>();
+    items.data.forEach((it) => set.add(it.severity));
+    return Array.from(set).sort((a, b) => {
+      const order = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (order as any)[a] - (order as any)[b];
+    });
+  }, [items.data]);
+
+  const [selectedSeverities, setSelectedSeverities] = useState<string[]>(["critical", "high", "medium", "low"]);
+
   const setFinding = useMutation({
     mutationFn: async (payload: { checklist_item_id: string; status: "pass" | "fail" | "na"; notes?: string | null }) => {
       const { error } = await supabase
@@ -144,7 +157,8 @@ function AuditView() {
     },
   });
 
-  const catItems = categories.find((c) => c.name === currentCat)?.items ?? [];
+  const rawCatItems = categories.find((c) => c.name === currentCat)?.items ?? [];
+  const catItems = rawCatItems.filter((it) => selectedSeverities.includes(it.severity));
 
   if (items.data && items.data.length === 0) {
     return (
@@ -221,6 +235,21 @@ function AuditView() {
         </aside>
 
         <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <ToggleGroup
+              type="multiple"
+              value={selectedSeverities}
+              onValueChange={(v) => setSelectedSeverities(v.length ? v : allSeverities)}
+              className="flex-wrap"
+            >
+              {allSeverities.map((sev) => (
+                <ToggleGroupItem key={sev} value={sev} aria-label={sev} className="text-xs capitalize">
+                  {sev}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
           {catItems.map((it) => {
             const f = findingsMap.get(it.id);
             return (
@@ -230,7 +259,7 @@ function AuditView() {
                 finding={f}
                 onSet={(status, notes) => {
                   // Block changing another item while a Fail in this category has no notes
-                  const blocker = catItems.find((other) => {
+                  const blocker = rawCatItems.find((other) => {
                     if (other.id === it.id) return false;
                     const of = findingsMap.get(other.id);
                     return of?.status === "fail" && !(of.notes && of.notes.trim());
