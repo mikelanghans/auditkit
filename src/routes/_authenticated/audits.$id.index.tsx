@@ -241,8 +241,8 @@ function AuditView() {
         </aside>
 
         <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <Filter className="h-4 w-4 text-muted-foreground" />
+          <div className="flex items-center gap-3 flex-wrap">
+            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
               type="multiple"
               value={selectedSeverities}
@@ -254,6 +254,28 @@ function AuditView() {
                   {sev}
                 </ToggleGroupItem>
               ))}
+            </ToggleGroup>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-muted-foreground font-medium shrink-0">Status</span>
+            <ToggleGroup
+              type="multiple"
+              value={selectedStatuses}
+              onValueChange={(v) => setSelectedStatuses(v.length ? v : ["pass", "fail", "na", "unrated"])}
+              className="flex-wrap"
+            >
+              <ToggleGroupItem value="pass" aria-label="Pass" className="text-xs">
+                <Check className="h-3.5 w-3.5 mr-1 text-status-pass" /> Pass
+              </ToggleGroupItem>
+              <ToggleGroupItem value="fail" aria-label="Fail" className="text-xs">
+                <X className="h-3.5 w-3.5 mr-1 text-status-fail" /> Fail
+              </ToggleGroupItem>
+              <ToggleGroupItem value="na" aria-label="N/A" className="text-xs">
+                <Minus className="h-3.5 w-3.5 mr-1 text-status-na" /> N/A
+              </ToggleGroupItem>
+              <ToggleGroupItem value="unrated" aria-label="Unrated" className="text-xs">
+                <Circle className="h-3.5 w-3.5 mr-1 text-muted-foreground" /> Unrated
+              </ToggleGroupItem>
             </ToggleGroup>
           </div>
           {catItems.map((it) => {
