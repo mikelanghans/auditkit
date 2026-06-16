@@ -235,6 +235,21 @@ function AuditView() {
         </aside>
 
         <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <ToggleGroup
+              type="multiple"
+              value={selectedSeverities}
+              onValueChange={(v) => setSelectedSeverities(v.length ? v : allSeverities)}
+              className="flex-wrap"
+            >
+              {allSeverities.map((sev) => (
+                <ToggleGroupItem key={sev} value={sev} aria-label={sev} className="text-xs capitalize">
+                  {sev}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
           {catItems.map((it) => {
             const f = findingsMap.get(it.id);
             return (
@@ -244,7 +259,7 @@ function AuditView() {
                 finding={f}
                 onSet={(status, notes) => {
                   // Block changing another item while a Fail in this category has no notes
-                  const blocker = catItems.find((other) => {
+                  const blocker = rawCatItems.find((other) => {
                     if (other.id === it.id) return false;
                     const of = findingsMap.get(other.id);
                     return of?.status === "fail" && !(of.notes && of.notes.trim());
