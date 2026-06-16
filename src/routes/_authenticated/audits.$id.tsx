@@ -23,6 +23,7 @@ type Item = {
   description: string | null;
   severity: string;
   sort_order: number;
+  what_to_look_for: string | null;
 };
 type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null };
 
@@ -48,7 +49,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("checklist_items")
-        .select("id, category, title, description, severity, sort_order").eq("is_active", true)
+        .select("id, category, title, description, severity, sort_order, what_to_look_for").eq("is_active", true)
         .order("sort_order");
       if (error) throw error;
       return (data ?? []) as Item[];
@@ -260,6 +261,17 @@ function ItemRow({
           <StatusBtn label="N/A" icon={<Minus className="h-4 w-4" />} active={status === "na"} color="na" onClick={() => onSet("na", null)} />
         </div>
       </div>
+
+      {item.what_to_look_for && (
+        <div className="mt-3 rounded-md border border-border bg-muted/40 p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+            How to test
+          </div>
+          <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed text-foreground/90">
+{item.what_to_look_for}
+          </pre>
+        </div>
+      )}
 
       {showNotes && (
         <div className="mt-3 space-y-2">
