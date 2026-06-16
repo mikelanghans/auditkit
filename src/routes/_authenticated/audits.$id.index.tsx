@@ -478,10 +478,17 @@ function ItemRow({
             <SeverityBadge severity={item.severity} />
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
-          <StatusBtn label="Fail" icon={<X className="h-4 w-4" />} active={status === "fail"} color="fail" onClick={() => onSet("fail", notes || null)} />
-          <StatusBtn label="N/A" icon={<Minus className="h-4 w-4" />} active={status === "na"} color="na" onClick={() => onSet("na", null)} />
+        <div className="flex items-center gap-2 shrink-0">
+          {autoScanned && (
+            <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide">
+              <Sparkles className="h-3 w-3" /> Auto-detected
+            </Badge>
+          )}
+          <div className="flex items-center gap-1">
+            <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
+            <StatusBtn label="Fail" icon={<X className="h-4 w-4" />} active={status === "fail"} color="fail" onClick={() => onSet("fail", notes || null)} />
+            <StatusBtn label="N/A" icon={<Minus className="h-4 w-4" />} active={status === "na"} color="na" onClick={() => onSet("na", null)} />
+          </div>
         </div>
       </div>
 
