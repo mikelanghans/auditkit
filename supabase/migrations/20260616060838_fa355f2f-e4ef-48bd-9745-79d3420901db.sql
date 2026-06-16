@@ -1,0 +1,4 @@
+
+ALTER TABLE public.checklist_items
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS what_to_look_for TEXT;

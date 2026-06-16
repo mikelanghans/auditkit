@@ -112,27 +112,33 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          is_active: boolean
           severity: Database["public"]["Enums"]["severity"]
           sort_order: number
           title: string
+          what_to_look_for: string | null
         }
         Insert: {
           category: string
           created_at?: string
           description?: string | null
           id?: string
+          is_active?: boolean
           severity?: Database["public"]["Enums"]["severity"]
           sort_order?: number
           title: string
+          what_to_look_for?: string | null
         }
         Update: {
           category?: string
           created_at?: string
           description?: string | null
           id?: string
+          is_active?: boolean
           severity?: Database["public"]["Enums"]["severity"]
           sort_order?: number
           title?: string
+          what_to_look_for?: string | null
         }
         Relationships: []
       }
