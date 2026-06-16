@@ -149,6 +149,8 @@ export type Database = {
           contact_name: string | null
           created_at: string
           created_by: string
+          github_repo_url: string | null
+          github_token: string | null
           id: string
           name: string
           notes: string | null
@@ -160,6 +162,8 @@ export type Database = {
           contact_name?: string | null
           created_at?: string
           created_by: string
+          github_repo_url?: string | null
+          github_token?: string | null
           id?: string
           name: string
           notes?: string | null
@@ -171,6 +175,8 @@ export type Database = {
           contact_name?: string | null
           created_at?: string
           created_by?: string
+          github_repo_url?: string | null
+          github_token?: string | null
           id?: string
           name?: string
           notes?: string | null
