@@ -246,7 +246,7 @@ function AuditView() {
             <ToggleGroup
               type="multiple"
               value={selectedSeverities}
-              onValueChange={(v) => setSelectedSeverities(v.length ? v : allSeverities)}
+              onValueChange={setSelectedSeverities}
               className="flex-wrap"
             >
               {allSeverities.map((sev) => (
