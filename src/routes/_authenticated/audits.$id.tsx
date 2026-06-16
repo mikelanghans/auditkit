@@ -7,11 +7,12 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2 } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2, Github } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { runAutoScan } from "@/lib/scan.functions";
+import { runGithubScan } from "@/lib/github-scan.functions";
 
 export const Route = createFileRoute("/_authenticated/audits/$id")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
@@ -171,6 +172,7 @@ function AuditView() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <AutoScanButton auditId={id} onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })} />
+          <GithubScanButton auditId={id} onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })} />
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>
           </Link>
