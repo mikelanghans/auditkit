@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -216,14 +216,31 @@ function AuditView() {
         </aside>
 
         <div className="space-y-3">
-          {catItems.map((it) => (
-            <ItemRow
-              key={it.id}
-              item={it}
-              finding={findingsMap.get(it.id)}
-              onSet={(status, notes) => setFinding.mutate({ checklist_item_id: it.id, status, notes })}
-            />
-          ))}
+          {catItems.map((it) => {
+            const f = findingsMap.get(it.id);
+            return (
+              <ItemRow
+                key={it.id}
+                item={it}
+                finding={f}
+                onSet={(status, notes) => {
+                  // Block changing another item while a Fail in this category has no notes
+                  const blocker = catItems.find((other) => {
+                    if (other.id === it.id) return false;
+                    const of = findingsMap.get(other.id);
+                    return of?.status === "fail" && !(of.notes && of.notes.trim());
+                  });
+                  if (blocker) {
+                    toast.error(`Add findings for "${blocker.title}" before continuing`);
+                    document.getElementById(`item-${blocker.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    document.getElementById(`notes-${blocker.id}`)?.focus();
+                    return;
+                  }
+                  setFinding.mutate({ checklist_item_id: it.id, status, notes });
+                }}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
@@ -244,9 +261,25 @@ function ItemRow({
   const [notes, setNotes] = useState(finding?.notes ?? "");
   const status = finding?.status ?? null;
   const showNotes = status === "fail";
+  const notesRef = useRef<HTMLTextAreaElement>(null);
+  const wasFail = useRef(status === "fail");
+
+  useEffect(() => {
+    if (status === "fail" && !wasFail.current) {
+      // Just transitioned into fail — autofocus the textarea
+      requestAnimationFrame(() => notesRef.current?.focus());
+    }
+    wasFail.current = status === "fail";
+  }, [status]);
+
+  useEffect(() => {
+    setNotes(finding?.notes ?? "");
+  }, [finding?.notes]);
+
+  const missingNotes = status === "fail" && !notes.trim();
 
   return (
-    <Card className="p-4">
+    <Card id={`item-${item.id}`} className={cn("p-4", missingNotes && "ring-2 ring-status-fail/60")}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -274,8 +307,13 @@ function ItemRow({
       )}
 
       {showNotes && (
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 space-y-1.5">
+          <label htmlFor={`notes-${item.id}`} className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Findings & evidence <span className="text-status-fail">*required</span>
+          </label>
           <Textarea
+            id={`notes-${item.id}`}
+            ref={notesRef}
             placeholder="Describe the failure, evidence, remediation…"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -283,7 +321,12 @@ function ItemRow({
               if ((notes || "") !== (finding?.notes || "")) onSet("fail", notes || null);
             }}
             rows={3}
+            className={cn(missingNotes && "border-status-fail focus-visible:ring-status-fail")}
+            aria-required="true"
           />
+          {missingNotes && (
+            <p className="text-xs text-status-fail">Findings are required before moving on.</p>
+          )}
         </div>
       )}
     </Card>
