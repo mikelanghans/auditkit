@@ -341,8 +341,20 @@ function ItemRow({
 
   const missingNotes = status === "fail" && !notes.trim();
 
+  const statusBorder =
+    status === "pass" ? "border-l-status-pass" :
+    status === "fail" ? "border-l-status-fail" :
+    status === "na" ? "border-l-status-na" :
+    "border-l-transparent";
+
+  const statusBg =
+    status === "pass" ? "bg-status-pass/[0.04]" :
+    status === "fail" ? "bg-status-fail/[0.04]" :
+    status === "na" ? "bg-status-na/[0.04]" :
+    "";
+
   return (
-    <Card id={`item-${item.id}`} className={cn("p-4", missingNotes && "ring-2 ring-status-fail/60")}>
+    <Card id={`item-${item.id}`} className={cn("p-4 border-l-4", statusBorder, statusBg, missingNotes && "ring-2 ring-status-fail/60")}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="font-medium">{item.title}</h3>
