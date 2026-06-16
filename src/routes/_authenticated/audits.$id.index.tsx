@@ -261,7 +261,7 @@ function AuditView() {
             <ToggleGroup
               type="multiple"
               value={selectedStatuses}
-              onValueChange={(v) => setSelectedStatuses(v.length ? v : ["pass", "fail", "na", "unrated"])}
+              onValueChange={setSelectedStatuses}
               className="flex-wrap"
             >
               <ToggleGroupItem value="pass" aria-label="Pass" className="text-xs">
