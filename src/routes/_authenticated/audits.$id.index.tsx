@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2, Github, Filter } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2, Github, Filter, Circle } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
