@@ -48,7 +48,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("checklist_items")
-        .select("id, category, title, description, severity, sort_order")
+        .select("id, category, title, description, severity, sort_order").eq("is_active", true)
         .order("sort_order");
       if (error) throw error;
       return (data ?? []) as Item[];
