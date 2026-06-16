@@ -72,6 +72,7 @@ function NewClientDialog() {
   const [name, setName] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [appUrl, setAppUrl] = useState("");
   const [notes, setNotes] = useState("");
   const qc = useQueryClient();
 
@@ -83,6 +84,7 @@ function NewClientDialog() {
         name,
         contact_name: contactName || null,
         contact_email: contactEmail || null,
+        app_url: appUrl || null,
         notes: notes || null,
         created_by: u.user.id,
       });
@@ -91,7 +93,7 @@ function NewClientDialog() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients"] });
       setOpen(false);
-      setName(""); setContactName(""); setContactEmail(""); setNotes("");
+      setName(""); setContactName(""); setContactEmail(""); setAppUrl(""); setNotes("");
       toast.success("Client added");
     },
     onError: (e: any) => toast.error(e.message),
@@ -110,6 +112,7 @@ function NewClientDialog() {
           <Field label="Name" value={name} onChange={setName} required />
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
+          <Field label="App URL" value={appUrl} onChange={setAppUrl} type="url" />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
