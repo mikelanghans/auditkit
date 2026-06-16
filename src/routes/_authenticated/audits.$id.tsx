@@ -289,6 +289,35 @@ function AutoScanButton({ auditId, onDone }: { auditId: string; onDone: () => vo
   );
 }
 
+function GithubScanButton({ auditId, onDone }: { auditId: string; onDone: () => void }) {
+  const scan = useServerFn(runGithubScan);
+  const [pending, setPending] = useState(false);
+  return (
+    <Button
+      variant="outline"
+      disabled={pending}
+      onClick={async () => {
+        setPending(true);
+        const tid = toast.loading("Scanning GitHub repo…");
+        try {
+          const res = await scan({ data: { auditId } });
+          const passes = res.results.filter((r) => r.status === "pass").length;
+          const fails = res.results.filter((r) => r.status === "fail").length;
+          toast.success(`Repo scan: ${passes} pass, ${fails} fail`, { id: tid, description: res.repo });
+          onDone();
+        } catch (e: any) {
+          toast.error(e?.message ?? "GitHub scan failed", { id: tid });
+        } finally {
+          setPending(false);
+        }
+      }}
+    >
+      {pending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Github className="h-4 w-4 mr-1" />}
+      Scan repo
+    </Button>
+  );
+}
+
 function ItemRow({
   item, finding, onSet,
 }: { item: Item; finding: Finding | undefined; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
