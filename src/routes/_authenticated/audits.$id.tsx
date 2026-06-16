@@ -1,15 +1,17 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2 } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { runAutoScan } from "@/lib/scan.functions";
 
 export const Route = createFileRoute("/_authenticated/audits/$id")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
@@ -167,7 +169,8 @@ function AuditView() {
             {(audit.data as any)?.client?.name} · <span className="capitalize">{audit.data?.status.replace("_", " ")}</span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <AutoScanButton auditId={id} onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })} />
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>
           </Link>
@@ -252,6 +255,35 @@ function BackLink() {
     <Link to="/dashboard" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard
     </Link>
+  );
+}
+
+function AutoScanButton({ auditId, onDone }: { auditId: string; onDone: () => void }) {
+  const scan = useServerFn(runAutoScan);
+  const [pending, setPending] = useState(false);
+  return (
+    <Button
+      variant="outline"
+      disabled={pending}
+      onClick={async () => {
+        setPending(true);
+        const tid = toast.loading("Auto-scanning client app…");
+        try {
+          const res = await scan({ data: { auditId } });
+          const passes = res.results.filter((r) => r.status === "pass").length;
+          const fails = res.results.filter((r) => r.status === "fail").length;
+          toast.success(`Scan complete: ${passes} pass, ${fails} fail`, { id: tid, description: res.target });
+          onDone();
+        } catch (e: any) {
+          toast.error(e?.message ?? "Scan failed", { id: tid });
+        } finally {
+          setPending(false);
+        }
+      }}
+    >
+      {pending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Radar className="h-4 w-4 mr-1" />}
+      Auto-scan
+    </Button>
   );
 }
 

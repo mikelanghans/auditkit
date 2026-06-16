@@ -144,6 +144,7 @@ export type Database = {
       }
       clients: {
         Row: {
+          app_url: string | null
           contact_email: string | null
           contact_name: string | null
           created_at: string
@@ -154,6 +155,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          app_url?: string | null
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string
@@ -164,6 +166,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          app_url?: string | null
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string
