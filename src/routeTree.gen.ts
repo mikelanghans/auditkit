@@ -9,38 +9,139 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedClientsIndexRouteImport } from './routes/_authenticated/clients.index'
+import { Route as AuthenticatedClientsIdRouteImport } from './routes/_authenticated/clients.$id'
+import { Route as AuthenticatedAuditsIdRouteImport } from './routes/_authenticated/audits.$id'
+import { Route as AuthenticatedAuditsIdReportRouteImport } from './routes/_authenticated/audits.$id.report'
 
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedClientsIndexRoute =
+  AuthenticatedClientsIndexRouteImport.update({
+    id: '/clients/',
+    path: '/clients/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedClientsIdRoute = AuthenticatedClientsIdRouteImport.update({
+  id: '/clients/$id',
+  path: '/clients/$id',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAuditsIdRoute = AuthenticatedAuditsIdRouteImport.update({
+  id: '/audits/$id',
+  path: '/audits/$id',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAuditsIdReportRoute =
+  AuthenticatedAuditsIdReportRouteImport.update({
+    id: '/report',
+    path: '/report',
+    getParentRoute: () => AuthenticatedAuditsIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/audits/$id': typeof AuthenticatedAuditsIdRouteWithChildren
+  '/clients/$id': typeof AuthenticatedClientsIdRoute
+  '/clients/': typeof AuthenticatedClientsIndexRoute
+  '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/audits/$id': typeof AuthenticatedAuditsIdRouteWithChildren
+  '/clients/$id': typeof AuthenticatedClientsIdRoute
+  '/clients': typeof AuthenticatedClientsIndexRoute
+  '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/audits/$id': typeof AuthenticatedAuditsIdRouteWithChildren
+  '/_authenticated/clients/$id': typeof AuthenticatedClientsIdRoute
+  '/_authenticated/clients/': typeof AuthenticatedClientsIndexRoute
+  '/_authenticated/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/audits/$id'
+    | '/clients/$id'
+    | '/clients/'
+    | '/audits/$id/report'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/audits/$id'
+    | '/clients/$id'
+    | '/clients'
+    | '/audits/$id/report'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/dashboard'
+    | '/_authenticated/audits/$id'
+    | '/_authenticated/clients/$id'
+    | '/_authenticated/clients/'
+    | '/_authenticated/audits/$id/report'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +149,79 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/clients/': {
+      id: '/_authenticated/clients/'
+      path: '/clients'
+      fullPath: '/clients/'
+      preLoaderRoute: typeof AuthenticatedClientsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/clients/$id': {
+      id: '/_authenticated/clients/$id'
+      path: '/clients/$id'
+      fullPath: '/clients/$id'
+      preLoaderRoute: typeof AuthenticatedClientsIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/audits/$id': {
+      id: '/_authenticated/audits/$id'
+      path: '/audits/$id'
+      fullPath: '/audits/$id'
+      preLoaderRoute: typeof AuthenticatedAuditsIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/audits/$id/report': {
+      id: '/_authenticated/audits/$id/report'
+      path: '/report'
+      fullPath: '/audits/$id/report'
+      preLoaderRoute: typeof AuthenticatedAuditsIdReportRouteImport
+      parentRoute: typeof AuthenticatedAuditsIdRoute
+    }
   }
 }
 
+interface AuthenticatedAuditsIdRouteChildren {
+  AuthenticatedAuditsIdReportRoute: typeof AuthenticatedAuditsIdReportRoute
+}
+
+const AuthenticatedAuditsIdRouteChildren: AuthenticatedAuditsIdRouteChildren = {
+  AuthenticatedAuditsIdReportRoute: AuthenticatedAuditsIdReportRoute,
+}
+
+const AuthenticatedAuditsIdRouteWithChildren =
+  AuthenticatedAuditsIdRoute._addFileChildren(
+    AuthenticatedAuditsIdRouteChildren,
+  )
+
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedAuditsIdRoute: typeof AuthenticatedAuditsIdRouteWithChildren
+  AuthenticatedClientsIdRoute: typeof AuthenticatedClientsIdRoute
+  AuthenticatedClientsIndexRoute: typeof AuthenticatedClientsIndexRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedAuditsIdRoute: AuthenticatedAuditsIdRouteWithChildren,
+  AuthenticatedClientsIdRoute: AuthenticatedClientsIdRoute,
+  AuthenticatedClientsIndexRoute: AuthenticatedClientsIndexRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
