@@ -194,7 +194,6 @@ function AuditView() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <AutoScanButton auditId={id} onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })} />
           <GithubScanButton auditId={id} onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })} />
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>
