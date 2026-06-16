@@ -17,6 +17,7 @@ export type Database = {
       audit_findings: {
         Row: {
           audit_id: string
+          auto_scanned: boolean
           checklist_item_id: string
           created_at: string
           id: string
@@ -26,6 +27,7 @@ export type Database = {
         }
         Insert: {
           audit_id: string
+          auto_scanned?: boolean
           checklist_item_id: string
           created_at?: string
           id?: string
@@ -35,6 +37,7 @@ export type Database = {
         }
         Update: {
           audit_id?: string
+          auto_scanned?: boolean
           checklist_item_id?: string
           created_at?: string
           id?: string
@@ -109,6 +112,7 @@ export type Database = {
       checklist_items: {
         Row: {
           category: string
+          checklist_key: string | null
           created_at: string
           description: string | null
           id: string
@@ -120,6 +124,7 @@ export type Database = {
         }
         Insert: {
           category: string
+          checklist_key?: string | null
           created_at?: string
           description?: string | null
           id?: string
@@ -131,6 +136,7 @@ export type Database = {
         }
         Update: {
           category?: string
+          checklist_key?: string | null
           created_at?: string
           description?: string | null
           id?: string
