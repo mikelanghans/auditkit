@@ -106,6 +106,7 @@ function AuditView() {
   }, [items.data]);
 
   const [selectedSeverities, setSelectedSeverities] = useState<string[]>(["critical", "high", "medium", "low"]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["pass", "fail", "na", "unrated"]);
 
   const setFinding = useMutation({
     mutationFn: async (payload: { checklist_item_id: string; status: "pass" | "fail" | "na"; notes?: string | null }) => {
