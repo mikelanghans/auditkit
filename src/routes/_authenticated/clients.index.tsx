@@ -73,6 +73,8 @@ function NewClientDialog() {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [appUrl, setAppUrl] = useState("");
+  const [githubRepoUrl, setGithubRepoUrl] = useState("");
+  const [githubToken, setGithubToken] = useState("");
   const [notes, setNotes] = useState("");
   const qc = useQueryClient();
 
@@ -85,6 +87,8 @@ function NewClientDialog() {
         contact_name: contactName || null,
         contact_email: contactEmail || null,
         app_url: appUrl || null,
+        github_repo_url: githubRepoUrl || null,
+        github_token: githubToken || null,
         notes: notes || null,
         created_by: u.user.id,
       });
@@ -93,7 +97,7 @@ function NewClientDialog() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients"] });
       setOpen(false);
-      setName(""); setContactName(""); setContactEmail(""); setAppUrl(""); setNotes("");
+      setName(""); setContactName(""); setContactEmail(""); setAppUrl(""); setGithubRepoUrl(""); setGithubToken(""); setNotes("");
       toast.success("Client added");
     },
     onError: (e: any) => toast.error(e.message),
@@ -113,6 +117,8 @@ function NewClientDialog() {
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
           <Field label="App URL" value={appUrl} onChange={setAppUrl} type="url" />
+          <Field label="GitHub repo URL" value={githubRepoUrl} onChange={setGithubRepoUrl} type="url" placeholder="https://github.com/owner/repo" />
+          <Field label="GitHub access token" value={githubToken} onChange={setGithubToken} type="password" placeholder="Fine-grained PAT with repo: read" />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
@@ -128,11 +134,11 @@ function NewClientDialog() {
   );
 }
 
-function Field({ label, value, onChange, type = "text", required }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean }) {
+function Field({ label, value, onChange, type = "text", required, placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string }) {
   return (
     <div className="space-y-1.5">
       <Label>{label}{required ? " *" : ""}</Label>
-      <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+      <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
     </div>
   );
 }
