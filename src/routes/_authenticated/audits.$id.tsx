@@ -258,6 +258,35 @@ function BackLink() {
   );
 }
 
+function AutoScanButton({ auditId, onDone }: { auditId: string; onDone: () => void }) {
+  const scan = useServerFn(runAutoScan);
+  const [pending, setPending] = useState(false);
+  return (
+    <Button
+      variant="outline"
+      disabled={pending}
+      onClick={async () => {
+        setPending(true);
+        const tid = toast.loading("Auto-scanning client app…");
+        try {
+          const res = await scan({ data: { auditId } });
+          const passes = res.results.filter((r) => r.status === "pass").length;
+          const fails = res.results.filter((r) => r.status === "fail").length;
+          toast.success(`Scan complete: ${passes} pass, ${fails} fail`, { id: tid, description: res.target });
+          onDone();
+        } catch (e: any) {
+          toast.error(e?.message ?? "Scan failed", { id: tid });
+        } finally {
+          setPending(false);
+        }
+      }}
+    >
+      {pending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Radar className="h-4 w-4 mr-1" />}
+      Auto-scan
+    </Button>
+  );
+}
+
 function ItemRow({
   item, finding, onSet,
 }: { item: Item; finding: Finding | undefined; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
