@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Radar, Loader2, Github, Filter, Circle } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -29,7 +30,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null };
+type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null };
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -65,12 +66,14 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes")
+        .select("checklist_item_id, status, notes, auto_scanned")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
     },
   });
+
+  const hasAutoScanned = useMemo(() => (findings.data ?? []).some((f) => f.auto_scanned), [findings.data]);
 
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
