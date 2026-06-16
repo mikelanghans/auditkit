@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { runAutoScan } from "@/lib/scan.functions";
 import { runGithubScan } from "@/lib/github-scan.functions";
 
-export const Route = createFileRoute("/_authenticated/audits/$id")({
+export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
   component: AuditView,
 });
