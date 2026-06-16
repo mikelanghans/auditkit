@@ -95,6 +95,18 @@ function AuditView() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const currentCat = activeCategory ?? categories[0]?.name ?? null;
 
+  const allSeverities = useMemo(() => {
+    if (!items.data) return [] as string[];
+    const set = new Set<string>();
+    items.data.forEach((it) => set.add(it.severity));
+    return Array.from(set).sort((a, b) => {
+      const order = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (order as any)[a] - (order as any)[b];
+    });
+  }, [items.data]);
+
+  const [selectedSeverities, setSelectedSeverities] = useState<string[]>(["critical", "high", "medium", "low"]);
+
   const setFinding = useMutation({
     mutationFn: async (payload: { checklist_item_id: string; status: "pass" | "fail" | "na"; notes?: string | null }) => {
       const { error } = await supabase
