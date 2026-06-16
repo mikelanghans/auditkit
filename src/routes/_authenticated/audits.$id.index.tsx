@@ -243,6 +243,11 @@ function AuditView() {
         </aside>
 
         <div className="space-y-3">
+          <ShieldScanBanner
+            auditId={id}
+            hasScanned={hasAutoScanned}
+            onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+          />
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
@@ -287,6 +292,7 @@ function AuditView() {
                 key={it.id}
                 item={it}
                 finding={f}
+                autoScanned={!!f?.auto_scanned}
                 onSet={(status, notes) => {
                   // Block changing another item while a Fail in this category has no notes
                   const blocker = rawCatItems.find((other) => {
