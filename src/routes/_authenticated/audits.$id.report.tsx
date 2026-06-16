@@ -34,7 +34,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("checklist_items")
-        .select("id, category, title, description, severity, sort_order")
+        .select("id, category, title, description, severity, sort_order").eq("is_active", true)
         .order("sort_order");
       return data ?? [];
     },
