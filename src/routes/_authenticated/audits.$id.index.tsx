@@ -159,7 +159,12 @@ function AuditView() {
   });
 
   const rawCatItems = categories.find((c) => c.name === currentCat)?.items ?? [];
-  const catItems = rawCatItems.filter((it) => selectedSeverities.includes(it.severity));
+  const catItems = rawCatItems.filter((it) => {
+    const matchesSeverity = selectedSeverities.includes(it.severity);
+    const status = findingsMap.get(it.id)?.status ?? "unrated";
+    const matchesStatus = selectedStatuses.includes(status);
+    return matchesSeverity && matchesStatus;
+  });
 
   if (items.data && items.data.length === 0) {
     return (
