@@ -345,11 +345,11 @@ function ItemRow({
     <Card id={`item-${item.id}`} className={cn("p-4", missingNotes && "ring-2 ring-status-fail/60")}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-medium">{item.title}</h3>
+          <h3 className="font-medium">{item.title}</h3>
+          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+            {item.description && <p className="text-sm text-muted-foreground">{item.description}</p>}
             <SeverityBadge severity={item.severity} />
           </div>
-          {item.description && <p className="text-sm text-muted-foreground mt-1">{item.description}</p>}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
