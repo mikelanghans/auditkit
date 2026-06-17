@@ -991,3 +991,61 @@ function RepoDepPanel({ dep }: { dep: RepoDep }) {
     </Card>
   );
 }
+
+function AIEndpointsDiscoveredPanel({
+  endpoints,
+  onTest,
+}: {
+  endpoints: DetectedEndpoint[];
+  onTest: (ep: DetectedEndpoint) => void;
+}) {
+  return (
+    <Card className="p-4 border-l-4 border-l-purple-500/60">
+      <div className="flex items-center gap-2 mb-1">
+        <Bot className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+        <div className="font-medium text-sm">AI Endpoints Discovered</div>
+        <div className="ml-auto text-xs text-muted-foreground">
+          {endpoints.length} endpoint{endpoints.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Detected from repo source. Click <span className="font-medium text-foreground">Test for Injection</span> to pre-fill the AI scan with the URL and prompt field.
+      </p>
+      <ul className="space-y-2">
+        {endpoints.map((ep, i) => (
+          <li key={`${ep.filePath}-${i}`} className="rounded-md border border-border bg-card p-2.5">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm">{ep.source}</span>
+                  {ep.partialUrl && (
+                    <Badge variant="outline" className="text-[10px] uppercase border-status-na/50 text-status-na">partial URL</Badge>
+                  )}
+                  {ep.requiresAuth && (
+                    <Badge variant="outline" className="text-[10px] uppercase">auth</Badge>
+                  )}
+                  <Badge variant="secondary" className="text-[10px] font-mono lowercase">field: {ep.promptField}</Badge>
+                </div>
+                <div className="text-xs text-muted-foreground font-mono truncate mt-0.5">
+                  {ep.url || "(URL needs completion)"}
+                </div>
+                <div className="text-[11px] text-muted-foreground/80 italic truncate mt-0.5">{ep.filePath}</div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => onTest(ep)}
+                disabled={!ep.url}
+                title={!ep.url ? "URL could not be resolved — open the AI scan dialog manually to complete it." : undefined}
+              >
+                <Bot className="h-3.5 w-3.5 mr-1" /> Test for Injection
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
