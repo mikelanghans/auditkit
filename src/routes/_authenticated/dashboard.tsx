@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
+import { DeleteAuditButton } from "@/components/delete-audit-button";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — AuditKit" }] }),
@@ -73,22 +74,22 @@ function Dashboard() {
         ) : audits.data && audits.data.length > 0 ? (
           <div className="grid gap-3">
             {audits.data.map((a: any) => (
-              <Link
-                key={a.id}
-                to="/audits/$id"
-                params={{ id: a.id }}
-                className="group block"
-              >
-                <Card className="p-4 flex items-center justify-between hover:border-navy/40 transition-colors">
-                  <div>
-                    <div className="font-medium">{a.title}</div>
-                    <div className="text-sm text-muted-foreground">
+              <Card key={a.id} className="p-4 flex items-center justify-between gap-3 hover:border-navy/40 transition-colors group">
+                <Link
+                  to="/audits/$id"
+                  params={{ id: a.id }}
+                  className="flex items-center justify-between gap-3 flex-1 min-w-0"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{a.title}</div>
+                    <div className="text-sm text-muted-foreground truncate">
                       {a.client?.name} · started {formatDistanceToNow(new Date(a.started_at), { addSuffix: true })}
                     </div>
                   </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-navy transition-colors" />
-                </Card>
-              </Link>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-navy transition-colors shrink-0" />
+                </Link>
+                <DeleteAuditButton auditId={a.id} title={a.title} variant="icon" />
+              </Card>
             ))}
           </div>
         ) : (
