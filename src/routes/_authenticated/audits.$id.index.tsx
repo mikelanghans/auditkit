@@ -328,7 +328,7 @@ function AuditView() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
                   {surfaceSummary && (
                     <div className="rounded-md border border-border bg-card p-2">
                       <div className="font-medium text-foreground">Surface</div>
