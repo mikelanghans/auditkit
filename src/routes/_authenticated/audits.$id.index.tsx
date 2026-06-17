@@ -23,6 +23,7 @@ import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog } from "@/components/ai-scan-dialog";
 import { AIAssistDialog, AIAssistReviewPanel, type AIAssistSummary } from "@/components/ai-assist-dialog";
+import { RepoLauncher, type SavedRepo } from "@/components/repo-launcher";
 import { FixPromptButton } from "@/components/fix-prompt-dialog";
 import { ExplainButton } from "@/components/explain-button";
 import type { DepFinding } from "@/lib/dep-scan-core";
