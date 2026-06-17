@@ -8,13 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { runAutoScan } from "@/lib/scan.functions";
 import { runGithubScan } from "@/lib/github-scan.functions";
+import { runRepoScan } from "@/lib/repo-scan.functions";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
