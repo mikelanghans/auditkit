@@ -608,6 +608,10 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
     try {
       const res = await scan({ data: { auditId, repoUrl: repoUrl.trim(), token: token.trim() } });
       setProgress(100);
+      if (!res.ok) {
+        toast.error(res.error, { id: tid });
+        return;
+      }
       const fails = res.results.filter((r) => r.status === "fail").length;
       const passes = res.results.filter((r) => r.status === "pass").length;
       toast.success(
