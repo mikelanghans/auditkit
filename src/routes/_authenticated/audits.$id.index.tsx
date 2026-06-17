@@ -304,6 +304,7 @@ function AuditView() {
             onRepoResult={setRepoSummary}
             onSupabaseResult={setSupabaseSummary}
             onAIResult={setAISummary}
+            onDepResult={setDepResult}
           />
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
