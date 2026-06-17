@@ -209,7 +209,7 @@ export const detectAIEndpoints = createServerFn({ method: "POST" })
 
     async function fetchRaw(path: string): Promise<string> {
       try {
-        const r = await timedFetch(`https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${branch}/${path}`, {
+        const r = await timedFetch(`https://raw.githubusercontent.com/${parsed!.owner}/${parsed!.repo}/${branch}/${path}`, {
           headers: { "user-agent": "AuditKit-AIDetect/1.0" },
         });
         if (!r.ok) return "";
