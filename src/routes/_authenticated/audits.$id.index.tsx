@@ -20,6 +20,7 @@ import { runAutoScan } from "@/lib/scan.functions";
 
 import { runRepoScan } from "@/lib/repo-scan.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
+import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
@@ -47,7 +48,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(id, name)")
+        .select("id, title, status, started_at, completed_at, summary, client:clients(id, name, app_url)")
         .eq("id", id).single();
       if (error) throw error;
       return data;
@@ -82,17 +83,19 @@ function AuditView() {
 
   type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
   type RepoSummary = { passes: number; fails: number; findings: number; repo: string; at: string };
+  type SupabaseSummary = { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string };
   const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
   const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
+  const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
   const combinedSummary = useMemo(() => {
-    if (!surfaceSummary && !repoSummary) return null;
+    if (!surfaceSummary && !repoSummary && !supabaseSummary) return null;
     return {
-      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0),
-      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0),
+      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0),
+      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0),
       warnings: surfaceSummary?.warnings ?? 0,
-      sources: [surfaceSummary && "Surface", repoSummary && "Repo"].filter(Boolean).join(" + "),
+      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase"].filter(Boolean).join(" + "),
     };
-  }, [surfaceSummary, repoSummary]);
+  }, [surfaceSummary, repoSummary, supabaseSummary]);
 
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
@@ -285,10 +288,12 @@ function AuditView() {
         <div className="space-y-3">
           <ShieldScanBanner
             auditId={id}
+            appUrl={(audit.data as any)?.client?.app_url ?? null}
             hasScanned={hasAutoScanned}
             onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
             onSurfaceResult={setSurfaceSummary}
             onRepoResult={setRepoSummary}
+            onSupabaseResult={setSupabaseSummary}
           />
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
@@ -321,6 +326,14 @@ function AuditView() {
                       )}
                       {surfaceSummary && <span className="opacity-70">· Surface: {surfaceSummary.target}</span>}
                       {repoSummary && <span className="opacity-70">· Repo: {repoSummary.repo} ({repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"})</span>}
+                      {supabaseSummary && (
+                        <span className="opacity-70">
+                          · Supabase: {supabaseSummary.project}
+                          {supabaseSummary.leaks > 0 && <span className="text-status-fail"> · {supabaseSummary.leaks} table leak{supabaseSummary.leaks === 1 ? "" : "s"}</span>}
+                          {supabaseSummary.publicBuckets.length > 0 && <span className="text-status-na"> · {supabaseSummary.publicBuckets.length} public bucket{supabaseSummary.publicBuckets.length === 1 ? "" : "s"}</span>}
+                          {supabaseSummary.bundleMatches > 0 && <span className="text-status-fail"> · ⚠ key in bundle</span>}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -428,13 +441,15 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, hasScanned, onDone, onSurfaceResult, onRepoResult,
+  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult,
 }: {
   auditId: string;
+  appUrl: string | null;
   hasScanned: boolean;
   onDone: () => void;
   onSurfaceResult: (s: { passes: number; fails: number; warnings: number; target: string; at: string }) => void;
   onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
+  onSupabaseResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
 }) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
@@ -498,6 +513,7 @@ function ShieldScanBanner({
             )}
           </Button>
           <RepoScanDialog auditId={auditId} onDone={onDone} onRepoResult={onRepoResult} />
+          <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
         </div>
       </div>
       {pending && (
