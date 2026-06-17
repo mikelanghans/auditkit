@@ -340,9 +340,8 @@ function AuditView() {
           <ShieldScanBanner
             auditId={id}
             appUrl={(audit.data as any)?.client?.app_url ?? null}
-            clientId={(audit.data as any)?.client?.id ?? null}
-            savedRepoUrl={(audit.data as any)?.client?.github_repo_url ?? null}
-            savedToken={(audit.data as any)?.client?.github_token ?? null}
+            clientId={clientId}
+            savedRepos={savedRepos}
             hasScanned={hasAutoScanned}
             onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
             onSurfaceResult={setSurfaceSummary}
