@@ -9,6 +9,7 @@ import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { computeSecurityScore, gradeTone } from "@/lib/security-score";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/report")({
   head: () => ({ meta: [{ title: "Report — AuditKit" }] }),
@@ -78,6 +79,12 @@ function ReportPage() {
     return t;
   }, [items.data, map]);
 
+  const security = useMemo(() => {
+    const statusMap = new Map<string, string | null | undefined>();
+    map.forEach((v, k) => statusMap.set(k, v.status));
+    return computeSecurityScore((items.data ?? []) as any, statusMap as any);
+  }, [items.data, map]);
+
   return (
     <div className="space-y-6 print:space-y-4">
       <div className="flex items-center justify-between print:hidden">
@@ -103,13 +110,16 @@ function ReportPage() {
 
         <section className="mb-8">
           <h2 className="text-lg font-semibold mb-3">Summary</h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <Stat label="Total" value={totals.total} />
+          <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_1fr_1fr_1fr] gap-3">
+            <SecurityScoreCard score={security.score} grade={security.grade} />
             <Stat label="Pass" value={totals.pass} tone="pass" />
             <Stat label="Fail" value={totals.fail} tone="fail" />
             <Stat label="N/A" value={totals.na} tone="na" />
             <Stat label="Unanswered" value={totals.unanswered} />
           </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Score is severity-weighted across rated items (Pass / Pass + Fail). N/A and unanswered items are excluded.
+          </p>
         </section>
 
         {grouped.map(([cat, list]) => (
