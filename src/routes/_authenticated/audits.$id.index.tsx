@@ -255,9 +255,26 @@ function AuditView() {
                   active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/50",
                 )}
               >
-                <div className="flex items-center justify-between text-sm font-medium">
+                <div className="flex items-center justify-between text-sm font-medium gap-2">
                   <span className="truncate">{c.name}</span>
-                  <span className={cn("text-xs ml-2", active ? "text-sidebar-accent-foreground" : "text-muted-foreground")}>{p}%</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {c.fail > 0 && (
+                      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-status-fail">
+                        <X className="h-3 w-3" />{c.fail}
+                      </span>
+                    )}
+                    {c.pass > 0 && (
+                      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-status-pass">
+                        <Check className="h-3 w-3" />{c.pass}
+                      </span>
+                    )}
+                    {c.na > 0 && (
+                      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-muted-foreground">
+                        <Minus className="h-3 w-3" />{c.na}
+                      </span>
+                    )}
+                    <span className={cn("text-xs ml-1", active ? "text-sidebar-accent-foreground" : "text-muted-foreground")}>{p}%</span>
+                  </div>
                 </div>
                 <Progress value={p} className="h-1 mt-2" />
               </button>
