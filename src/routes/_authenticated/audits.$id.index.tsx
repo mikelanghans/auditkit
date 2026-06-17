@@ -712,18 +712,39 @@ function ItemRow({
         </div>
       )}
       {status === "fail" && !missingNotes && (
-        <LovablePromptButton
-          auditId={auditId}
-          checklistItemId={item.id}
-          cachedPrompt={finding?.lovable_prompt ?? null}
-          onCached={(p) => {
-            qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
-              (prev ?? []).map((f) =>
-                f.checklist_item_id === item.id ? { ...f, lovable_prompt: p } : f,
-              ),
-            );
-          }}
-        />
+        <div className="mt-3 flex items-start gap-3 flex-wrap">
+          <FixPromptButton
+            auditId={auditId}
+            checklistItemId={item.id}
+            cached={{
+              lovable: finding?.lovable_prompt ?? null,
+              cursor: finding?.cursor_prompt ?? null,
+              claude: finding?.claude_prompt ?? null,
+            }}
+            onCached={(target, p) => {
+              const col = target === "lovable" ? "lovable_prompt" : target === "cursor" ? "cursor_prompt" : "claude_prompt";
+              qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
+                (prev ?? []).map((f) =>
+                  f.checklist_item_id === item.id ? { ...f, [col]: p } : f,
+                ),
+              );
+            }}
+          />
+          <div className="pt-1">
+            <ExplainButton
+              auditId={auditId}
+              checklistItemId={item.id}
+              cached={finding?.explanation ?? null}
+              onCached={(text) => {
+                qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
+                  (prev ?? []).map((f) =>
+                    f.checklist_item_id === item.id ? { ...f, explanation: text } : f,
+                  ),
+                );
+              }}
+            />
+          </div>
+        </div>
       )}
     </Card>
   );
