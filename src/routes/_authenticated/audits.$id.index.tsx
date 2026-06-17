@@ -213,7 +213,6 @@ function AuditView() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <GithubScanButton auditId={id} onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })} />
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>
           </Link>
@@ -455,34 +454,6 @@ function ShieldScanBanner({
   );
 }
 
-function GithubScanButton({ auditId, onDone }: { auditId: string; onDone: () => void }) {
-  const scan = useServerFn(runGithubScan);
-  const [pending, setPending] = useState(false);
-  return (
-    <Button
-      variant="outline"
-      disabled={pending}
-      onClick={async () => {
-        setPending(true);
-        const tid = toast.loading("Scanning GitHub repo…");
-        try {
-          const res = await scan({ data: { auditId } });
-          const passes = res.results.filter((r) => r.status === "pass").length;
-          const fails = res.results.filter((r) => r.status === "fail").length;
-          toast.success(`Repo scan: ${passes} pass, ${fails} fail`, { id: tid, description: res.repo });
-          onDone();
-        } catch (e: any) {
-          toast.error(e?.message ?? "GitHub scan failed", { id: tid });
-        } finally {
-          setPending(false);
-        }
-      }}
-    >
-      {pending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Github className="h-4 w-4 mr-1" />}
-      Scan repo
-    </Button>
-  );
-}
 
 function ItemRow({
   item, finding, autoScanned, onSet,
