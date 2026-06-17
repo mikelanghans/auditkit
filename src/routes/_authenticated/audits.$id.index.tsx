@@ -79,6 +79,20 @@ function AuditView() {
 
   const hasAutoScanned = useMemo(() => (findings.data ?? []).some((f) => f.auto_scanned), [findings.data]);
 
+  type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
+  type RepoSummary = { passes: number; fails: number; findings: number; repo: string; at: string };
+  const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
+  const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
+  const combinedSummary = useMemo(() => {
+    if (!surfaceSummary && !repoSummary) return null;
+    return {
+      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0),
+      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0),
+      warnings: surfaceSummary?.warnings ?? 0,
+      sources: [surfaceSummary && "Surface", repoSummary && "Repo"].filter(Boolean).join(" + "),
+    };
+  }, [surfaceSummary, repoSummary]);
+
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
     findings.data?.forEach((f) => m.set(f.checklist_item_id, f));
