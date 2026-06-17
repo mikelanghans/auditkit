@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ import { runRepoScan } from "@/lib/repo-scan.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog } from "@/components/ai-scan-dialog";
+import { DependencyScanDialog, type DepScanResult } from "@/components/dependency-scan-dialog";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
