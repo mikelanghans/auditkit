@@ -84,27 +84,33 @@ function AuditView() {
   const hasAutoScanned = useMemo(() => (findings.data ?? []).some((f) => f.auto_scanned), [findings.data]);
 
   type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
-  type RepoSummary = { passes: number; fails: number; findings: number; repo: string; at: string };
+  type RepoSummary = {
+    passes: number; fails: number; findings: number; repo: string; at: string;
+    dep?: {
+      ok: boolean;
+      error?: string;
+      path?: string;
+      packagesScanned?: number;
+      counts?: { critical: number; high: number; medium: number; low: number };
+      status?: "pass" | "fail";
+      findings?: DepFinding[];
+    };
+  };
   type SupabaseSummary = { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string };
   type AISummary = { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string };
   const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
   const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
   const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
   const [aiSummary, setAISummary] = useState<AISummary | null>(null);
-  const [depResult, setDepResult] = useState<DepScanResult | null>(null);
-  const depPassFail = useMemo(() => {
-    if (!depResult) return { passes: 0, fails: 0 };
-    return { passes: depResult.status === "pass" ? 1 : 0, fails: depResult.status === "fail" ? 1 : 0 };
-  }, [depResult]);
   const combinedSummary = useMemo(() => {
-    if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary && !depResult) return null;
+    if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary) return null;
     return {
-      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0) + (aiSummary?.passes ?? 0) + depPassFail.passes,
-      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0) + (aiSummary?.fails ?? 0) + depPassFail.fails,
+      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0) + (aiSummary?.passes ?? 0),
+      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0) + (aiSummary?.fails ?? 0),
       warnings: surfaceSummary?.warnings ?? 0,
-      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase", aiSummary && "AI", depResult && "Deps"].filter(Boolean).join(" + "),
+      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase", aiSummary && "AI"].filter(Boolean).join(" + "),
     };
-  }, [surfaceSummary, repoSummary, supabaseSummary, aiSummary, depResult, depPassFail]);
+  }, [surfaceSummary, repoSummary, supabaseSummary, aiSummary]);
 
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
