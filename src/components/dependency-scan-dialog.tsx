@@ -148,6 +148,13 @@ export function DependencyScanDialog({
             </div>
           )}
 
+          {errorMsg && !pending && (
+            <div className="rounded-md border border-status-fail/40 bg-status-fail/5 px-3 py-2 text-xs text-status-fail">
+              {errorMsg}
+            </div>
+          )}
+
+
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={pending} onClick={() => setOpen(false)}>Cancel</Button>
             <Button type="submit" disabled={pending}>
