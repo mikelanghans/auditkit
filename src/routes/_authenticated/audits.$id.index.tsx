@@ -612,7 +612,7 @@ function ShieldScanBanner({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           <Button
             onClick={run}
             disabled={pending}
