@@ -367,8 +367,14 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, hasScanned, onDone,
-}: { auditId: string; hasScanned: boolean; onDone: () => void }) {
+  auditId, hasScanned, onDone, onSurfaceResult, onRepoResult,
+}: {
+  auditId: string;
+  hasScanned: boolean;
+  onDone: () => void;
+  onSurfaceResult: (s: { passes: number; fails: number; warnings: number; target: string; at: string }) => void;
+  onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
+}) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -393,6 +399,7 @@ function ShieldScanBanner({
         `Surface scan complete — ${res.passes} passed, ${res.fails} failed, ${res.warnings} warnings`,
         { id: tid, description: res.target },
       );
+      onSurfaceResult({ passes: res.passes, fails: res.fails, warnings: res.warnings, target: res.target, at: new Date().toISOString() });
       onDone();
     } catch (e: any) {
       toast.error(e?.message ?? "Scan failed", { id: tid });
