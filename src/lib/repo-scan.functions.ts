@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { runDepScan } from "./dep-scan-core";
+import { detectAIEndpointsCore, type DetectedEndpoint } from "./ai-endpoint-detect.functions";
+
 
 const TIMEOUT_MS = 15_000;
 const MAX_COMMITS = 100;
@@ -90,13 +92,14 @@ async function pMap<T, R>(items: T[], n: number, fn: (it: T) => Promise<R>): Pro
 
 export const runRepoScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { auditId: string; repoUrl: string; token: string }) => {
+  .inputValidator((input: { auditId: string; repoUrl: string; token: string; appUrl?: string | null }) => {
     if (!input?.auditId || typeof input.auditId !== "string") throw new Error("auditId required");
     if (!input?.repoUrl || typeof input.repoUrl !== "string") throw new Error("repoUrl required");
     if (!input?.token || typeof input.token !== "string") throw new Error("token required");
     if (input.token.length < 20) throw new Error("token looks too short to be a valid PAT");
-    return input;
+    return { ...input, appUrl: input.appUrl ?? null };
   })
+
   .handler(async ({ data, context }) => {
     const { supabase } = context;
     const parsed = parseRepo(data.repoUrl);
@@ -273,6 +276,61 @@ export const runRepoScan = createServerFn({ method: "POST" })
       auditId: data.auditId,
     });
 
+    // ---- Phase 3: AI endpoint discovery ----
+    let aiEndpoints: DetectedEndpoint[] = [];
+    let aiDetectError: string | null = null;
+    try {
+      const detectRes = await detectAIEndpointsCore({
+        owner: parsed.owner,
+        repo: parsed.repo,
+        token: data.token,
+        branch: defaultBranch,
+        appUrl: data.appUrl,
+      });
+      if (detectRes.ok) {
+        aiEndpoints = detectRes.endpoints;
+      } else {
+        aiDetectError = detectRes.error;
+      }
+    } catch (e: any) {
+      aiDetectError = e?.message ?? "AI endpoint detection failed";
+    }
+
+    // If endpoints found but no test recorded yet, write a "warning" (na) finding
+    // on "Prompt injection test performed" — do NOT overwrite an existing pass/fail.
+    if (aiEndpoints.length > 0) {
+      const { data: piItems } = await supabase
+        .from("checklist_items")
+        .select("id, title")
+        .eq("title", "Prompt injection test performed")
+        .limit(1);
+      const piItem = piItems?.[0];
+      if (piItem) {
+        const { data: existing } = await supabase
+          .from("audit_findings")
+          .select("id, status")
+          .eq("audit_id", data.auditId)
+          .eq("checklist_item_id", piItem.id)
+          .maybeSingle();
+        const already = existing?.status === "pass" || existing?.status === "fail";
+        if (!already) {
+          const lines = aiEndpoints.slice(0, 10).map(
+            (e) => `• ${e.source} — ${e.url || "(URL not resolved)"} (field: ${e.promptField}${e.requiresAuth ? ", auth" : ""})\n    ${e.filePath}`,
+          ).join("\n");
+          await supabase.from("audit_findings").upsert(
+            {
+              audit_id: data.auditId,
+              checklist_item_id: piItem.id,
+              status: "na",
+              notes: `[Repo scan ${stamp}] ⚠ ${aiEndpoints.length} AI endpoint${aiEndpoints.length === 1 ? "" : "s"} discovered in ${parsed.owner}/${parsed.repo} but no prompt-injection test has been run yet. Use “Test for Injection” in the AI Endpoints Discovered panel.\n\n${lines}${aiEndpoints.length > 10 ? `\n\n…and ${aiEndpoints.length - 10} more.` : ""}`,
+              auto_scanned: true,
+            },
+            { onConflict: "audit_id,checklist_item_id" },
+          );
+        }
+      }
+    }
+
     return {
       ok: true as const,
       repo: `${parsed.owner}/${parsed.repo}`,
@@ -280,5 +338,8 @@ export const runRepoScan = createServerFn({ method: "POST" })
       findings: unique,
       results: written,
       dep,
+      aiEndpoints,
+      aiDetectError,
     };
   });
+

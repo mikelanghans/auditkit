@@ -163,6 +163,117 @@ function supabaseFnNameFromFile(filePath: string): string | null {
   return m ? m[1] : null;
 }
 
+export type DetectAIEndpointsResult =
+  | { ok: true; repo: string; filesScanned: number; supabaseBaseDetected: boolean; appBaseDetected: boolean; endpoints: DetectedEndpoint[] }
+  | { ok: false; error: string };
+
+/** Core detection logic — callable from other server functions without going through RPC. */
+export async function detectAIEndpointsCore(input: {
+  owner: string;
+  repo: string;
+  token: string;
+  branch?: string | null;
+  appUrl: string | null;
+}): Promise<DetectAIEndpointsResult> {
+  const { owner, repo, token, appUrl } = input;
+  const headers = ghHeaders(token);
+
+  let branch = input.branch ?? null;
+  if (!branch) {
+    const repoMeta = await timedFetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+    if (repoMeta.status === 401) return { ok: false, error: "GitHub rejected the token (401)." };
+    if (repoMeta.status === 404) return { ok: false, error: "Repo not found (404)." };
+    if (!repoMeta.ok) return { ok: false, error: `GitHub repo lookup failed (${repoMeta.status}).` };
+    const meta = await repoMeta.json();
+    branch = meta.default_branch as string;
+  }
+
+  const tree = await timedFetch(
+    `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
+    { headers },
+  );
+  if (!tree.ok) return { ok: false, error: `Tree fetch failed (${tree.status}).` };
+  const treeJson = await tree.json();
+  const paths: string[] = (treeJson.tree ?? [])
+    .filter((n: any) => n.type === "blob" && typeof n.path === "string" && (n.size ?? 0) < MAX_FILE_BYTES)
+    .map((n: any) => n.path as string);
+
+  const candidates = paths.filter(
+    (p) =>
+      /^supabase\/functions\/[^/]+\/index\.(?:ts|js)$/.test(p) ||
+      /^src\/routes\/api\/.+\.(?:ts|tsx|js|jsx)$/.test(p) ||
+      /^app\/api\/.+\/route\.(?:ts|tsx|js|jsx)$/.test(p) ||
+      /^pages\/api\/.+\.(?:ts|tsx|js|jsx)$/.test(p),
+  ).slice(0, MAX_FILES_TO_FETCH);
+
+  const envCandidates = paths.filter((p) =>
+    /(^|\/)(\.env\.example|\.env\.sample|\.env\.local\.example)$/i.test(p) ||
+    /src\/integrations\/supabase\/client\.(?:ts|tsx|js|jsx)$/.test(p),
+  ).slice(0, 5);
+
+  async function fetchRaw(path: string): Promise<string> {
+    try {
+      const r = await timedFetch(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`, {
+        headers: { "user-agent": "AuditKit-AIDetect/1.0" },
+      });
+      if (!r.ok) return "";
+      const buf = await r.arrayBuffer();
+      return new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, MAX_FILE_BYTES));
+    } catch {
+      return "";
+    }
+  }
+
+  const envContents = await pMap(envCandidates, FETCH_CONCURRENCY, fetchRaw);
+  let supabaseBase: string | null = null;
+  for (const text of envContents) {
+    const m =
+      text.match(/SUPABASE_URL\s*[:=]\s*['"`]?(https?:\/\/[^\s'"`]+)/i) ||
+      text.match(/VITE_SUPABASE_URL\s*[:=]\s*['"`]?(https?:\/\/[^\s'"`]+)/i) ||
+      text.match(/supabaseUrl\s*[:=]\s*['"`](https?:\/\/[^'"`]+)/);
+    if (m) { supabaseBase = m[1].replace(/\/+$/, ""); break; }
+  }
+
+  const appBase = normalizeAppBase(appUrl);
+  const fileContents = await pMap(candidates, FETCH_CONCURRENCY, async (p) => ({ path: p, text: await fetchRaw(p) }));
+  const endpoints: DetectedEndpoint[] = [];
+
+  for (const { path, text } of fileContents) {
+    if (!text) continue;
+    const ai = looksLikeAiCode(text);
+    if (!ai.hit) continue;
+    const promptField = detectPromptField(text);
+    const requiresAuth = detectRequiresAuth(text);
+
+    const fnName = supabaseFnNameFromFile(path);
+    if (fnName) {
+      const url = supabaseBase ? `${supabaseBase}/functions/v1/${fnName}` : "";
+      endpoints.push({ url, promptField, requiresAuth, source: `Edge function: ${fnName}`, kind: "supabase-function", filePath: path, evidence: ai.evidence, partialUrl: !url });
+      continue;
+    }
+    const tsPath = tanstackPathFromFile(path);
+    if (tsPath) {
+      const url = appBase ? `${appBase}${tsPath}` : tsPath;
+      endpoints.push({ url, promptField, requiresAuth, source: `TanStack route: ${tsPath}`, kind: "tanstack-route", filePath: path, evidence: ai.evidence, partialUrl: !appBase });
+      continue;
+    }
+    const nxPath = nextRoutePathFromFile(path);
+    if (nxPath) {
+      const url = appBase ? `${appBase}${nxPath}` : nxPath;
+      endpoints.push({ url, promptField, requiresAuth, source: `Next.js route: ${nxPath}`, kind: "nextjs-route", filePath: path, evidence: ai.evidence, partialUrl: !appBase });
+    }
+  }
+
+  return {
+    ok: true,
+    repo: `${owner}/${repo}`,
+    filesScanned: fileContents.length,
+    supabaseBaseDetected: !!supabaseBase,
+    appBaseDetected: !!appBase,
+    endpoints,
+  };
+}
+
 export const detectAIEndpoints = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { repoUrl: string; token: string; appUrl: string | null }) => {
@@ -173,130 +284,6 @@ export const detectAIEndpoints = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const parsed = parseRepo(data.repoUrl);
     if (!parsed) return { ok: false as const, error: `Could not parse GitHub URL: ${data.repoUrl}` };
-    const headers = ghHeaders(data.token);
-
-    const repoMeta = await timedFetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`, { headers });
-    if (repoMeta.status === 401) return { ok: false as const, error: "GitHub rejected the token (401)." };
-    if (repoMeta.status === 404) return { ok: false as const, error: "Repo not found (404)." };
-    if (!repoMeta.ok) return { ok: false as const, error: `GitHub repo lookup failed (${repoMeta.status}).` };
-    const meta = await repoMeta.json();
-    const branch = meta.default_branch as string;
-
-    const tree = await timedFetch(
-      `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/git/trees/${branch}?recursive=1`,
-      { headers },
-    );
-    if (!tree.ok) return { ok: false as const, error: `Tree fetch failed (${tree.status}).` };
-    const treeJson = await tree.json();
-    const paths: string[] = (treeJson.tree ?? [])
-      .filter((n: any) => n.type === "blob" && typeof n.path === "string" && (n.size ?? 0) < MAX_FILE_BYTES)
-      .map((n: any) => n.path as string);
-
-    // Candidate files: edge functions + server routes
-    const candidates = paths.filter(
-      (p) =>
-        /^supabase\/functions\/[^/]+\/index\.(?:ts|js)$/.test(p) ||
-        /^src\/routes\/api\/.+\.(?:ts|tsx|js|jsx)$/.test(p) ||
-        /^app\/api\/.+\/route\.(?:ts|tsx|js|jsx)$/.test(p) ||
-        /^pages\/api\/.+\.(?:ts|tsx|js|jsx)$/.test(p),
-    ).slice(0, MAX_FILES_TO_FETCH);
-
-    // Try to discover Supabase base URL from .env-ish or client files
-    const envCandidates = paths.filter((p) =>
-      /(^|\/)(\.env\.example|\.env\.sample|\.env\.local\.example)$/i.test(p) ||
-      /src\/integrations\/supabase\/client\.(?:ts|tsx|js|jsx)$/.test(p),
-    ).slice(0, 5);
-
-    async function fetchRaw(path: string): Promise<string> {
-      try {
-        const r = await timedFetch(`https://raw.githubusercontent.com/${parsed!.owner}/${parsed!.repo}/${branch}/${path}`, {
-          headers: { "user-agent": "AuditKit-AIDetect/1.0" },
-        });
-        if (!r.ok) return "";
-        const buf = await r.arrayBuffer();
-        return new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, MAX_FILE_BYTES));
-      } catch {
-        return "";
-      }
-    }
-
-    const envContents = await pMap(envCandidates, FETCH_CONCURRENCY, fetchRaw);
-    let supabaseBase: string | null = null;
-    for (const text of envContents) {
-      const m =
-        text.match(/SUPABASE_URL\s*[:=]\s*['"`]?(https?:\/\/[^\s'"`]+)/i) ||
-        text.match(/VITE_SUPABASE_URL\s*[:=]\s*['"`]?(https?:\/\/[^\s'"`]+)/i) ||
-        text.match(/supabaseUrl\s*[:=]\s*['"`](https?:\/\/[^'"`]+)/);
-      if (m) { supabaseBase = m[1].replace(/\/+$/, ""); break; }
-    }
-
-    const appBase = normalizeAppBase(data.appUrl);
-
-    const fileContents = await pMap(candidates, FETCH_CONCURRENCY, async (p) => ({ path: p, text: await fetchRaw(p) }));
-
-    const endpoints: DetectedEndpoint[] = [];
-
-    for (const { path, text } of fileContents) {
-      if (!text) continue;
-      const ai = looksLikeAiCode(text);
-      if (!ai.hit) continue;
-      const promptField = detectPromptField(text);
-      const requiresAuth = detectRequiresAuth(text);
-
-      const fnName = supabaseFnNameFromFile(path);
-      if (fnName) {
-        const url = supabaseBase ? `${supabaseBase}/functions/v1/${fnName}` : "";
-        endpoints.push({
-          url,
-          promptField,
-          requiresAuth,
-          source: `Edge function: ${fnName}`,
-          kind: "supabase-function",
-          filePath: path,
-          evidence: ai.evidence,
-          partialUrl: !url,
-        });
-        continue;
-      }
-
-      const tsPath = tanstackPathFromFile(path);
-      if (tsPath) {
-        const url = appBase ? `${appBase}${tsPath}` : tsPath;
-        endpoints.push({
-          url,
-          promptField,
-          requiresAuth,
-          source: `TanStack route: ${tsPath}`,
-          kind: "tanstack-route",
-          filePath: path,
-          evidence: ai.evidence,
-          partialUrl: !appBase,
-        });
-        continue;
-      }
-
-      const nxPath = nextRoutePathFromFile(path);
-      if (nxPath) {
-        const url = appBase ? `${appBase}${nxPath}` : nxPath;
-        endpoints.push({
-          url,
-          promptField,
-          requiresAuth,
-          source: `Next.js route: ${nxPath}`,
-          kind: "nextjs-route",
-          filePath: path,
-          evidence: ai.evidence,
-          partialUrl: !appBase,
-        });
-      }
-    }
-
-    return {
-      ok: true as const,
-      repo: `${parsed.owner}/${parsed.repo}`,
-      filesScanned: fileContents.length,
-      supabaseBaseDetected: !!supabaseBase,
-      appBaseDetected: !!appBase,
-      endpoints,
-    };
+    return await detectAIEndpointsCore({ owner: parsed.owner, repo: parsed.repo, token: data.token, appUrl: data.appUrl });
   });
+

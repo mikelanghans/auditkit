@@ -15,18 +15,24 @@ import { cn } from "@/lib/utils";
 
 type Mode = "repo-pick" | "detecting" | "endpoint-pick" | "manual";
 
+export type AIScanPreset = { url: string; promptField: string; source?: string };
+
 export function AIScanDialog({
   auditId,
   appUrl,
   savedRepos,
   onDone,
   onResult,
+  preset,
+  onPresetConsumed,
 }: {
   auditId: string;
   appUrl: string | null;
   savedRepos: SavedRepo[];
   onDone: () => void;
   onResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
+  preset?: AIScanPreset | null;
+  onPresetConsumed?: () => void;
 }) {
   const scan = useServerFn(runAIScan);
   const detect = useServerFn(detectAIEndpoints);
@@ -45,6 +51,20 @@ export function AIScanDialog({
   const [detectMeta, setDetectMeta] = useState<{ repo: string; filesScanned: number; supabaseBaseDetected: boolean; appBaseDetected: boolean } | null>(null);
 
   const hasRepos = savedRepos.length > 0;
+
+  // External preset (from “Test for Injection” buttons) — opens dialog prefilled in manual mode.
+  useEffect(() => {
+    if (!preset) return;
+    setEndpointUrl(preset.url);
+    setPromptField(preset.promptField || "prompt");
+    setAuthToken("");
+    setResults(null);
+    setEndpointLabel(preset.source ?? "");
+    setMode("manual");
+    setOpen(true);
+    onPresetConsumed?.();
+  }, [preset, onPresetConsumed]);
+
 
   useEffect(() => {
     if (!pending) { setProgress(0); return; }

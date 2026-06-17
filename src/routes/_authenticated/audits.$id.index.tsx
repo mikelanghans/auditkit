@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
@@ -21,12 +21,14 @@ import { runAutoScan } from "@/lib/scan.functions";
 import { runRepoScan } from "@/lib/repo-scan.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
-import { AIScanDialog } from "@/components/ai-scan-dialog";
+import { AIScanDialog, type AIScanPreset } from "@/components/ai-scan-dialog";
 import { AIAssistDialog, AIAssistReviewPanel, type AIAssistSummary } from "@/components/ai-assist-dialog";
 import { RepoLauncher, type SavedRepo } from "@/components/repo-launcher";
 import { FixPromptButton } from "@/components/fix-prompt-dialog";
 import { ExplainButton } from "@/components/explain-button";
 import type { DepFinding } from "@/lib/dep-scan-core";
+import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
+
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
@@ -117,7 +119,10 @@ function AuditView() {
       status?: "pass" | "fail";
       findings?: DepFinding[];
     };
+    aiEndpoints?: DetectedEndpoint[];
+    aiDetectError?: string | null;
   };
+
   type SupabaseSummary = { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string };
   type AISummary = { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string };
   const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
@@ -125,6 +130,8 @@ function AuditView() {
   const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
   const [aiSummary, setAISummary] = useState<AISummary | null>(null);
   const [aiAssistSummary, setAIAssistSummary] = useState<AIAssistSummary | null>(null);
+  const [aiScanPreset, setAIScanPreset] = useState<AIScanPreset | null>(null);
+
   const combinedSummary = useMemo(() => {
     if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary) return null;
     return {
@@ -350,7 +357,10 @@ function AuditView() {
             onSupabaseResult={setSupabaseSummary}
             onAIResult={setAISummary}
             onAIAssistResult={setAIAssistSummary}
+            aiScanPreset={aiScanPreset}
+            onAIScanPresetConsumed={() => setAIScanPreset(null)}
           />
+
           {aiAssistSummary && (
             <AIAssistReviewPanel
               auditId={id}
@@ -468,6 +478,13 @@ function AuditView() {
             );
           })()}
           {repoSummary?.dep && <RepoDepPanel dep={repoSummary.dep} />}
+          {repoSummary?.aiEndpoints && repoSummary.aiEndpoints.length > 0 && (
+            <AIEndpointsDiscoveredPanel
+              endpoints={repoSummary.aiEndpoints}
+              onTest={(ep) => setAIScanPreset({ url: ep.url, promptField: ep.promptField, source: ep.source })}
+            />
+          )}
+
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
@@ -548,7 +565,7 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, appUrl, clientId, savedRepos, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onAIAssistResult,
+  auditId, appUrl, clientId, savedRepos, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onAIAssistResult, aiScanPreset, onAIScanPresetConsumed,
 }: {
   auditId: string;
   appUrl: string | null;
@@ -560,11 +577,16 @@ function ShieldScanBanner({
   onRepoResult: (s: {
     passes: number; fails: number; findings: number; repo: string; at: string;
     dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+    aiEndpoints?: DetectedEndpoint[];
+    aiDetectError?: string | null;
   }) => void;
   onSupabaseResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
   onAIResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
   onAIAssistResult: (s: AIAssistSummary) => void;
+  aiScanPreset: AIScanPreset | null;
+  onAIScanPresetConsumed: () => void;
 }) {
+
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -626,9 +648,10 @@ function ShieldScanBanner({
               <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
             )}
           </Button>
-          <RepoScanDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={onRepoResult} />
+          <RepoScanDialog auditId={auditId} appUrl={appUrl} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={onRepoResult} />
           <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
-          <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={onAIResult} />
+          <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={onAIResult} preset={aiScanPreset} onPresetConsumed={onAIScanPresetConsumed} />
+
           <AIAssistDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onResult={onAIAssistResult} />
           
           
@@ -809,16 +832,20 @@ function StatusBtn({
   );
 }
 
-function RepoScanDialog({ auditId, clientId, savedRepos, onDone, onRepoResult }: {
+function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoResult }: {
   auditId: string;
+  appUrl: string | null;
   clientId: string | null;
   savedRepos: SavedRepo[];
   onDone: () => void;
   onRepoResult: (s: {
     passes: number; fails: number; findings: number; repo: string; at: string;
     dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+    aiEndpoints?: DetectedEndpoint[];
+    aiDetectError?: string | null;
   }) => void;
 }) {
+
   const scan = useServerFn(runRepoScan);
   const qc = useQueryClient();
 
@@ -835,7 +862,7 @@ function RepoScanDialog({ auditId, clientId, savedRepos, onDone, onRepoResult }:
       onSaved={() => qc.invalidateQueries({ queryKey: ["client-repos", clientId] })}
       onRun={async ({ repoUrl, token, loadingToastId }) => {
         try {
-          const res = await scan({ data: { auditId, repoUrl, token } });
+          const res = await scan({ data: { auditId, repoUrl, token, appUrl } });
           if (!res.ok) { toast.error(res.error, { id: loadingToastId }); return false; }
           const fails = res.results.filter((r) => r.status === "fail").length;
           const passes = res.results.filter((r) => r.status === "pass").length;
@@ -843,9 +870,10 @@ function RepoScanDialog({ auditId, clientId, savedRepos, onDone, onRepoResult }:
           const depDesc = dep?.ok
             ? ` · ${dep.packagesScanned} pkgs / ${dep.findings?.length ?? 0} vulnerable`
             : dep && !dep.ok ? ` · deps: ${dep.error}` : "";
+          const aiDesc = (res.aiEndpoints?.length ?? 0) > 0 ? ` · ${res.aiEndpoints!.length} AI endpoint(s)` : "";
           toast.success(
             `Repo scan complete — ${passes} pass, ${fails} fail`,
-            { id: loadingToastId, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}` },
+            { id: loadingToastId, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}${aiDesc}` },
           );
           onRepoResult({
             passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString(),
@@ -854,6 +882,8 @@ function RepoScanDialog({ auditId, clientId, savedRepos, onDone, onRepoResult }:
                   ? { ok: true, path: dep.path, packagesScanned: dep.packagesScanned, counts: dep.counts, status: dep.status, findings: dep.findings }
                   : { ok: false, error: dep.error })
               : undefined,
+            aiEndpoints: res.aiEndpoints ?? [],
+            aiDetectError: res.aiDetectError ?? null,
           });
           onDone();
           return true;
@@ -861,6 +891,7 @@ function RepoScanDialog({ auditId, clientId, savedRepos, onDone, onRepoResult }:
           toast.error(err?.message ?? "Repo scan failed", { id: loadingToastId });
           return false;
         }
+
       }}
     />
   );
@@ -960,3 +991,61 @@ function RepoDepPanel({ dep }: { dep: RepoDep }) {
     </Card>
   );
 }
+
+function AIEndpointsDiscoveredPanel({
+  endpoints,
+  onTest,
+}: {
+  endpoints: DetectedEndpoint[];
+  onTest: (ep: DetectedEndpoint) => void;
+}) {
+  return (
+    <Card className="p-4 border-l-4 border-l-purple-500/60">
+      <div className="flex items-center gap-2 mb-1">
+        <Bot className="h-4 w-4 text-purple-600 dark:text-purple-400 shrink-0" />
+        <div className="font-medium text-sm">AI Endpoints Discovered</div>
+        <div className="ml-auto text-xs text-muted-foreground">
+          {endpoints.length} endpoint{endpoints.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Detected from repo source. Click <span className="font-medium text-foreground">Test for Injection</span> to pre-fill the AI scan with the URL and prompt field.
+      </p>
+      <ul className="space-y-2">
+        {endpoints.map((ep, i) => (
+          <li key={`${ep.filePath}-${i}`} className="rounded-md border border-border bg-card p-2.5">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm">{ep.source}</span>
+                  {ep.partialUrl && (
+                    <Badge variant="outline" className="text-[10px] uppercase border-status-na/50 text-status-na">partial URL</Badge>
+                  )}
+                  {ep.requiresAuth && (
+                    <Badge variant="outline" className="text-[10px] uppercase">auth</Badge>
+                  )}
+                  <Badge variant="secondary" className="text-[10px] font-mono lowercase">field: {ep.promptField}</Badge>
+                </div>
+                <div className="text-xs text-muted-foreground font-mono truncate mt-0.5">
+                  {ep.url || "(URL needs completion)"}
+                </div>
+                <div className="text-[11px] text-muted-foreground/80 italic truncate mt-0.5">{ep.filePath}</div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => onTest(ep)}
+                disabled={!ep.url}
+                title={!ep.url ? "URL could not be resolved — open the AI scan dialog manually to complete it." : undefined}
+              >
+                <Bot className="h-3.5 w-3.5 mr-1" /> Test for Injection
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
