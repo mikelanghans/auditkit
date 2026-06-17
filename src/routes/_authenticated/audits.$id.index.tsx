@@ -23,7 +23,8 @@ import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog } from "@/components/ai-scan-dialog";
 import { AIAssistDialog, AIAssistReviewPanel, type AIAssistSummary } from "@/components/ai-assist-dialog";
-import { LovablePromptButton } from "@/components/lovable-prompt-dialog";
+import { FixPromptButton } from "@/components/fix-prompt-dialog";
+import { ExplainButton } from "@/components/explain-button";
 import type { DepFinding } from "@/lib/dep-scan-core";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
@@ -40,7 +41,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null };
+type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null; cursor_prompt?: string | null; claude_prompt?: string | null; explanation?: string | null };
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -76,7 +77,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt")
+        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt, cursor_prompt, claude_prompt, explanation")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
@@ -711,18 +712,39 @@ function ItemRow({
         </div>
       )}
       {status === "fail" && !missingNotes && (
-        <LovablePromptButton
-          auditId={auditId}
-          checklistItemId={item.id}
-          cachedPrompt={finding?.lovable_prompt ?? null}
-          onCached={(p) => {
-            qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
-              (prev ?? []).map((f) =>
-                f.checklist_item_id === item.id ? { ...f, lovable_prompt: p } : f,
-              ),
-            );
-          }}
-        />
+        <div className="mt-3 flex items-start gap-3 flex-wrap">
+          <FixPromptButton
+            auditId={auditId}
+            checklistItemId={item.id}
+            cached={{
+              lovable: finding?.lovable_prompt ?? null,
+              cursor: finding?.cursor_prompt ?? null,
+              claude: finding?.claude_prompt ?? null,
+            }}
+            onCached={(target, p) => {
+              const col = target === "lovable" ? "lovable_prompt" : target === "cursor" ? "cursor_prompt" : "claude_prompt";
+              qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
+                (prev ?? []).map((f) =>
+                  f.checklist_item_id === item.id ? { ...f, [col]: p } : f,
+                ),
+              );
+            }}
+          />
+          <div className="pt-1">
+            <ExplainButton
+              auditId={auditId}
+              checklistItemId={item.id}
+              cached={finding?.explanation ?? null}
+              onCached={(text) => {
+                qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
+                  (prev ?? []).map((f) =>
+                    f.checklist_item_id === item.id ? { ...f, explanation: text } : f,
+                  ),
+                );
+              }}
+            />
+          </div>
+        </div>
       )}
     </Card>
   );

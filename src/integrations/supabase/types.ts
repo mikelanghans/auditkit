@@ -20,7 +20,10 @@ export type Database = {
           audit_id: string
           auto_scanned: boolean
           checklist_item_id: string
+          claude_prompt: string | null
           created_at: string
+          cursor_prompt: string | null
+          explanation: string | null
           id: string
           lovable_prompt: string | null
           notes: string | null
@@ -32,7 +35,10 @@ export type Database = {
           audit_id: string
           auto_scanned?: boolean
           checklist_item_id: string
+          claude_prompt?: string | null
           created_at?: string
+          cursor_prompt?: string | null
+          explanation?: string | null
           id?: string
           lovable_prompt?: string | null
           notes?: string | null
@@ -44,7 +50,10 @@ export type Database = {
           audit_id?: string
           auto_scanned?: boolean
           checklist_item_id?: string
+          claude_prompt?: string | null
           created_at?: string
+          cursor_prompt?: string | null
+          explanation?: string | null
           id?: string
           lovable_prompt?: string | null
           notes?: string | null

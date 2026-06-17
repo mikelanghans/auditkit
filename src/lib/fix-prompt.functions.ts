@@ -1,24 +1,51 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const SYSTEM_PROMPT =
-  "You are a security remediation expert who writes precise, actionable prompts for Lovable, an AI-powered app builder. " +
-  "Given a security finding, generate a single clear prompt that a founder can paste directly into Lovable to fix the vulnerability. " +
-  "The prompt must: 1) Identify the exact file or component to change, 2) Describe the specific code change needed, " +
-  "3) Include verification steps so the founder knows the fix worked, 4) Be written in plain language a non-security expert can understand, " +
-  "5) Be under 200 words. Do not include explanations or preamble — just the prompt text ready to paste.";
+export type FixTarget = "lovable" | "cursor" | "claude";
 
-export type GenerateLovablePromptInput = {
+const SYSTEM_PROMPTS: Record<FixTarget, string> = {
+  lovable:
+    "You are a security remediation expert who writes precise, actionable prompts for Lovable, an AI-powered app builder. " +
+    "Given a security finding, generate a single clear prompt that a founder can paste directly into Lovable to fix the vulnerability. " +
+    "The prompt must: 1) Identify the exact file or component to change, 2) Describe the specific code change needed, " +
+    "3) Include verification steps so the founder knows the fix worked, 4) Be written in plain language a non-security expert can understand, " +
+    "5) Preserve existing integrations (Stripe, Supabase Auth, fonts) unless they are the source of the issue, " +
+    "6) Be under 220 words. Do not include explanations or preamble — just the prompt text ready to paste.",
+  cursor:
+    "You are a security remediation expert who writes precise prompts for Cursor, an AI code editor. " +
+    "Given a security finding, generate a single prompt the developer can paste into Cursor's composer. " +
+    "The prompt must: 1) Reference the likely file paths and frameworks, 2) Specify exact code changes (imports, headers, config), " +
+    "3) Note any tests or build commands to run, 4) Tell Cursor to return only modified files with diffs, " +
+    "5) Preserve unrelated integrations, 6) Be under 220 words. Output only the prompt text — no preamble.",
+  claude:
+    "You are a security remediation expert who writes precise prompts for Claude Code, Anthropic's CLI coding agent. " +
+    "Given a security finding, generate a single prompt the developer can paste into Claude Code. " +
+    "The prompt must: 1) Tell Claude which files to read first, 2) Specify the exact remediation with code, " +
+    "3) Ask Claude to run the relevant tests/build, 4) Ask for a concise summary of changes, " +
+    "5) Preserve existing integrations, 6) Be under 220 words. Output only the prompt text — no preamble.",
+};
+
+const COLUMN: Record<FixTarget, "lovable_prompt" | "cursor_prompt" | "claude_prompt"> = {
+  lovable: "lovable_prompt",
+  cursor: "cursor_prompt",
+  claude: "claude_prompt",
+};
+
+export type GenerateFixPromptInput = {
   auditId: string;
   checklistItemId: string;
+  target: FixTarget;
   force?: boolean;
 };
 
-export const generateLovablePrompt = createServerFn({ method: "POST" })
+export const generateFixPrompt = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: GenerateLovablePromptInput) => input)
+  .inputValidator((input: GenerateFixPromptInput) => input)
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const target: FixTarget = data.target;
+    const column = COLUMN[target];
+    if (!column) return { ok: false as const, error: "Invalid target." };
 
     const { data: auditRow, error: aerr } = await supabase
       .from("audits").select("id, created_by").eq("id", data.auditId).single();
@@ -28,7 +55,7 @@ export const generateLovablePrompt = createServerFn({ method: "POST" })
 
     const { data: finding, error: ferr } = await supabase
       .from("audit_findings")
-      .select("notes, status, lovable_prompt")
+      .select("notes, status, lovable_prompt, cursor_prompt, claude_prompt")
       .eq("audit_id", data.auditId)
       .eq("checklist_item_id", data.checklistItemId)
       .maybeSingle();
@@ -36,8 +63,9 @@ export const generateLovablePrompt = createServerFn({ method: "POST" })
     if (!finding) return { ok: false as const, error: "Finding not found." };
     if (finding.status !== "fail") return { ok: false as const, error: "Only failing findings can be remediated." };
 
-    if (!data.force && finding.lovable_prompt && finding.lovable_prompt.trim()) {
-      return { ok: true as const, prompt: finding.lovable_prompt, cached: true };
+    const cached = (finding as any)[column] as string | null | undefined;
+    if (!data.force && cached && cached.trim()) {
+      return { ok: true as const, prompt: cached, target, cached: true };
     }
 
     const { data: item, error: ierr } = await supabase
@@ -68,7 +96,7 @@ export const generateLovablePrompt = createServerFn({ method: "POST" })
         body: JSON.stringify({
           model: "claude-haiku-4-5",
           max_tokens: 1024,
-          system: SYSTEM_PROMPT,
+          system: SYSTEM_PROMPTS[target],
           messages: [{ role: "user", content: userMessage }],
         }),
       });
@@ -91,10 +119,10 @@ export const generateLovablePrompt = createServerFn({ method: "POST" })
 
     const { error: uerr } = await supabase
       .from("audit_findings")
-      .update({ lovable_prompt: prompt })
+      .update({ [column]: prompt } as any)
       .eq("audit_id", data.auditId)
       .eq("checklist_item_id", data.checklistItemId);
-    if (uerr) return { ok: true as const, prompt, cached: false, warning: uerr.message };
+    if (uerr) return { ok: true as const, prompt, target, cached: false, warning: uerr.message };
 
-    return { ok: true as const, prompt, cached: false };
+    return { ok: true as const, prompt, target, cached: false };
   });
