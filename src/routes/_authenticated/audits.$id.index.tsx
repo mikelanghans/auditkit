@@ -378,7 +378,7 @@ function ShieldScanBanner({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <Button
             onClick={run}
             disabled={pending}
@@ -392,6 +392,7 @@ function ShieldScanBanner({
               <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
             )}
           </Button>
+          <RepoScanDialog auditId={auditId} onDone={onDone} />
         </div>
       </div>
       {pending && (
