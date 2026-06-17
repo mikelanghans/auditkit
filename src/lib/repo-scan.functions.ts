@@ -99,14 +99,14 @@ export const runRepoScan = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase } = context;
     const parsed = parseRepo(data.repoUrl);
-    if (!parsed) throw new Error(`Could not parse GitHub URL: ${data.repoUrl}`);
+    if (!parsed) return { ok: false as const, error: `Could not parse GitHub URL: ${data.repoUrl}` };
     const headers = ghHeaders(data.token);
 
     // Verify the repo & token up front (and discover default branch).
     const repoMeta = await timedFetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`, { headers });
-    if (repoMeta.status === 401) throw new Error("GitHub rejected the token (401). Check that it has read access to this repo.");
-    if (repoMeta.status === 404) throw new Error("Repo not found (404). Check the URL and that the token can see it.");
-    if (!repoMeta.ok) throw new Error(`GitHub repo lookup failed (${repoMeta.status}).`);
+    if (repoMeta.status === 401) return { ok: false as const, error: "GitHub rejected the token (401). Check that it has read access to this repo." };
+    if (repoMeta.status === 404) return { ok: false as const, error: "Repo not found (404). Check the URL and that the token can see it." };
+    if (!repoMeta.ok) return { ok: false as const, error: `GitHub repo lookup failed (${repoMeta.status}).` };
     const meta = await repoMeta.json();
     const defaultBranch = meta.default_branch as string;
 
