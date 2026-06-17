@@ -113,8 +113,6 @@ function NewClientDialog() {
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
           <Field label="App URL" value={appUrl} onChange={setAppUrl} type="url" />
-          <Field label="GitHub repo URL" value={githubRepoUrl} onChange={setGithubRepoUrl} type="url" placeholder="https://github.com/owner/repo" />
-          <Field label="GitHub access token" value={githubToken} onChange={setGithubToken} type="password" placeholder="Fine-grained PAT with repo: read" />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
