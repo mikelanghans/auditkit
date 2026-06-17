@@ -1,16 +1,11 @@
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Brain, Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { RepoLauncher, type SavedRepo } from "@/components/repo-launcher";
 import { runAIAssist, applyAIAssistFinding, type AIAssistFinding } from "@/lib/ai-assist.functions";
 
 export type AIAssistSummary = {
@@ -24,185 +19,58 @@ export type AIAssistSummary = {
 export function AIAssistDialog({
   auditId,
   clientId,
-  savedRepoUrl,
-  savedToken,
+  savedRepos,
   onDone,
   onResult,
+  onSaved,
 }: {
   auditId: string;
   clientId?: string | null;
-  savedRepoUrl?: string | null;
-  savedToken?: string | null;
+  savedRepos: SavedRepo[];
   onDone: () => void;
   onResult: (s: AIAssistSummary) => void;
+  onSaved?: () => void;
 }) {
   const scan = useServerFn(runAIAssist);
-  const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [repoUrl, setRepoUrl] = useState("");
-  const [token, setToken] = useState("");
-  const [saveForClient, setSaveForClient] = useState(true);
-  const [pending, setPending] = useState(false);
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    if (!pending) { setProgress(0); return; }
-    setProgress(6);
-    const iv = setInterval(() => {
-      setProgress((p) => (p < 92 ? p + Math.max(0.4, (92 - p) * 0.03) : p));
-    }, 300);
-    return () => clearInterval(iv);
-  }, [pending]);
-
-  const reset = () => { setRepoUrl(""); setToken(""); };
-
-  const runScan = async (repo: string, tok: string) => {
-    setPending(true);
-    const tid = toast.loading("AI Assist analyzing repository…");
-    try {
-      const res = await scan({ data: { auditId, repoUrl: repo, token: tok } });
-      setProgress(100);
-      if (!res.ok) { toast.error(res.error, { id: tid }); return false; }
-      toast.success(
-        `AI Assist found ${res.highApplied} high-confidence finding${res.highApplied === 1 ? "" : "s"} (auto-applied) and ${res.mediumPending.length} suggestion${res.mediumPending.length === 1 ? "" : "s"} awaiting your review`,
-        { id: tid, description: `${res.repo} · ${res.filesScanned} files reviewed` },
-      );
-      onResult({
-        repo: res.repo,
-        filesScanned: res.filesScanned,
-        highApplied: res.highApplied,
-        mediumPending: res.mediumPending,
-        at: new Date().toISOString(),
-      });
-      onDone();
-      return true;
-    } catch (err: any) {
-      toast.error(err?.message ?? "AI Assist failed", { id: tid });
-      return false;
-    } finally {
-      setTimeout(() => setPending(false), 400);
-    }
-  };
-
-  const hasSaved = !!(savedRepoUrl && savedToken);
-
-  const handleTriggerClick = async (e: React.MouseEvent) => {
-    if (hasSaved) {
-      e.preventDefault();
-      await runScan(savedRepoUrl!, savedToken!);
-    }
-  };
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repoUrl.trim() || !token.trim()) {
-      toast.error("Enter the GitHub repo URL and a personal access token.");
-      return;
-    }
-    const ok = await runScan(repoUrl.trim(), token.trim());
-    if (ok && saveForClient && clientId) {
-      const { error } = await supabase
-        .from("clients")
-        .update({ github_repo_url: repoUrl.trim(), github_token: token.trim() })
-        .eq("id", clientId);
-      if (error) toast.error(`Saved scan, but failed to store credentials: ${error.message}`);
-      else {
-        qc.invalidateQueries({ queryKey: ["audit", auditId] });
-        qc.invalidateQueries({ queryKey: ["client", clientId] });
-        toast.success("GitHub credentials saved for this client");
-      }
-    }
-    if (ok) {
-      reset();
-      setOpen(false);
-    }
-  };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) reset(); setOpen(o); } }}>
-      <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          onClick={handleTriggerClick}
-          disabled={pending}
-          className="border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
-        >
-          {pending && hasSaved ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Brain className="h-4 w-4 mr-1" />}
-          AI Assist
-          {hasSaved && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-status-pass" title="Using saved credentials" />}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
-        <form onSubmit={submit} className="space-y-4">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Brain className="h-4 w-4 text-purple-500" /> AI Assist code review
-            </DialogTitle>
-            <DialogDescription>
-              Sends the most security-relevant files from the repo to Claude for analysis. High-confidence findings
-              are auto-applied to the checklist; medium-confidence suggestions appear in a review panel for you to
-              accept or dismiss.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="aia-url">GitHub repo URL</Label>
-            <Input
-              id="aia-url"
-              placeholder="https://github.com/owner/repo"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              disabled={pending}
-              autoFocus
-              autoComplete="off"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="aia-token">GitHub personal access token</Label>
-            <Input
-              id="aia-token"
-              type="password"
-              placeholder="ghp_…"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              disabled={pending}
-              autoComplete="off"
-            />
-            <p className="text-xs text-muted-foreground">
-              Needs <code>repo</code> read access. Used only to fetch source files.
-            </p>
-          </div>
-
-          {clientId && (
-            <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={saveForClient}
-                onChange={(e) => setSaveForClient(e.target.checked)}
-                disabled={pending}
-                className="mt-0.5 h-4 w-4 rounded border-border accent-navy"
-              />
-              <span>
-                <span className="font-medium">Save for this client</span>
-                <span className="block text-xs text-muted-foreground">Reuse for future Scan Repo / AI Assist runs without re-entering.</span>
-              </span>
-            </label>
-          )}
-
-          {pending && <Progress value={progress} />}
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { reset(); setOpen(false); }} disabled={pending}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={pending} className="bg-purple-600 hover:bg-purple-700 text-white">
-              {pending ? (<><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Analyzing…</>) : "Run AI Assist"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <RepoLauncher
+      trigger={{
+        label: "AI Assist",
+        icon: <Brain className="h-4 w-4 mr-1" />,
+        className: "border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300",
+      }}
+      clientId={clientId ?? null}
+      savedRepos={savedRepos}
+      title="AI Assist code review"
+      description="Sends the most security-relevant files from the repo to Claude. High-confidence findings auto-apply; medium-confidence ones await your review."
+      submitLabel="Run AI Assist"
+      runningLabel="Analyzing…"
+      loadingToast="AI Assist analyzing repository…"
+      onSaved={onSaved}
+      onRun={async ({ repoUrl, token, loadingToastId }) => {
+        try {
+          const res = await scan({ data: { auditId, repoUrl, token } });
+          if (!res.ok) { toast.error(res.error, { id: loadingToastId }); return false; }
+          toast.success(
+            `AI Assist found ${res.highApplied} high-confidence finding${res.highApplied === 1 ? "" : "s"} (auto-applied) and ${res.mediumPending.length} suggestion${res.mediumPending.length === 1 ? "" : "s"} awaiting your review`,
+            { id: loadingToastId, description: `${res.repo} · ${res.filesScanned} files reviewed` },
+          );
+          onResult({
+            repo: res.repo,
+            filesScanned: res.filesScanned,
+            highApplied: res.highApplied,
+            mediumPending: res.mediumPending,
+            at: new Date().toISOString(),
+          });
+          onDone();
+          return true;
+        } catch (err: any) {
+          toast.error(err?.message ?? "AI Assist failed", { id: loadingToastId });
+          return false;
+        }
+      }}
+    />
   );
 }
 
