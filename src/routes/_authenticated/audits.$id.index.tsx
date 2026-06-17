@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { runAutoScan } from "@/lib/scan.functions";
 import { runGithubScan } from "@/lib/github-scan.functions";
 import { runRepoScan } from "@/lib/repo-scan.functions";
+import { DeleteAuditButton } from "@/components/delete-audit-button";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
@@ -216,6 +217,7 @@ function AuditView() {
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>
           </Link>
+          <DeleteAuditButton auditId={id} title={audit.data?.title} redirectTo="/dashboard" />
           {audit.data?.status !== "completed" && (
             <Button
               className="bg-navy text-navy-foreground hover:bg-navy/90"
