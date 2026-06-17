@@ -543,6 +543,7 @@ function ShieldScanBanner({
           </Button>
           <RepoScanDialog auditId={auditId} onDone={onDone} onRepoResult={onRepoResult} />
           <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
+          <AIScanDialog auditId={auditId} onDone={onDone} onResult={onAIResult} />
         </div>
       </div>
       {pending && (
