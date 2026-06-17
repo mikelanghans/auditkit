@@ -21,6 +21,7 @@ import { runAutoScan } from "@/lib/scan.functions";
 import { runRepoScan } from "@/lib/repo-scan.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
+import { AIScanDialog } from "@/components/ai-scan-dialog";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
@@ -84,18 +85,20 @@ function AuditView() {
   type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
   type RepoSummary = { passes: number; fails: number; findings: number; repo: string; at: string };
   type SupabaseSummary = { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string };
+  type AISummary = { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string };
   const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
   const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
   const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
+  const [aiSummary, setAISummary] = useState<AISummary | null>(null);
   const combinedSummary = useMemo(() => {
-    if (!surfaceSummary && !repoSummary && !supabaseSummary) return null;
+    if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary) return null;
     return {
-      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0),
-      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0),
+      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0) + (aiSummary?.passes ?? 0),
+      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0) + (aiSummary?.fails ?? 0),
       warnings: surfaceSummary?.warnings ?? 0,
-      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase"].filter(Boolean).join(" + "),
+      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase", aiSummary && "AI"].filter(Boolean).join(" + "),
     };
-  }, [surfaceSummary, repoSummary, supabaseSummary]);
+  }, [surfaceSummary, repoSummary, supabaseSummary, aiSummary]);
 
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
@@ -294,6 +297,7 @@ function AuditView() {
             onSurfaceResult={setSurfaceSummary}
             onRepoResult={setRepoSummary}
             onSupabaseResult={setSupabaseSummary}
+            onAIResult={setAISummary}
           />
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
@@ -324,7 +328,7 @@ function AuditView() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
                   {surfaceSummary && (
                     <div className="rounded-md border border-border bg-card p-2">
                       <div className="font-medium text-foreground">Surface</div>
@@ -356,6 +360,19 @@ function AuditView() {
                         {supabaseSummary.leaks > 0 && <span className="text-status-fail"> · {supabaseSummary.leaks} leak{supabaseSummary.leaks === 1 ? "" : "s"}</span>}
                         {supabaseSummary.publicBuckets.length > 0 && <span className="text-status-na"> · {supabaseSummary.publicBuckets.length} public bucket{supabaseSummary.publicBuckets.length === 1 ? "" : "s"}</span>}
                         {supabaseSummary.bundleMatches > 0 && <span className="text-status-fail"> · ⚠ key in bundle</span>}
+                      </div>
+                    </div>
+                  )}
+                  {aiSummary && (
+                    <div className="rounded-md border border-border bg-card p-2">
+                      <div className="font-medium text-foreground">AI Endpoint</div>
+                      <div className="text-muted-foreground truncate">{aiSummary.endpoint}</div>
+                      <div className="mt-1 space-x-1">
+                        <span className="text-status-pass">{aiSummary.passes} pass</span> ·{" "}
+                        <span className="text-status-fail">{aiSummary.fails} fail</span>
+                        {aiSummary.critical > 0 && <span className="text-status-fail"> · {aiSummary.critical} critical</span>}
+                        {aiSummary.high > 0 && <span className="text-status-fail"> · {aiSummary.high} high</span>}
+                        {aiSummary.medium > 0 && <span className="text-status-na"> · {aiSummary.medium} medium</span>}
                       </div>
                     </div>
                   )}
@@ -465,7 +482,7 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult,
+  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult,
 }: {
   auditId: string;
   appUrl: string | null;
@@ -474,6 +491,7 @@ function ShieldScanBanner({
   onSurfaceResult: (s: { passes: number; fails: number; warnings: number; target: string; at: string }) => void;
   onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
   onSupabaseResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
+  onAIResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
 }) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
@@ -538,6 +556,7 @@ function ShieldScanBanner({
           </Button>
           <RepoScanDialog auditId={auditId} onDone={onDone} onRepoResult={onRepoResult} />
           <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
+          <AIScanDialog auditId={auditId} onDone={onDone} onResult={onAIResult} />
         </div>
       </div>
       {pending && (
