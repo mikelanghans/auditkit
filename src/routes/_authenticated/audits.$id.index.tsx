@@ -109,8 +109,12 @@ function AuditView() {
       seen.set(it.category, arr);
     });
     return Array.from(seen.entries()).map(([name, list]) => {
-      const done = list.filter((it) => findingsMap.get(it.id)?.status).length;
-      return { name, items: list, done, total: list.length };
+      const statuses = list.map((it) => findingsMap.get(it.id)?.status);
+      const done = statuses.filter((s) => s).length;
+      const pass = statuses.filter((s) => s === "pass").length;
+      const fail = statuses.filter((s) => s === "fail").length;
+      const na = statuses.filter((s) => s === "na").length;
+      return { name, items: list, done, total: list.length, pass, fail, na };
     });
   }, [items.data, findingsMap]);
 
