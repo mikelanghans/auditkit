@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { ArrowLeft, ArrowRight, Pencil, Github, Unlink } from "lucide-react";
+import { ArrowLeft, ArrowRight, Pencil, Github, Unlink, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { NewAuditDialog } from "./dashboard";
