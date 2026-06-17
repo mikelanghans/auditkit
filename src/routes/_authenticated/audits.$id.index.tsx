@@ -103,6 +103,7 @@ function AuditView() {
   const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
   const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
   const [aiSummary, setAISummary] = useState<AISummary | null>(null);
+  const [aiAssistSummary, setAIAssistSummary] = useState<AIAssistSummary | null>(null);
   const combinedSummary = useMemo(() => {
     if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary) return null;
     return {
