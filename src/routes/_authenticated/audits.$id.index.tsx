@@ -77,7 +77,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt")
+        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt, cursor_prompt, claude_prompt, explanation")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
