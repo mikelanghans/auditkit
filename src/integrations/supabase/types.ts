@@ -163,6 +163,44 @@ export type Database = {
         }
         Relationships: []
       }
+      client_repos: {
+        Row: {
+          client_id: string
+          created_at: string
+          github_token: string | null
+          id: string
+          label: string
+          repo_url: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          github_token?: string | null
+          id?: string
+          label: string
+          repo_url: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          github_token?: string | null
+          id?: string
+          label?: string
+          repo_url?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_repos_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           app_url: string | null
@@ -170,8 +208,6 @@ export type Database = {
           contact_name: string | null
           created_at: string
           created_by: string
-          github_repo_url: string | null
-          github_token: string | null
           id: string
           name: string
           notes: string | null
@@ -183,8 +219,6 @@ export type Database = {
           contact_name?: string | null
           created_at?: string
           created_by: string
-          github_repo_url?: string | null
-          github_token?: string | null
           id?: string
           name: string
           notes?: string | null
@@ -196,8 +230,6 @@ export type Database = {
           contact_name?: string | null
           created_at?: string
           created_by?: string
-          github_repo_url?: string | null
-          github_token?: string | null
           id?: string
           name?: string
           notes?: string | null
