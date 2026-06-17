@@ -108,6 +108,22 @@ function ReportPage() {
   const effort = useMemo(() => estimateRemediationHours(risk), [risk]);
   const verdict = useMemo(() => launchRecommendation(security.score, risk), [security.score, risk]);
 
+  const scopeSnapshot = useMemo(() => {
+    return grouped.map(([cat, list]) => {
+      let pass = 0, fail = 0, na = 0, unanswered = 0;
+      list.forEach((it: any) => {
+        const s = map.get(it.id)?.status;
+        if (s === "pass") pass++;
+        else if (s === "fail") fail++;
+        else if (s === "na") na++;
+        else unanswered++;
+      });
+      const status: "pass" | "warn" | "fail" =
+        fail > 0 ? "fail" : unanswered > 0 ? "warn" : "pass";
+      return { cat, status, pass, fail, na, unanswered, total: list.length };
+    });
+  }, [grouped, map]);
+
   return (
     <div className="space-y-6 print:space-y-4">
       <div className="flex items-center justify-between print:hidden">
