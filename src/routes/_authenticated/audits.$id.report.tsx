@@ -176,18 +176,12 @@ function ReportPage() {
                   );
                 }
                 return (
-                  <div key={it.id} className="border rounded-lg p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">{it.title}</span>
-                          <SeverityBadge severity={it.severity} />
-                        </div>
-                        {it.description && <p className="text-sm text-muted-foreground mt-1">{it.description}</p>}
-                      </div>
-                      <StatusPill status={f?.status} />
-                    </div>
-                  </div>
+                  <PassFindingCard
+                    key={it.id}
+                    item={it}
+                    status={f?.status}
+                    notes={f?.notes ?? null}
+                  />
                 );
               })}
             </div>
