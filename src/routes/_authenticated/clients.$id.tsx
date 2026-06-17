@@ -75,6 +75,9 @@ function ClientDetail() {
         </div>
       )}
 
+      {client.data && <ConnectedAccountsSection client={client.data} />}
+
+
       <section>
         <h2 className="text-lg font-semibold mb-3">Audits</h2>
         {audits.isLoading ? (
