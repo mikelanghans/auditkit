@@ -112,8 +112,6 @@ function EditClientDialog({ client }: { client: any }) {
   const [contactName, setContactName] = useState(client.contact_name ?? "");
   const [contactEmail, setContactEmail] = useState(client.contact_email ?? "");
   const [appUrl, setAppUrl] = useState(client.app_url ?? "");
-  const [githubRepoUrl, setGithubRepoUrl] = useState(client.github_repo_url ?? "");
-  const [githubToken, setGithubToken] = useState(client.github_token ?? "");
   const [notes, setNotes] = useState(client.notes ?? "");
   const qc = useQueryClient();
 
@@ -123,8 +121,6 @@ function EditClientDialog({ client }: { client: any }) {
     setContactName(client.contact_name ?? "");
     setContactEmail(client.contact_email ?? "");
     setAppUrl(client.app_url ?? "");
-    setGithubRepoUrl(client.github_repo_url ?? "");
-    setGithubToken(client.github_token ?? "");
     setNotes(client.notes ?? "");
   }, [open, client]);
 
@@ -137,8 +133,6 @@ function EditClientDialog({ client }: { client: any }) {
           contact_name: contactName || null,
           contact_email: contactEmail || null,
           app_url: appUrl || null,
-          github_repo_url: githubRepoUrl || null,
-          github_token: githubToken || null,
           notes: notes || null,
         })
         .eq("id", client.id);
