@@ -290,27 +290,66 @@ function AuditView() {
             onSurfaceResult={setSurfaceSummary}
             onRepoResult={setRepoSummary}
           />
-          {combinedSummary && (
-            <Card className="p-3 border-l-4 border-l-primary/60 bg-primary/[0.02]">
-              <div className="flex items-start gap-3 flex-wrap">
-                <CheckCircle2 className="h-4 w-4 text-status-pass mt-0.5 shrink-0" />
-                <div className="text-sm flex-1 min-w-0">
-                  <div className="font-medium">
-                    Combined scan results ({combinedSummary.sources})
-                  </div>
-                  <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                    <span><span className="text-status-pass font-medium">{combinedSummary.passes}</span> passed</span>
-                    <span><span className="text-status-fail font-medium">{combinedSummary.fails}</span> failed</span>
-                    {combinedSummary.warnings > 0 && (
-                      <span><span className="text-status-na font-medium">{combinedSummary.warnings}</span> warnings</span>
-                    )}
-                    {surfaceSummary && <span className="opacity-70">· Surface: {surfaceSummary.target}</span>}
-                    {repoSummary && <span className="opacity-70">· Repo: {repoSummary.repo} ({repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"})</span>}
+          {combinedSummary && (() => {
+            const failedItems = (items.data ?? []).filter((it) => {
+              const f = findingsMap.get(it.id);
+              return f?.auto_scanned && f.status === "fail";
+            });
+            const jumpTo = (it: Item) => {
+              setActiveCategory(it.category);
+              if (!selectedStatuses.includes("fail")) setSelectedStatuses((s) => [...s, "fail"]);
+              setTimeout(() => {
+                const el = document.getElementById(`item-${it.id}`);
+                el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                el?.classList.add("ring-2", "ring-status-fail");
+                setTimeout(() => el?.classList.remove("ring-2", "ring-status-fail"), 1600);
+              }, 50);
+            };
+            return (
+              <Card className="p-3 border-l-4 border-l-primary/60 bg-primary/[0.02]">
+                <div className="flex items-start gap-3 flex-wrap">
+                  <CheckCircle2 className="h-4 w-4 text-status-pass mt-0.5 shrink-0" />
+                  <div className="text-sm flex-1 min-w-0">
+                    <div className="font-medium">
+                      Combined scan results ({combinedSummary.sources})
+                    </div>
+                    <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                      <span><span className="text-status-pass font-medium">{combinedSummary.passes}</span> passed</span>
+                      <span><span className="text-status-fail font-medium">{combinedSummary.fails}</span> failed</span>
+                      {combinedSummary.warnings > 0 && (
+                        <span><span className="text-status-na font-medium">{combinedSummary.warnings}</span> warnings</span>
+                      )}
+                      {surfaceSummary && <span className="opacity-70">· Surface: {surfaceSummary.target}</span>}
+                      {repoSummary && <span className="opacity-70">· Repo: {repoSummary.repo} ({repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"})</span>}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Card>
-          )}
+                {failedItems.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border/60">
+                    <div className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
+                      Jump to failure
+                    </div>
+                    <ul className="space-y-1">
+                      {failedItems.map((it) => (
+                        <li key={it.id}>
+                          <button
+                            onClick={() => jumpTo(it)}
+                            className="w-full text-left text-sm flex items-start gap-2 px-2 py-1.5 rounded-md hover:bg-status-fail/5 group"
+                          >
+                            <X className="h-3.5 w-3.5 text-status-fail mt-0.5 shrink-0" />
+                            <span className="flex-1 min-w-0">
+                              <span className="font-medium group-hover:text-status-fail truncate block">{it.title}</span>
+                              <span className="text-xs text-muted-foreground">{it.category}</span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </Card>
+            );
+          })()}
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
