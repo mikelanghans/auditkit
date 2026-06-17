@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ import { runRepoScan } from "@/lib/repo-scan.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog } from "@/components/ai-scan-dialog";
+import { AIAssistDialog, AIAssistReviewPanel, type AIAssistSummary } from "@/components/ai-assist-dialog";
 import type { DepFinding } from "@/lib/dep-scan-core";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
@@ -38,7 +39,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null };
+type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null };
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -74,7 +75,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes, auto_scanned")
+        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
@@ -102,6 +103,7 @@ function AuditView() {
   const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
   const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
   const [aiSummary, setAISummary] = useState<AISummary | null>(null);
+  const [aiAssistSummary, setAIAssistSummary] = useState<AIAssistSummary | null>(null);
   const combinedSummary = useMemo(() => {
     if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary) return null;
     return {
@@ -310,7 +312,16 @@ function AuditView() {
             onRepoResult={setRepoSummary}
             onSupabaseResult={setSupabaseSummary}
             onAIResult={setAISummary}
+            onAIAssistResult={setAIAssistSummary}
           />
+          {aiAssistSummary && (
+            <AIAssistReviewPanel
+              auditId={id}
+              summary={aiAssistSummary}
+              onChange={setAIAssistSummary}
+              onRefresh={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+            />
+          )}
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
               const f = findingsMap.get(it.id);
@@ -465,6 +476,7 @@ function AuditView() {
                 item={it}
                 finding={f}
                 autoScanned={!!f?.auto_scanned}
+                aiAssisted={!!f?.ai_assisted}
                 onSet={(status, notes) => {
                   // Block changing another item while a Fail in this category has no notes
                   const blocker = rawCatItems.find((other) => {
@@ -498,7 +510,7 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult,
+  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onAIAssistResult,
 }: {
   auditId: string;
   appUrl: string | null;
@@ -511,6 +523,7 @@ function ShieldScanBanner({
   }) => void;
   onSupabaseResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
   onAIResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
+  onAIAssistResult: (s: AIAssistSummary) => void;
 }) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
@@ -576,6 +589,8 @@ function ShieldScanBanner({
           <RepoScanDialog auditId={auditId} onDone={onDone} onRepoResult={onRepoResult} />
           <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
           <AIScanDialog auditId={auditId} onDone={onDone} onResult={onAIResult} />
+          <AIAssistDialog auditId={auditId} onDone={onDone} onResult={onAIAssistResult} />
+          
           
         </div>
       </div>
@@ -595,8 +610,8 @@ function ShieldScanBanner({
 
 
 function ItemRow({
-  item, finding, autoScanned, onSet,
-}: { item: Item; finding: Finding | undefined; autoScanned: boolean; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
+  item, finding, autoScanned, aiAssisted, onSet,
+}: { item: Item; finding: Finding | undefined; autoScanned: boolean; aiAssisted: boolean; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
   const [notes, setNotes] = useState(finding?.notes ?? "");
   const status = finding?.status ?? null;
   const showNotes = status === "fail";
@@ -643,6 +658,11 @@ function ItemRow({
           {autoScanned && (
             <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide">
               <Sparkles className="h-3 w-3" /> Auto-detected
+            </Badge>
+          )}
+          {aiAssisted && (
+            <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide bg-purple-500/15 text-purple-700 dark:text-purple-300 hover:bg-purple-500/20">
+              <Brain className="h-3 w-3" /> AI Assisted
             </Badge>
           )}
           <div className="flex items-center gap-1">

@@ -1,0 +1,1 @@
+ALTER TABLE public.audit_findings ADD COLUMN IF NOT EXISTS ai_assisted boolean NOT NULL DEFAULT false;

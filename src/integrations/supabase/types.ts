@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       audit_findings: {
         Row: {
+          ai_assisted: boolean
           audit_id: string
           auto_scanned: boolean
           checklist_item_id: string
@@ -26,6 +27,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_assisted?: boolean
           audit_id: string
           auto_scanned?: boolean
           checklist_item_id: string
@@ -36,6 +38,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_assisted?: boolean
           audit_id?: string
           auto_scanned?: boolean
           checklist_item_id?: string
