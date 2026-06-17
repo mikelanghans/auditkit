@@ -47,13 +47,16 @@ async function gh<T = any>(url: string, token: string): Promise<T> {
 
 function scoreFile(path: string): number {
   const lower = path.toLowerCase();
-  if (lower.includes("node_modules/") || lower.includes(".lock") || lower.endsWith(".min.js")) return -1;
-  if (!/\.(ts|tsx|js|jsx|mjs|cjs|sql|toml|json|yml|yaml|env\.example)$/.test(lower)) return -1;
-  let s = 0;
+  if (lower.includes("node_modules/") || lower.includes("/dist/") || lower.includes("/build/")) return -1;
+  if (lower.endsWith(".lock") || lower.endsWith(".min.js") || lower.endsWith(".map")) return -1;
+  if (!/\.(ts|tsx|js|jsx|mjs|cjs|sql|toml)$|(^|\/)package\.json$|(^|\/)\.env(\.|$)/.test(lower)) return -1;
+  let s = 1; // baseline so any eligible source file is considered
   for (const dir of PRIORITY_DIRS) if (lower.startsWith(dir)) s += 10;
   for (const kw of PRIORITY_KEYWORDS) if (lower.includes(kw)) s += 5;
+  if (lower.startsWith("src/") || lower.startsWith("supabase/")) s += 2;
   if (lower.endsWith("package.json")) s += 2;
-  if (lower.includes("/components/")) s -= 2;
+  if (lower.includes("/components/ui/")) s -= 3;
+  if (lower.includes("/components/")) s -= 1;
   return s;
 }
 
