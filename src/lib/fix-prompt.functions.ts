@@ -22,7 +22,7 @@ const SYSTEM_PROMPTS: Record<FixTarget, string> = {
     "Given a security finding, generate a single prompt the developer can paste into Claude Code. " +
     "The prompt must: 1) Tell Claude which files to read first, 2) Specify the exact remediation with code, " +
     "3) Ask Claude to run the relevant tests/build, 4) Ask for a concise summary of changes, " +
-    "5) Preserve existing integrations, 6) Be under 220 words. Output only the prompt text — no preamble.";
+    "5) Preserve existing integrations, 6) Be under 220 words. Output only the prompt text — no preamble.",
 };
 
 const COLUMN: Record<FixTarget, "lovable_prompt" | "cursor_prompt" | "claude_prompt"> = {
