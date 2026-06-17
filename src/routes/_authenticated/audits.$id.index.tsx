@@ -22,7 +22,7 @@ import { runRepoScan } from "@/lib/repo-scan.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog } from "@/components/ai-scan-dialog";
-import { DependencyScanDialog, type DepScanResult } from "@/components/dependency-scan-dialog";
+import type { DepFinding } from "@/lib/dep-scan-core";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
@@ -84,27 +84,33 @@ function AuditView() {
   const hasAutoScanned = useMemo(() => (findings.data ?? []).some((f) => f.auto_scanned), [findings.data]);
 
   type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
-  type RepoSummary = { passes: number; fails: number; findings: number; repo: string; at: string };
+  type RepoSummary = {
+    passes: number; fails: number; findings: number; repo: string; at: string;
+    dep?: {
+      ok: boolean;
+      error?: string;
+      path?: string;
+      packagesScanned?: number;
+      counts?: { critical: number; high: number; medium: number; low: number };
+      status?: "pass" | "fail";
+      findings?: DepFinding[];
+    };
+  };
   type SupabaseSummary = { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string };
   type AISummary = { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string };
   const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
   const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
   const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
   const [aiSummary, setAISummary] = useState<AISummary | null>(null);
-  const [depResult, setDepResult] = useState<DepScanResult | null>(null);
-  const depPassFail = useMemo(() => {
-    if (!depResult) return { passes: 0, fails: 0 };
-    return { passes: depResult.status === "pass" ? 1 : 0, fails: depResult.status === "fail" ? 1 : 0 };
-  }, [depResult]);
   const combinedSummary = useMemo(() => {
-    if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary && !depResult) return null;
+    if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary) return null;
     return {
-      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0) + (aiSummary?.passes ?? 0) + depPassFail.passes,
-      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0) + (aiSummary?.fails ?? 0) + depPassFail.fails,
+      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0) + (aiSummary?.passes ?? 0),
+      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0) + (aiSummary?.fails ?? 0),
       warnings: surfaceSummary?.warnings ?? 0,
-      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase", aiSummary && "AI", depResult && "Deps"].filter(Boolean).join(" + "),
+      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase", aiSummary && "AI"].filter(Boolean).join(" + "),
     };
-  }, [surfaceSummary, repoSummary, supabaseSummary, aiSummary, depResult, depPassFail]);
+  }, [surfaceSummary, repoSummary, supabaseSummary, aiSummary]);
 
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
@@ -304,7 +310,6 @@ function AuditView() {
             onRepoResult={setRepoSummary}
             onSupabaseResult={setSupabaseSummary}
             onAIResult={setAISummary}
-            onDepResult={setDepResult}
           />
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
@@ -335,7 +340,7 @@ function AuditView() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
                   {surfaceSummary && (
                     <div className="rounded-md border border-border bg-card p-2">
                       <div className="font-medium text-foreground">Surface</div>
@@ -354,6 +359,9 @@ function AuditView() {
                         <span className="text-status-pass">{repoSummary.passes} pass</span> ·{" "}
                         <span className="text-status-fail">{repoSummary.fails} fail</span>
                         {repoSummary.findings > 0 && <> · {repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"}</>}
+                        {repoSummary.dep?.ok && repoSummary.dep.packagesScanned !== undefined && (
+                          <> · {repoSummary.dep.packagesScanned} pkgs / {(repoSummary.dep.findings?.length ?? 0)} flagged</>
+                        )}
                       </div>
                     </div>
                   )}
@@ -380,19 +388,6 @@ function AuditView() {
                         {aiSummary.critical > 0 && <span className="text-status-fail"> · {aiSummary.critical} critical</span>}
                         {aiSummary.high > 0 && <span className="text-status-fail"> · {aiSummary.high} high</span>}
                         {aiSummary.medium > 0 && <span className="text-status-na"> · {aiSummary.medium} medium</span>}
-                      </div>
-                    </div>
-                  )}
-                  {depResult && (
-                    <div className="rounded-md border border-border bg-card p-2">
-                      <div className="font-medium text-foreground">Dependencies</div>
-                      <div className="text-muted-foreground truncate">{depResult.repo} · {depResult.packagesScanned} pkgs</div>
-                      <div className="mt-1 space-x-1">
-                        {depResult.counts.critical > 0 && <span className="text-status-fail">{depResult.counts.critical} critical</span>}
-                        {depResult.counts.high > 0 && <span className="text-status-fail"> · {depResult.counts.high} high</span>}
-                        {depResult.counts.medium > 0 && <span className="text-status-na"> · {depResult.counts.medium} medium</span>}
-                        {depResult.counts.low > 0 && <span className="text-muted-foreground"> · {depResult.counts.low} low</span>}
-                        {depResult.findings.length === 0 && <span className="text-status-pass">all clean</span>}
                       </div>
                     </div>
                   )}
@@ -424,7 +419,7 @@ function AuditView() {
               </Card>
             );
           })()}
-          {depResult && depResult.findings.length > 0 && <DependencyResultsPanel result={depResult} />}
+          {repoSummary?.dep && <RepoDepPanel dep={repoSummary.dep} />}
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
@@ -503,17 +498,19 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onDepResult,
+  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult,
 }: {
   auditId: string;
   appUrl: string | null;
   hasScanned: boolean;
   onDone: () => void;
   onSurfaceResult: (s: { passes: number; fails: number; warnings: number; target: string; at: string }) => void;
-  onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
+  onRepoResult: (s: {
+    passes: number; fails: number; findings: number; repo: string; at: string;
+    dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+  }) => void;
   onSupabaseResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
   onAIResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
-  onDepResult: (r: DepScanResult) => void;
 }) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
@@ -579,7 +576,7 @@ function ShieldScanBanner({
           <RepoScanDialog auditId={auditId} onDone={onDone} onRepoResult={onRepoResult} />
           <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
           <AIScanDialog auditId={auditId} onDone={onDone} onResult={onAIResult} />
-          <DependencyScanDialog auditId={auditId} onDone={onDone} onResult={onDepResult} />
+          
         </div>
       </div>
       {pending && (
@@ -719,7 +716,10 @@ function StatusBtn({
 function RepoScanDialog({ auditId, onDone, onRepoResult }: {
   auditId: string;
   onDone: () => void;
-  onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
+  onRepoResult: (s: {
+    passes: number; fails: number; findings: number; repo: string; at: string;
+    dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+  }) => void;
 }) {
   const scan = useServerFn(runRepoScan);
   const [open, setOpen] = useState(false);
@@ -746,7 +746,7 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
       return;
     }
     setPending(true);
-    const tid = toast.loading("Scanning repo commits…");
+    const tid = toast.loading("Scanning repo commits & dependencies…");
     try {
       const res = await scan({ data: { auditId, repoUrl: repoUrl.trim(), token: token.trim() } });
       setProgress(100);
@@ -756,11 +756,24 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
       }
       const fails = res.results.filter((r) => r.status === "fail").length;
       const passes = res.results.filter((r) => r.status === "pass").length;
+      const dep = res.dep;
+      const depDesc = dep?.ok
+        ? ` · ${dep.packagesScanned} pkgs / ${dep.findings?.length ?? 0} vulnerable`
+        : dep && !dep.ok
+        ? ` · deps: ${dep.error}`
+        : "";
       toast.success(
         `Repo scan complete — ${passes} pass, ${fails} fail`,
-        { id: tid, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)` },
+        { id: tid, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}` },
       );
-      onRepoResult({ passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString() });
+      onRepoResult({
+        passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString(),
+        dep: dep
+          ? (dep.ok
+              ? { ok: true, path: dep.path, packagesScanned: dep.packagesScanned, counts: dep.counts, status: dep.status, findings: dep.findings }
+              : { ok: false, error: dep.error })
+          : undefined,
+      });
       onDone();
       reset();
       setOpen(false);
@@ -785,8 +798,9 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
               <Github className="h-4 w-4" /> Scan GitHub repo
             </DialogTitle>
             <DialogDescription>
-              Scans the last 100 commits on the default branch for committed <code>.env</code> files and known
-              secret patterns (Supabase service role, Stripe, OpenAI, Anthropic, AWS, PEM keys, GitHub tokens).
+              Two-phase scan: (1) last 100 commits on the default branch for committed <code>.env</code> files and known
+              secret patterns; (2) <code>package.json</code> dependencies checked against the npm advisory database for
+              known CVEs and version drift.
             </DialogDescription>
           </DialogHeader>
 
@@ -822,7 +836,7 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
             <div className="space-y-1.5">
               <Progress value={progress} />
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <Loader2 className="h-3 w-3 animate-spin" /> Fetching commits and scanning patches… this usually takes 10–15s.
+                <Loader2 className="h-3 w-3 animate-spin" /> Scanning commits + dependencies… this usually takes 15–25s.
               </p>
             </div>
           )}
@@ -839,68 +853,97 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
   );
 }
 
-type DepFindingSev = DepScanResult["findings"][number]["severity"];
+type RepoDep = NonNullable<Parameters<Parameters<typeof RepoScanDialog>[0]["onRepoResult"]>[0]["dep"]>;
 
-function DependencyResultsPanel({ result }: { result: DepScanResult }) {
-  const sevClass = (s: DepFindingSev) => {
+function RepoDepPanel({ dep }: { dep: RepoDep }) {
+  if (!dep.ok) {
+    return (
+      <Card className="p-4 border-l-4 border-l-status-na/60">
+        <div className="flex items-center gap-2">
+          <Package className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="font-medium text-sm">Dependency scan skipped</div>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">{dep.error}</p>
+      </Card>
+    );
+  }
+  const findings = dep.findings ?? [];
+  const counts = dep.counts ?? { critical: 0, high: 0, medium: 0, low: 0 };
+  const total = dep.packagesScanned ?? 0;
+
+  const sevClass = (s: DepFinding["severity"]) => {
     if (s === "critical") return "bg-status-fail/10 text-status-fail border-status-fail/40";
     if (s === "high") return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/40";
     if (s === "medium") return "bg-status-na/10 text-status-na border-status-na/40";
     return "bg-muted text-muted-foreground border-border";
   };
-  const rowClass = (s: DepFindingSev) => {
+  const rowClass = (s: DepFinding["severity"]) => {
     if (s === "critical") return "bg-status-fail/5";
     if (s === "high") return "bg-amber-500/5";
     return "";
   };
+
   return (
     <Card className="p-4 border-l-4 border-l-amber-500/60">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-1">
         <Package className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-        <div className="font-medium text-sm">Dependency scan — {result.repo}</div>
-        <div className="ml-auto text-xs text-muted-foreground">
-          {result.packagesScanned} scanned · {result.findings.length} flagged
-        </div>
+        <div className="font-medium text-sm">Repo scan — dependencies</div>
+        <div className="ml-auto text-xs text-muted-foreground">{dep.path}</div>
       </div>
-      <div className="overflow-x-auto rounded-md border border-border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="text-left px-3 py-2 font-medium">Package</th>
-              <th className="text-left px-3 py-2 font-medium">Current</th>
-              <th className="text-left px-3 py-2 font-medium">Latest</th>
-              <th className="text-left px-3 py-2 font-medium">Severity</th>
-              <th className="text-left px-3 py-2 font-medium">CVE / Reason</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.findings.map((f, i) => (
-              <tr key={`${f.name}-${i}`} className={cn("border-t border-border", rowClass(f.severity))}>
-                <td className="px-3 py-2 font-mono text-xs">{f.name}</td>
-                <td className="px-3 py-2 font-mono text-xs">{f.current}</td>
-                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{f.latest ?? "—"}</td>
-                <td className="px-3 py-2">
-                  <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-medium uppercase", sevClass(f.severity))}>
-                    {f.severity}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  {f.cve && (
-                    <a
-                      href={f.advisoryUrl ?? `https://nvd.nist.gov/vuln/detail/${f.cve}`}
-                      target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1 font-mono text-primary hover:underline"
-                    >
-                      {f.cve} <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                  <div className="text-muted-foreground">{f.reason}</div>
-                </td>
+      <p className="text-sm text-foreground mb-3">
+        <span className="font-medium">{total} packages scanned, {findings.length} vulnerable</span>
+        {findings.length > 0 && (
+          <span className="text-muted-foreground">
+            {" "}— {counts.critical} critical · {counts.high} high · {counts.medium} medium · {counts.low} low
+          </span>
+        )}
+      </p>
+
+      {findings.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No critical/high CVEs, no packages 2+ majors behind, no &gt;6-month-old pins.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium">Package</th>
+                <th className="text-left px-3 py-2 font-medium">Current Version</th>
+                <th className="text-left px-3 py-2 font-medium">Latest Version</th>
+                <th className="text-left px-3 py-2 font-medium">Severity</th>
+                <th className="text-left px-3 py-2 font-medium">CVE ID</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {findings.map((f: DepFinding, i: number) => (
+                <tr key={`${f.name}-${i}`} className={cn("border-t border-border", rowClass(f.severity))}>
+                  <td className="px-3 py-2 font-mono text-xs">{f.name}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{f.current}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{f.latest ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-medium uppercase", sevClass(f.severity))}>
+                      {f.severity}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {f.cve ? (
+                      <a
+                        href={f.advisoryUrl ?? `https://nvd.nist.gov/vuln/detail/${f.cve}`}
+                        target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-primary hover:underline"
+                      >
+                        {f.cve} <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                    <div className="text-muted-foreground">{f.reason}</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Card>
   );
 }
