@@ -436,7 +436,7 @@ function ShieldScanBanner({
               <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
             )}
           </Button>
-          <RepoScanDialog auditId={auditId} onDone={onDone} />
+          <RepoScanDialog auditId={auditId} onDone={onDone} onRepoResult={onRepoResult} />
         </div>
       </div>
       {pending && (
