@@ -265,7 +265,30 @@ function AuditView() {
             auditId={id}
             hasScanned={hasAutoScanned}
             onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+            onSurfaceResult={setSurfaceSummary}
+            onRepoResult={setRepoSummary}
           />
+          {combinedSummary && (
+            <Card className="p-3 border-l-4 border-l-primary/60 bg-primary/[0.02]">
+              <div className="flex items-start gap-3 flex-wrap">
+                <CheckCircle2 className="h-4 w-4 text-status-pass mt-0.5 shrink-0" />
+                <div className="text-sm flex-1 min-w-0">
+                  <div className="font-medium">
+                    Combined scan results ({combinedSummary.sources})
+                  </div>
+                  <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                    <span><span className="text-status-pass font-medium">{combinedSummary.passes}</span> passed</span>
+                    <span><span className="text-status-fail font-medium">{combinedSummary.fails}</span> failed</span>
+                    {combinedSummary.warnings > 0 && (
+                      <span><span className="text-status-na font-medium">{combinedSummary.warnings}</span> warnings</span>
+                    )}
+                    {surfaceSummary && <span className="opacity-70">· Surface: {surfaceSummary.target}</span>}
+                    {repoSummary && <span className="opacity-70">· Repo: {repoSummary.repo} ({repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"})</span>}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
