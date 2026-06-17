@@ -263,6 +263,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
     }
 
     return {
+      ok: true as const,
       repo: `${parsed.owner}/${parsed.repo}`,
       commitsScanned: commits.length,
       findings: unique,
