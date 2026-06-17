@@ -547,13 +547,12 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, appUrl, clientId, savedRepoUrl, savedToken, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onAIAssistResult,
+  auditId, appUrl, clientId, savedRepos, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onAIAssistResult,
 }: {
   auditId: string;
   appUrl: string | null;
   clientId: string | null;
-  savedRepoUrl: string | null;
-  savedToken: string | null;
+  savedRepos: SavedRepo[];
   hasScanned: boolean;
   onDone: () => void;
   onSurfaceResult: (s: { passes: number; fails: number; warnings: number; target: string; at: string }) => void;
