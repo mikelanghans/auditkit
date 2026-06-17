@@ -184,6 +184,16 @@ export const runAutoScan = createServerFn({ method: "POST" })
     const appUrl = (audit as any)?.client?.app_url as string | null | undefined;
     if (!appUrl) throw new Error("Client has no app URL set. Add one on the client and try again.");
     const base = normalizeUrl(appUrl);
+    try {
+      await assertSafeOutboundUrl(base);
+    } catch (e) {
+      if (e instanceof SSRFBlockedError) {
+        throw new Error(`Refusing to probe internal/private destination: ${e.message}`);
+      }
+      throw e;
+    }
+
+
 
     const results: CheckResult[] = [];
     let mainResp: Response | null = null;
