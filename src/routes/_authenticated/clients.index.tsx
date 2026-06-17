@@ -85,8 +85,6 @@ function NewClientDialog() {
         contact_name: contactName || null,
         contact_email: contactEmail || null,
         app_url: appUrl || null,
-        github_repo_url: githubRepoUrl || null,
-        github_token: githubToken || null,
         notes: notes || null,
         created_by: u.user.id,
       });
