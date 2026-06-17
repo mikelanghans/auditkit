@@ -189,21 +189,27 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "pa
 
 function SecurityScoreCard({ score, grade }: { score: number | null; grade: "A" | "B" | "C" | "D" | "F" | "—" }) {
   const tone = gradeTone(grade);
-  const toneCls = {
-    pass: "text-status-pass border-status-pass/40 bg-status-pass/10",
-    warn: "text-status-na border-status-na/40 bg-status-na/10",
-    fail: "text-status-fail border-status-fail/40 bg-status-fail/10",
-    muted: "text-muted-foreground border-border bg-muted/30",
+  const cardCls = {
+    pass: "border-l-status-pass bg-status-pass/[0.06]",
+    warn: "border-l-status-na bg-status-na/[0.06]",
+    fail: "border-l-status-fail bg-status-fail/[0.06]",
+    muted: "border-l-border",
+  }[tone];
+  const numCls = {
+    pass: "text-status-pass",
+    warn: "text-status-na",
+    fail: "text-status-fail",
+    muted: "text-foreground",
   }[tone];
   return (
-    <Card className={cn("p-3 border-l-4", toneCls)}>
+    <Card className={cn("p-3 border-l-4", cardCls)}>
       <div className="text-xs uppercase text-muted-foreground">Security Score</div>
       <div className="flex items-baseline gap-2 mt-1">
-        <span className={cn("text-3xl font-semibold tabular-nums", tone !== "muted" && `text-${tone === "pass" ? "status-pass" : tone === "warn" ? "status-na" : "status-fail"}`)}>
+        <span className={cn("text-3xl font-semibold tabular-nums", numCls)}>
           {score ?? "—"}
         </span>
         {score !== null && <span className="text-sm text-muted-foreground">/ 100</span>}
-        <span className="ml-auto inline-flex items-center justify-center min-w-[2.25rem] h-9 px-2 rounded-md border font-mono text-lg font-semibold">
+        <span className={cn("ml-auto inline-flex items-center justify-center min-w-[2.25rem] h-9 px-2 rounded-md border font-mono text-lg font-semibold", numCls)}>
           {grade}
         </span>
       </div>
