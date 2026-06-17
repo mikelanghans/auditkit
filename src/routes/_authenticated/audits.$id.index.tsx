@@ -23,6 +23,7 @@ import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog } from "@/components/ai-scan-dialog";
 import { AIAssistDialog, AIAssistReviewPanel, type AIAssistSummary } from "@/components/ai-assist-dialog";
+import { LovablePromptButton } from "@/components/lovable-prompt-dialog";
 import type { DepFinding } from "@/lib/dep-scan-core";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
@@ -39,7 +40,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null };
+type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null };
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -75,7 +76,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted")
+        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
@@ -473,6 +474,7 @@ function AuditView() {
             return (
               <ItemRow
                 key={it.id}
+                auditId={id}
                 item={it}
                 finding={f}
                 autoScanned={!!f?.auto_scanned}
@@ -610,8 +612,9 @@ function ShieldScanBanner({
 
 
 function ItemRow({
-  item, finding, autoScanned, aiAssisted, onSet,
-}: { item: Item; finding: Finding | undefined; autoScanned: boolean; aiAssisted: boolean; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
+  auditId, item, finding, autoScanned, aiAssisted, onSet,
+}: { auditId: string; item: Item; finding: Finding | undefined; autoScanned: boolean; aiAssisted: boolean; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
+  const qc = useQueryClient();
   const [notes, setNotes] = useState(finding?.notes ?? "");
   const status = finding?.status ?? null;
   const showNotes = status === "fail";
@@ -706,6 +709,20 @@ function ItemRow({
             <p className="text-xs text-status-fail">Findings are required before moving on.</p>
           )}
         </div>
+      )}
+      {status === "fail" && !missingNotes && (
+        <LovablePromptButton
+          auditId={auditId}
+          checklistItemId={item.id}
+          cachedPrompt={finding?.lovable_prompt ?? null}
+          onCached={(p) => {
+            qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
+              (prev ?? []).map((f) =>
+                f.checklist_item_id === item.id ? { ...f, lovable_prompt: p } : f,
+              ),
+            );
+          }}
+        />
       )}
     </Card>
   );
