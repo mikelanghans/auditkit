@@ -119,7 +119,10 @@ function AuditView() {
       status?: "pass" | "fail";
       findings?: DepFinding[];
     };
+    aiEndpoints?: DetectedEndpoint[];
+    aiDetectError?: string | null;
   };
+
   type SupabaseSummary = { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string };
   type AISummary = { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string };
   const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
