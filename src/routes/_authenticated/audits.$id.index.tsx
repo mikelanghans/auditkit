@@ -82,17 +82,19 @@ function AuditView() {
 
   type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
   type RepoSummary = { passes: number; fails: number; findings: number; repo: string; at: string };
+  type SupabaseSummary = { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string };
   const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
   const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
+  const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
   const combinedSummary = useMemo(() => {
-    if (!surfaceSummary && !repoSummary) return null;
+    if (!surfaceSummary && !repoSummary && !supabaseSummary) return null;
     return {
-      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0),
-      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0),
+      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0),
+      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0),
       warnings: surfaceSummary?.warnings ?? 0,
-      sources: [surfaceSummary && "Surface", repoSummary && "Repo"].filter(Boolean).join(" + "),
+      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase"].filter(Boolean).join(" + "),
     };
-  }, [surfaceSummary, repoSummary]);
+  }, [surfaceSummary, repoSummary, supabaseSummary]);
 
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
