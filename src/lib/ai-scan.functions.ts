@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertSafeOutboundUrl, SSRFBlockedError } from "./ssrf-guard";
+
 
 const TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 200_000;
@@ -180,7 +182,16 @@ export const runAIScan = createServerFn({ method: "POST" })
     if (!isValidHttpUrl(url)) {
       return { ok: false as const, error: "Endpoint URL must be a valid http(s) URL." };
     }
+    try {
+      await assertSafeOutboundUrl(url);
+    } catch (e) {
+      if (e instanceof SSRFBlockedError) {
+        return { ok: false as const, error: `Refusing to probe internal/private destination: ${e.message}` };
+      }
+      throw e;
+    }
     const promptField = (data.promptField?.trim() || "prompt").replace(/[^a-zA-Z0-9_]/g, "");
+
     if (!promptField) {
       return { ok: false as const, error: "Prompt field name is empty or invalid." };
     }

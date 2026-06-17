@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertSafeOutboundUrl, SSRFBlockedError } from "./ssrf-guard";
+
 
 const TIMEOUT_MS = 15_000;
 const MAX_TABLES_PROBED = 60;
@@ -297,6 +299,18 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     const pat = data.managementPat?.trim() || null;
     const appUrl = data.appUrl?.trim() || null;
     const projectRef = projectRefFromUrl(projectUrl);
+
+    try {
+      await assertSafeOutboundUrl(projectUrl);
+      if (appUrl) await assertSafeOutboundUrl(appUrl);
+    } catch (e) {
+      if (e instanceof SSRFBlockedError) {
+        return { ok: false as const, error: `Refusing to probe internal/private destination: ${e.message}` };
+      }
+      throw e;
+    }
+
+
 
     // Confirm audit ownership
     const { data: auditRow, error: aerr } = await supabase
