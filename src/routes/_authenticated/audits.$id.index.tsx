@@ -311,36 +311,60 @@ function AuditView() {
               }, 50);
             };
             return (
-              <Card className="p-3 border-l-4 border-l-primary/60 bg-primary/[0.02]">
-                <div className="flex items-start gap-3 flex-wrap">
-                  <CheckCircle2 className="h-4 w-4 text-status-pass mt-0.5 shrink-0" />
-                  <div className="text-sm flex-1 min-w-0">
-                    <div className="font-medium">
-                      Combined scan results ({combinedSummary.sources})
-                    </div>
-                    <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                      <span><span className="text-status-pass font-medium">{combinedSummary.passes}</span> passed</span>
-                      <span><span className="text-status-fail font-medium">{combinedSummary.fails}</span> failed</span>
-                      {combinedSummary.warnings > 0 && (
-                        <span><span className="text-status-na font-medium">{combinedSummary.warnings}</span> warnings</span>
-                      )}
-                      {surfaceSummary && <span className="opacity-70">· Surface: {surfaceSummary.target}</span>}
-                      {repoSummary && <span className="opacity-70">· Repo: {repoSummary.repo} ({repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"})</span>}
-                      {supabaseSummary && (
-                        <span className="opacity-70">
-                          · Supabase: {supabaseSummary.project}
-                          {supabaseSummary.leaks > 0 && <span className="text-status-fail"> · {supabaseSummary.leaks} table leak{supabaseSummary.leaks === 1 ? "" : "s"}</span>}
-                          {supabaseSummary.publicBuckets.length > 0 && <span className="text-status-na"> · {supabaseSummary.publicBuckets.length} public bucket{supabaseSummary.publicBuckets.length === 1 ? "" : "s"}</span>}
-                          {supabaseSummary.bundleMatches > 0 && <span className="text-status-fail"> · ⚠ key in bundle</span>}
-                        </span>
-                      )}
-                    </div>
+              <Card className="p-4 border-l-4 border-l-primary/60 bg-primary/[0.02]">
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckCircle2 className="h-4 w-4 text-status-pass shrink-0" />
+                  <div className="font-medium text-sm">Automated scan results</div>
+                  <div className="ml-auto text-xs text-muted-foreground">
+                    <span className="text-status-pass font-medium">{combinedSummary.passes}</span> passed ·{" "}
+                    <span className="text-status-fail font-medium">{combinedSummary.fails}</span> failed
+                    {combinedSummary.warnings > 0 && (
+                      <> · <span className="text-status-na font-medium">{combinedSummary.warnings}</span> warnings</>
+                    )}
                   </div>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  {surfaceSummary && (
+                    <div className="rounded-md border border-border bg-card p-2">
+                      <div className="font-medium text-foreground">Surface</div>
+                      <div className="text-muted-foreground truncate">{surfaceSummary.target}</div>
+                      <div className="mt-1">
+                        <span className="text-status-pass">{surfaceSummary.passes} pass</span> ·{" "}
+                        <span className="text-status-fail">{surfaceSummary.fails} fail</span>
+                      </div>
+                    </div>
+                  )}
+                  {repoSummary && (
+                    <div className="rounded-md border border-border bg-card p-2">
+                      <div className="font-medium text-foreground">Repo</div>
+                      <div className="text-muted-foreground truncate">{repoSummary.repo}</div>
+                      <div className="mt-1">
+                        <span className="text-status-pass">{repoSummary.passes} pass</span> ·{" "}
+                        <span className="text-status-fail">{repoSummary.fails} fail</span>
+                        {repoSummary.findings > 0 && <> · {repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"}</>}
+                      </div>
+                    </div>
+                  )}
+                  {supabaseSummary && (
+                    <div className="rounded-md border border-border bg-card p-2">
+                      <div className="font-medium text-foreground">Supabase</div>
+                      <div className="text-muted-foreground truncate">{supabaseSummary.project}</div>
+                      <div className="mt-1 space-x-1">
+                        <span className="text-status-pass">{supabaseSummary.passes} pass</span> ·{" "}
+                        <span className="text-status-fail">{supabaseSummary.fails} fail</span>
+                        {supabaseSummary.leaks > 0 && <span className="text-status-fail"> · {supabaseSummary.leaks} leak{supabaseSummary.leaks === 1 ? "" : "s"}</span>}
+                        {supabaseSummary.publicBuckets.length > 0 && <span className="text-status-na"> · {supabaseSummary.publicBuckets.length} public bucket{supabaseSummary.publicBuckets.length === 1 ? "" : "s"}</span>}
+                        {supabaseSummary.bundleMatches > 0 && <span className="text-status-fail"> · ⚠ key in bundle</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {failedItems.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-border/60">
+                  <div className="mt-4 pt-3 border-t border-border/60">
                     <div className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
-                      Jump to failure
+                      Jump to failure ({failedItems.length} across all scans)
                     </div>
                     <ul className="space-y-1">
                       {failedItems.map((it) => (
