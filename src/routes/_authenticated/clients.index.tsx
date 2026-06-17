@@ -93,7 +93,7 @@ function NewClientDialog() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients"] });
       setOpen(false);
-      setName(""); setContactName(""); setContactEmail(""); setAppUrl(""); setGithubRepoUrl(""); setGithubToken(""); setNotes("");
+      setName(""); setContactName(""); setContactEmail(""); setAppUrl(""); setNotes("");
       toast.success("Client added");
     },
     onError: (e: any) => toast.error(e.message),
