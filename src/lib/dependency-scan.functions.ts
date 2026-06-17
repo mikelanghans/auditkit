@@ -67,25 +67,44 @@ async function pMap<T, R>(items: T[], n: number, fn: (it: T) => Promise<R>): Pro
   return out;
 }
 
-async function fetchPackageJson(owner: string, repo: string, token: string): Promise<{ path: string; json: any } | null> {
+async function fetchPackageJson(owner: string, repo: string, token: string, defaultBranch: string): Promise<{ path: string; json: any } | null> {
   const headers = ghHeaders(token);
-  const paths = ["package.json", "src/package.json", "client/package.json"];
-  for (const p of paths) {
-    const r = await timedFetch(
-      `https://api.github.com/repos/${owner}/${repo}/contents/${p}`,
-      { headers },
-    );
-    if (!r.ok) continue;
-    const j = await r.json();
-    if (!j?.content) continue;
-    try {
-      const text = atob(String(j.content).replace(/\n/g, ""));
-      return { path: p, json: JSON.parse(text) };
-    } catch {
-      continue;
+  const tryPaths = async (paths: string[]) => {
+    for (const p of paths) {
+      const r = await timedFetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${p}?ref=${encodeURIComponent(defaultBranch)}`,
+        { headers },
+      );
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (!j?.content) continue;
+      try {
+        const text = atob(String(j.content).replace(/\n/g, ""));
+        return { path: p, json: JSON.parse(text) };
+      } catch {
+        continue;
+      }
     }
-  }
-  return null;
+    return null;
+  };
+
+  // First try the common locations
+  const common = await tryPaths(["package.json", "src/package.json", "client/package.json", "app/package.json", "web/package.json", "frontend/package.json", "apps/web/package.json", "packages/web/package.json"]);
+  if (common) return common;
+
+  // Fall back to scanning the tree for any package.json (skip node_modules)
+  const tree = await timedFetch(
+    `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`,
+    { headers },
+  );
+  if (!tree.ok) return null;
+  const treeJson = await tree.json();
+  const candidates: string[] = (treeJson.tree ?? [])
+    .filter((n: any) => n.type === "blob" && /(^|\/)package\.json$/.test(String(n.path)) && !/node_modules\//.test(String(n.path)))
+    .map((n: any) => String(n.path))
+    .sort((a: string, b: string) => a.split("/").length - b.split("/").length);
+  if (candidates.length === 0) return null;
+  return tryPaths(candidates);
 }
 
 type NpmMeta = { latest: string | null; latestTime: string | null; currentTime: string | null };
@@ -145,10 +164,12 @@ export const runDependencyScan = createServerFn({ method: "POST" })
     if (repoMeta.status === 401) return { ok: false as const, error: "GitHub rejected the token (401). Check that it has read access." };
     if (repoMeta.status === 404) return { ok: false as const, error: "Repo not found (404)." };
     if (!repoMeta.ok) return { ok: false as const, error: `GitHub repo lookup failed (${repoMeta.status}).` };
+    const repoMetaJson: any = await repoMeta.json();
+    const defaultBranch: string = repoMetaJson.default_branch ?? "main";
 
-    const pkg = await fetchPackageJson(parsed.owner, parsed.repo, data.token);
+    const pkg = await fetchPackageJson(parsed.owner, parsed.repo, data.token, defaultBranch);
     if (!pkg) {
-      return { ok: false as const, error: "package.json not found at root, src/, or client/." };
+      return { ok: false as const, error: `No package.json found in ${parsed.owner}/${parsed.repo} (searched common paths and the full repo tree on branch ${defaultBranch}).` };
     }
 
     const deps: Record<string, string> = {

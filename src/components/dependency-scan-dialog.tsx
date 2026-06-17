@@ -36,6 +36,7 @@ export function DependencyScanDialog({
   const [token, setToken] = useState("");
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!pending) { setProgress(0); return; }
@@ -46,12 +47,13 @@ export function DependencyScanDialog({
     return () => clearInterval(iv);
   }, [pending]);
 
-  const reset = () => { setRepoUrl(""); setToken(""); };
+  const reset = () => { setRepoUrl(""); setToken(""); setErrorMsg(null); };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
     if (!repoUrl.trim() || !token.trim()) {
-      toast.error("Enter both the repo URL and a personal access token.");
+      setErrorMsg("Enter both the repo URL and a personal access token.");
       return;
     }
     setPending(true);
@@ -60,6 +62,7 @@ export function DependencyScanDialog({
       const res = await scan({ data: { auditId, repoUrl: repoUrl.trim(), token: token.trim() } });
       setProgress(100);
       if (!res.ok) {
+        setErrorMsg(res.error);
         toast.error(res.error, { id: tid });
         return;
       }
@@ -80,7 +83,9 @@ export function DependencyScanDialog({
       reset();
       setOpen(false);
     } catch (err: any) {
-      toast.error(err?.message ?? "Dependency scan failed", { id: tid });
+      const msg = err?.message ?? "Dependency scan failed";
+      setErrorMsg(msg);
+      toast.error(msg, { id: tid });
     } finally {
       setTimeout(() => setPending(false), 400);
     }
@@ -142,6 +147,13 @@ export function DependencyScanDialog({
               </p>
             </div>
           )}
+
+          {errorMsg && !pending && (
+            <div className="rounded-md border border-status-fail/40 bg-status-fail/5 px-3 py-2 text-xs text-status-fail">
+              {errorMsg}
+            </div>
+          )}
+
 
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={pending} onClick={() => setOpen(false)}>Cancel</Button>
