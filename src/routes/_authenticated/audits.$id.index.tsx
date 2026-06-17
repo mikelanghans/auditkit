@@ -716,7 +716,10 @@ function StatusBtn({
 function RepoScanDialog({ auditId, onDone, onRepoResult }: {
   auditId: string;
   onDone: () => void;
-  onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
+  onRepoResult: (s: {
+    passes: number; fails: number; findings: number; repo: string; at: string;
+    dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+  }) => void;
 }) {
   const scan = useServerFn(runRepoScan);
   const [open, setOpen] = useState(false);
@@ -743,7 +746,7 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
       return;
     }
     setPending(true);
-    const tid = toast.loading("Scanning repo commits…");
+    const tid = toast.loading("Scanning repo commits & dependencies…");
     try {
       const res = await scan({ data: { auditId, repoUrl: repoUrl.trim(), token: token.trim() } });
       setProgress(100);
@@ -753,11 +756,24 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
       }
       const fails = res.results.filter((r) => r.status === "fail").length;
       const passes = res.results.filter((r) => r.status === "pass").length;
+      const dep = res.dep;
+      const depDesc = dep?.ok
+        ? ` · ${dep.packagesScanned} pkgs / ${dep.findings?.length ?? 0} vulnerable`
+        : dep && !dep.ok
+        ? ` · deps: ${dep.error}`
+        : "";
       toast.success(
         `Repo scan complete — ${passes} pass, ${fails} fail`,
-        { id: tid, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)` },
+        { id: tid, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}` },
       );
-      onRepoResult({ passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString() });
+      onRepoResult({
+        passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString(),
+        dep: dep
+          ? (dep.ok
+              ? { ok: true, path: dep.path, packagesScanned: dep.packagesScanned, counts: dep.counts, status: dep.status, findings: dep.findings }
+              : { ok: false, error: dep.error })
+          : undefined,
+      });
       onDone();
       reset();
       setOpen(false);
