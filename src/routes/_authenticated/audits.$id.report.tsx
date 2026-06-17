@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon } from "lucide-react";
+import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { ExplainButton } from "@/components/explain-button";
@@ -108,6 +108,22 @@ function ReportPage() {
   const effort = useMemo(() => estimateRemediationHours(risk), [risk]);
   const verdict = useMemo(() => launchRecommendation(security.score, risk), [security.score, risk]);
 
+  const scopeSnapshot = useMemo(() => {
+    return grouped.map(([cat, list]) => {
+      let pass = 0, fail = 0, na = 0, unanswered = 0;
+      list.forEach((it: any) => {
+        const s = map.get(it.id)?.status;
+        if (s === "pass") pass++;
+        else if (s === "fail") fail++;
+        else if (s === "na") na++;
+        else unanswered++;
+      });
+      const status: "pass" | "warn" | "fail" =
+        fail > 0 ? "fail" : unanswered > 0 ? "warn" : "pass";
+      return { cat, status, pass, fail, na, unanswered, total: list.length };
+    });
+  }, [grouped, map]);
+
   return (
     <div className="space-y-6 print:space-y-4">
       <div className="flex items-center justify-between print:hidden">
@@ -140,6 +156,8 @@ function ReportPage() {
           totals={totals}
         />
 
+        <ScopeSnapshot items={scopeSnapshot} score={security.score} />
+
         {grouped.map(([cat, list]) => (
           <section key={cat} className="mb-6 break-inside-avoid">
             <h2 className="text-lg font-semibold border-b pb-2 mb-3">{cat}</h2>
@@ -158,18 +176,12 @@ function ReportPage() {
                   );
                 }
                 return (
-                  <div key={it.id} className="border rounded-lg p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">{it.title}</span>
-                          <SeverityBadge severity={it.severity} />
-                        </div>
-                        {it.description && <p className="text-sm text-muted-foreground mt-1">{it.description}</p>}
-                      </div>
-                      <StatusPill status={f?.status} />
-                    </div>
-                  </div>
+                  <PassFindingCard
+                    key={it.id}
+                    item={it}
+                    status={f?.status}
+                    notes={f?.notes ?? null}
+                  />
                 );
               })}
             </div>
@@ -425,5 +437,121 @@ function StatusPill({ status }: { status: string | null | undefined }) {
     <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold uppercase", cls)}>
       {status}
     </span>
+  );
+}
+
+function ScopeSnapshot({
+  items,
+  score,
+}: {
+  items: { cat: string; status: "pass" | "warn" | "fail"; pass: number; fail: number; na: number; unanswered: number; total: number }[];
+  score: number | null;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <section className="mb-8 rounded-xl border bg-muted/20 p-5 break-inside-avoid">
+      <div className="flex items-baseline justify-between mb-4">
+        <h2 className="text-lg font-semibold">Audit Scope Snapshot</h2>
+        <div className="font-mono text-xs text-muted-foreground">
+          Security Score: <span className="text-foreground font-semibold">{score ?? "—"}</span> / 100
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {items.map((it) => {
+          const Icon = it.status === "pass" ? Check : it.status === "warn" ? AlertTriangle : X;
+          const tone =
+            it.status === "pass" ? "text-status-pass border-status-pass/40 bg-status-pass/[0.06]" :
+            it.status === "warn" ? "text-status-na border-status-na/40 bg-status-na/[0.06]" :
+            "text-status-fail border-status-fail/40 bg-status-fail/[0.06]";
+          return (
+            <div key={it.cat} className={cn("rounded-lg border p-3 flex flex-col gap-2", tone)}>
+              <div className="text-sm font-semibold text-foreground truncate" title={it.cat}>{it.cat}</div>
+              <div className="flex items-center justify-between">
+                <Icon className="h-5 w-5" />
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  {it.pass}/{it.total}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground mt-3">
+        Snapshot of each audit area. A category is marked failing if any check failed, or pending if any check is unanswered.
+      </p>
+    </section>
+  );
+}
+
+function PassFindingCard({
+  item,
+  status,
+  notes,
+}: {
+  item: any;
+  status: string | null | undefined;
+  notes: string | null;
+}) {
+  const isPass = status === "pass";
+  const isNa = status === "na";
+  const isUnanswered = !status;
+  const Icon = isPass ? Check : isNa ? Minus : AlertTriangle;
+  const tone = isPass
+    ? "border-l-status-pass"
+    : isNa
+    ? "border-l-muted-foreground/40"
+    : "border-l-status-na";
+
+  return (
+    <Card className={cn("border-l-4 p-4 space-y-3", tone)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold">{item.title}</span>
+            <SeverityBadge severity={item.severity} />
+            <span className="text-xs text-muted-foreground">· {item.category}</span>
+          </div>
+        </div>
+        <div className={cn(
+          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold uppercase tracking-wide shrink-0",
+          isPass && "bg-status-pass/15 text-status-pass",
+          isNa && "bg-muted text-muted-foreground",
+          isUnanswered && "bg-status-na/15 text-status-na",
+        )}>
+          <Icon className="h-3.5 w-3.5" />
+          {isPass ? "Passed" : isNa ? "N/A" : "Unanswered"}
+        </div>
+      </div>
+
+      <DetailRow label="Why it matters">
+        <p className="text-sm text-muted-foreground">
+          {item.description ?? "Maintaining this control reduces risk in the audited surface area."}
+        </p>
+      </DetailRow>
+
+      <DetailRow label="Evidence">
+        {notes ? (
+          <EvidenceBlocks notes={notes} />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {isPass
+              ? "Verified during this audit."
+              : isNa
+              ? "Not applicable to this project."
+              : "Not yet reviewed."}
+          </p>
+        )}
+      </DetailRow>
+
+      <DetailRow label="Recommendation">
+        <p className="text-sm text-muted-foreground">
+          {isPass
+            ? "No action required — keep this control in place and re-verify on the next audit."
+            : isNa
+            ? "No action required. Re-evaluate if scope changes."
+            : "Review this check and record a pass / fail / N/A before finalizing the report."}
+        </p>
+      </DetailRow>
+    </Card>
   );
 }
