@@ -326,6 +326,14 @@ function AuditView() {
                       )}
                       {surfaceSummary && <span className="opacity-70">· Surface: {surfaceSummary.target}</span>}
                       {repoSummary && <span className="opacity-70">· Repo: {repoSummary.repo} ({repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"})</span>}
+                      {supabaseSummary && (
+                        <span className="opacity-70">
+                          · Supabase: {supabaseSummary.project}
+                          {supabaseSummary.leaks > 0 && <span className="text-status-fail"> · {supabaseSummary.leaks} table leak{supabaseSummary.leaks === 1 ? "" : "s"}</span>}
+                          {supabaseSummary.publicBuckets.length > 0 && <span className="text-status-na"> · {supabaseSummary.publicBuckets.length} public bucket{supabaseSummary.publicBuckets.length === 1 ? "" : "s"}</span>}
+                          {supabaseSummary.bundleMatches > 0 && <span className="text-status-fail"> · ⚠ key in bundle</span>}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
