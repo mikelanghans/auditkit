@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { runDepScan } from "./dep-scan-core";
+import { detectAIEndpointsCore, type DetectedEndpoint } from "./ai-endpoint-detect.functions";
+
 
 const TIMEOUT_MS = 15_000;
 const MAX_COMMITS = 100;
