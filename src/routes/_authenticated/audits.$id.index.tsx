@@ -335,7 +335,7 @@ function AuditView() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
                   {surfaceSummary && (
                     <div className="rounded-md border border-border bg-card p-2">
                       <div className="font-medium text-foreground">Surface</div>
@@ -380,6 +380,19 @@ function AuditView() {
                         {aiSummary.critical > 0 && <span className="text-status-fail"> · {aiSummary.critical} critical</span>}
                         {aiSummary.high > 0 && <span className="text-status-fail"> · {aiSummary.high} high</span>}
                         {aiSummary.medium > 0 && <span className="text-status-na"> · {aiSummary.medium} medium</span>}
+                      </div>
+                    </div>
+                  )}
+                  {depResult && (
+                    <div className="rounded-md border border-border bg-card p-2">
+                      <div className="font-medium text-foreground">Dependencies</div>
+                      <div className="text-muted-foreground truncate">{depResult.repo} · {depResult.packagesScanned} pkgs</div>
+                      <div className="mt-1 space-x-1">
+                        {depResult.counts.critical > 0 && <span className="text-status-fail">{depResult.counts.critical} critical</span>}
+                        {depResult.counts.high > 0 && <span className="text-status-fail"> · {depResult.counts.high} high</span>}
+                        {depResult.counts.medium > 0 && <span className="text-status-na"> · {depResult.counts.medium} medium</span>}
+                        {depResult.counts.low > 0 && <span className="text-muted-foreground"> · {depResult.counts.low} low</span>}
+                        {depResult.findings.length === 0 && <span className="text-status-pass">all clean</span>}
                       </div>
                     </div>
                   )}
