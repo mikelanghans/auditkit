@@ -1,5 +1,6 @@
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
@@ -9,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Brain, Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import { runAIAssist, applyAIAssistFinding, type AIAssistFinding } from "@/lib/ai-assist.functions";
 
 export type AIAssistSummary = {
@@ -21,17 +23,25 @@ export type AIAssistSummary = {
 
 export function AIAssistDialog({
   auditId,
+  clientId,
+  savedRepoUrl,
+  savedToken,
   onDone,
   onResult,
 }: {
   auditId: string;
+  clientId?: string | null;
+  savedRepoUrl?: string | null;
+  savedToken?: string | null;
   onDone: () => void;
   onResult: (s: AIAssistSummary) => void;
 }) {
   const scan = useServerFn(runAIAssist);
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
   const [token, setToken] = useState("");
+  const [saveForClient, setSaveForClient] = useState(true);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -46,18 +56,13 @@ export function AIAssistDialog({
 
   const reset = () => { setRepoUrl(""); setToken(""); };
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repoUrl.trim() || !token.trim()) {
-      toast.error("Enter the GitHub repo URL and a personal access token.");
-      return;
-    }
+  const runScan = async (repo: string, tok: string) => {
     setPending(true);
     const tid = toast.loading("AI Assist analyzing repository…");
     try {
-      const res = await scan({ data: { auditId, repoUrl: repoUrl.trim(), token: token.trim() } });
+      const res = await scan({ data: { auditId, repoUrl: repo, token: tok } });
       setProgress(100);
-      if (!res.ok) { toast.error(res.error, { id: tid }); return; }
+      if (!res.ok) { toast.error(res.error, { id: tid }); return false; }
       toast.success(
         `AI Assist found ${res.highApplied} high-confidence finding${res.highApplied === 1 ? "" : "s"} (auto-applied) and ${res.mediumPending.length} suggestion${res.mediumPending.length === 1 ? "" : "s"} awaiting your review`,
         { id: tid, description: `${res.repo} · ${res.filesScanned} files reviewed` },
@@ -70,20 +75,61 @@ export function AIAssistDialog({
         at: new Date().toISOString(),
       });
       onDone();
-      reset();
-      setOpen(false);
+      return true;
     } catch (err: any) {
       toast.error(err?.message ?? "AI Assist failed", { id: tid });
+      return false;
     } finally {
       setTimeout(() => setPending(false), 400);
+    }
+  };
+
+  const hasSaved = !!(savedRepoUrl && savedToken);
+
+  const handleTriggerClick = async (e: React.MouseEvent) => {
+    if (hasSaved) {
+      e.preventDefault();
+      await runScan(savedRepoUrl!, savedToken!);
+    }
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!repoUrl.trim() || !token.trim()) {
+      toast.error("Enter the GitHub repo URL and a personal access token.");
+      return;
+    }
+    const ok = await runScan(repoUrl.trim(), token.trim());
+    if (ok && saveForClient && clientId) {
+      const { error } = await supabase
+        .from("clients")
+        .update({ github_repo_url: repoUrl.trim(), github_token: token.trim() })
+        .eq("id", clientId);
+      if (error) toast.error(`Saved scan, but failed to store credentials: ${error.message}`);
+      else {
+        qc.invalidateQueries({ queryKey: ["audit", auditId] });
+        qc.invalidateQueries({ queryKey: ["client", clientId] });
+        toast.success("GitHub credentials saved for this client");
+      }
+    }
+    if (ok) {
+      reset();
+      setOpen(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) reset(); setOpen(o); } }}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300">
-          <Brain className="h-4 w-4 mr-1" /> AI Assist
+        <Button
+          variant="outline"
+          onClick={handleTriggerClick}
+          disabled={pending}
+          className="border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
+        >
+          {pending && hasSaved ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Brain className="h-4 w-4 mr-1" />}
+          AI Assist
+          {hasSaved && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-status-pass" title="Using saved credentials" />}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
@@ -124,9 +170,25 @@ export function AIAssistDialog({
               autoComplete="off"
             />
             <p className="text-xs text-muted-foreground">
-              Needs <code>repo</code> read access. Used only to fetch source files; not stored.
+              Needs <code>repo</code> read access. Used only to fetch source files.
             </p>
           </div>
+
+          {clientId && (
+            <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={saveForClient}
+                onChange={(e) => setSaveForClient(e.target.checked)}
+                disabled={pending}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-navy"
+              />
+              <span>
+                <span className="font-medium">Save for this client</span>
+                <span className="block text-xs text-muted-foreground">Reuse for future Scan Repo / AI Assist runs without re-entering.</span>
+              </span>
+            </label>
+          )}
 
           {pending && <Progress value={progress} />}
 

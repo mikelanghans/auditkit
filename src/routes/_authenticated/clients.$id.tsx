@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { ArrowLeft, ArrowRight, Pencil } from "lucide-react";
+import { ArrowLeft, ArrowRight, Pencil, Github, Unlink } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { NewAuditDialog } from "./dashboard";
@@ -64,9 +64,6 @@ function ClientDetail() {
             {client.data.app_url && (
               <p className="text-sm mt-1"><span className="text-muted-foreground">App:</span>{" "}<a href={client.data.app_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">{client.data.app_url}</a></p>
             )}
-            {client.data.github_repo_url && (
-              <p className="text-sm"><span className="text-muted-foreground">Repo:</span>{" "}<a href={client.data.github_repo_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">{client.data.github_repo_url}</a>{client.data.github_token ? " · PAT set" : " · no PAT"}</p>
-            )}
             {client.data.notes && (
               <p className="text-sm mt-3 max-w-2xl whitespace-pre-wrap">{client.data.notes}</p>
             )}
@@ -77,6 +74,9 @@ function ClientDetail() {
           </div>
         </div>
       )}
+
+      {client.data && <ConnectedAccountsSection client={client.data} />}
+
 
       <section>
         <h2 className="text-lg font-semibold mb-3">Audits</h2>
@@ -167,8 +167,6 @@ function EditClientDialog({ client }: { client: any }) {
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
           <Field label="App URL" value={appUrl} onChange={setAppUrl} type="url" />
-          <Field label="GitHub repo URL" value={githubRepoUrl} onChange={setGithubRepoUrl} type="url" placeholder="https://github.com/owner/repo" />
-          <Field label="GitHub access token" value={githubToken} onChange={setGithubToken} type="password" placeholder="Fine-grained PAT with repo: read" />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
@@ -190,5 +188,145 @@ function Field({ label, value, onChange, type = "text", required, placeholder }:
       <Label>{label}{required ? " *" : ""}</Label>
       <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
     </div>
+  );
+}
+
+function ConnectedAccountsSection({ client }: { client: any }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [repoUrl, setRepoUrl] = useState(client.github_repo_url ?? "");
+  const [token, setToken] = useState("");
+  const connected = !!(client.github_repo_url && client.github_token);
+
+  useEffect(() => {
+    setRepoUrl(client.github_repo_url ?? "");
+    setToken("");
+  }, [client.id, client.github_repo_url, client.github_token]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const update: any = { github_repo_url: repoUrl.trim() || null };
+      if (token.trim()) update.github_token = token.trim();
+      const { error } = await supabase.from("clients").update(update).eq("id", client.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client", client.id] });
+      setEditing(false);
+      setToken("");
+      toast.success("GitHub credentials saved");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const disconnect = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("clients")
+        .update({ github_repo_url: null, github_token: null })
+        .eq("id", client.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client", client.id] });
+      setRepoUrl("");
+      setToken("");
+      toast.success("GitHub disconnected");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  return (
+    <section>
+      <h2 className="text-lg font-semibold mb-3">Connected Accounts</h2>
+      <Card className="p-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="rounded-md bg-muted p-2 shrink-0">
+              <Github className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">GitHub</span>
+                {connected ? (
+                  <span className="inline-flex items-center gap-1 text-xs text-status-pass">
+                    <span className="h-1.5 w-1.5 rounded-full bg-status-pass" /> Connected
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Not connected</span>
+                )}
+              </div>
+              {connected && !editing && (
+                <a href={client.github_repo_url} target="_blank" rel="noreferrer" className="text-sm text-navy hover:underline break-all">
+                  {client.github_repo_url}
+                </a>
+              )}
+              {!connected && !editing && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Add a repo URL and PAT to enable one-click Scan Repo and AI Assist.
+                </p>
+              )}
+            </div>
+          </div>
+          {!editing && (
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                <Pencil className="h-3.5 w-3.5 mr-1" /> {connected ? "Update" : "Connect"}
+              </Button>
+              {connected && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => disconnect.mutate()}
+                  disabled={disconnect.isPending}
+                  className="text-status-fail border-status-fail/40 hover:bg-status-fail/5 hover:text-status-fail"
+                >
+                  <Unlink className="h-3.5 w-3.5 mr-1" /> Disconnect
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {editing && (
+          <div className="space-y-3 mt-4">
+            <div className="space-y-1.5">
+              <Label>Repository URL</Label>
+              <Input
+                type="url"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://github.com/owner/repo"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Personal Access Token</Label>
+              <Input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder={client.github_token ? "•••••••• (leave blank to keep existing)" : "ghp_… or github_pat_…"}
+              />
+              <p className="text-xs text-muted-foreground">
+                Fine-grained PAT needs <em>Contents: Read</em> + <em>Metadata: Read</em>. Stored on the client and reused for future scans.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setRepoUrl(client.github_repo_url ?? ""); setToken(""); }}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => save.mutate()}
+                disabled={save.isPending || !repoUrl.trim() || (!client.github_token && !token.trim())}
+                className="bg-navy text-navy-foreground hover:bg-navy/90"
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </section>
   );
 }
