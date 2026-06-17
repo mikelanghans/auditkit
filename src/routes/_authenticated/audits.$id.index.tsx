@@ -798,8 +798,9 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
               <Github className="h-4 w-4" /> Scan GitHub repo
             </DialogTitle>
             <DialogDescription>
-              Scans the last 100 commits on the default branch for committed <code>.env</code> files and known
-              secret patterns (Supabase service role, Stripe, OpenAI, Anthropic, AWS, PEM keys, GitHub tokens).
+              Two-phase scan: (1) last 100 commits on the default branch for committed <code>.env</code> files and known
+              secret patterns; (2) <code>package.json</code> dependencies checked against the npm advisory database for
+              known CVEs and version drift.
             </DialogDescription>
           </DialogHeader>
 
