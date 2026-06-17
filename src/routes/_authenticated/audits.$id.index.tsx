@@ -790,8 +790,11 @@ function StatusBtn({
   );
 }
 
-function RepoScanDialog({ auditId, onDone, onRepoResult }: {
+function RepoScanDialog({ auditId, clientId, savedRepoUrl, savedToken, onDone, onRepoResult }: {
   auditId: string;
+  clientId: string | null;
+  savedRepoUrl: string | null;
+  savedToken: string | null;
   onDone: () => void;
   onRepoResult: (s: {
     passes: number; fails: number; findings: number; repo: string; at: string;
@@ -799,9 +802,11 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
   }) => void;
 }) {
   const scan = useServerFn(runRepoScan);
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
   const [token, setToken] = useState("");
+  const [saveForClient, setSaveForClient] = useState(true);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -816,20 +821,15 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
 
   const reset = () => { setRepoUrl(""); setToken(""); };
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repoUrl.trim() || !token.trim()) {
-      toast.error("Enter both the repo URL and a personal access token.");
-      return;
-    }
+  const runScan = async (repo: string, tok: string) => {
     setPending(true);
     const tid = toast.loading("Scanning repo commits & dependencies…");
     try {
-      const res = await scan({ data: { auditId, repoUrl: repoUrl.trim(), token: token.trim() } });
+      const res = await scan({ data: { auditId, repoUrl: repo, token: tok } });
       setProgress(100);
       if (!res.ok) {
         toast.error(res.error, { id: tid });
-        return;
+        return false;
       }
       const fails = res.results.filter((r) => r.status === "fail").length;
       const passes = res.results.filter((r) => r.status === "pass").length;
@@ -852,20 +852,56 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
           : undefined,
       });
       onDone();
-      reset();
-      setOpen(false);
+      return true;
     } catch (err: any) {
       toast.error(err?.message ?? "Repo scan failed", { id: tid });
+      return false;
     } finally {
       setTimeout(() => setPending(false), 400);
+    }
+  };
+
+  const hasSaved = !!(savedRepoUrl && savedToken);
+
+  const handleTriggerClick = async (e: React.MouseEvent) => {
+    if (hasSaved) {
+      e.preventDefault();
+      await runScan(savedRepoUrl!, savedToken!);
+    }
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!repoUrl.trim() || !token.trim()) {
+      toast.error("Enter both the repo URL and a personal access token.");
+      return;
+    }
+    const ok = await runScan(repoUrl.trim(), token.trim());
+    if (ok && saveForClient && clientId) {
+      const { error } = await supabase
+        .from("clients")
+        .update({ github_repo_url: repoUrl.trim(), github_token: token.trim() })
+        .eq("id", clientId);
+      if (error) toast.error(`Saved scan, but failed to store credentials: ${error.message}`);
+      else {
+        qc.invalidateQueries({ queryKey: ["audit", auditId] });
+        qc.invalidateQueries({ queryKey: ["client", clientId] });
+        toast.success("GitHub credentials saved for this client");
+      }
+    }
+    if (ok) {
+      reset();
+      setOpen(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!pending) setOpen(o); }}>
       <DialogTrigger asChild>
-        <Button variant="outline">
-          <GitBranch className="h-4 w-4 mr-1" /> Scan Repo
+        <Button variant="outline" onClick={handleTriggerClick} disabled={pending}>
+          {pending && hasSaved ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1" />}
+          Scan Repo
+          {hasSaved && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-status-pass" title="Using saved credentials" />}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
@@ -905,9 +941,25 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
               autoComplete="off"
             />
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Needs <strong>read-only repo scope</strong> (Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>, or a classic PAT with <code>repo</code> for private repos / <code>public_repo</code> for public). The token is <strong>never stored</strong> — it is used only for this scan and discarded afterward.
+              Needs <strong>read-only repo scope</strong> (Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>, or a classic PAT with <code>repo</code> for private repos / <code>public_repo</code> for public).
             </p>
           </div>
+
+          {clientId && (
+            <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={saveForClient}
+                onChange={(e) => setSaveForClient(e.target.checked)}
+                disabled={pending}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-navy"
+              />
+              <span>
+                <span className="font-medium">Save for this client</span>
+                <span className="block text-xs text-muted-foreground">Reuse for future Scan Repo / AI Assist runs without re-entering.</span>
+              </span>
+            </label>
+          )}
 
           {pending && (
             <div className="space-y-1.5">
