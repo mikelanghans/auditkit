@@ -92,13 +92,14 @@ async function pMap<T, R>(items: T[], n: number, fn: (it: T) => Promise<R>): Pro
 
 export const runRepoScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { auditId: string; repoUrl: string; token: string }) => {
+  .inputValidator((input: { auditId: string; repoUrl: string; token: string; appUrl?: string | null }) => {
     if (!input?.auditId || typeof input.auditId !== "string") throw new Error("auditId required");
     if (!input?.repoUrl || typeof input.repoUrl !== "string") throw new Error("repoUrl required");
     if (!input?.token || typeof input.token !== "string") throw new Error("token required");
     if (input.token.length < 20) throw new Error("token looks too short to be a valid PAT");
-    return input;
+    return { ...input, appUrl: input.appUrl ?? null };
   })
+
   .handler(async ({ data, context }) => {
     const { supabase } = context;
     const parsed = parseRepo(data.repoUrl);
