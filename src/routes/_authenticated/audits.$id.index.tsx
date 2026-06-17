@@ -41,7 +41,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null };
+type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null; cursor_prompt?: string | null; claude_prompt?: string | null; explanation?: string | null };
 
 function AuditView() {
   const { id } = Route.useParams();
