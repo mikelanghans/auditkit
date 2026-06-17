@@ -164,10 +164,12 @@ export const runDependencyScan = createServerFn({ method: "POST" })
     if (repoMeta.status === 401) return { ok: false as const, error: "GitHub rejected the token (401). Check that it has read access." };
     if (repoMeta.status === 404) return { ok: false as const, error: "Repo not found (404)." };
     if (!repoMeta.ok) return { ok: false as const, error: `GitHub repo lookup failed (${repoMeta.status}).` };
+    const repoMetaJson: any = await repoMeta.json();
+    const defaultBranch: string = repoMetaJson.default_branch ?? "main";
 
-    const pkg = await fetchPackageJson(parsed.owner, parsed.repo, data.token);
+    const pkg = await fetchPackageJson(parsed.owner, parsed.repo, data.token, defaultBranch);
     if (!pkg) {
-      return { ok: false as const, error: "package.json not found at root, src/, or client/." };
+      return { ok: false as const, error: `No package.json found in ${parsed.owner}/${parsed.repo} (searched common paths and the full repo tree on branch ${defaultBranch}).` };
     }
 
     const deps: Record<string, string> = {
