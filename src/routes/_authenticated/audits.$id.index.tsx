@@ -469,7 +469,7 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult,
+  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult,
 }: {
   auditId: string;
   appUrl: string | null;
@@ -478,6 +478,7 @@ function ShieldScanBanner({
   onSurfaceResult: (s: { passes: number; fails: number; warnings: number; target: string; at: string }) => void;
   onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
   onSupabaseResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
+  onAIResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
 }) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
