@@ -73,8 +73,6 @@ function NewClientDialog() {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [appUrl, setAppUrl] = useState("");
-  const [githubRepoUrl, setGithubRepoUrl] = useState("");
-  const [githubToken, setGithubToken] = useState("");
   const [notes, setNotes] = useState("");
   const qc = useQueryClient();
 
