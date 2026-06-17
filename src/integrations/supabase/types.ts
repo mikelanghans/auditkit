@@ -22,6 +22,7 @@ export type Database = {
           checklist_item_id: string
           created_at: string
           id: string
+          lovable_prompt: string | null
           notes: string | null
           status: Database["public"]["Enums"]["finding_status"] | null
           updated_at: string
@@ -33,6 +34,7 @@ export type Database = {
           checklist_item_id: string
           created_at?: string
           id?: string
+          lovable_prompt?: string | null
           notes?: string | null
           status?: Database["public"]["Enums"]["finding_status"] | null
           updated_at?: string
@@ -44,6 +46,7 @@ export type Database = {
           checklist_item_id?: string
           created_at?: string
           id?: string
+          lovable_prompt?: string | null
           notes?: string | null
           status?: Database["public"]["Enums"]["finding_status"] | null
           updated_at?: string
