@@ -710,6 +710,20 @@ function ItemRow({
           )}
         </div>
       )}
+      {status === "fail" && !missingNotes && (
+        <LovablePromptButton
+          auditId={auditId}
+          checklistItemId={item.id}
+          cachedPrompt={finding?.lovable_prompt ?? null}
+          onCached={(p) => {
+            qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
+              (prev ?? []).map((f) =>
+                f.checklist_item_id === item.id ? { ...f, lovable_prompt: p } : f,
+              ),
+            );
+          }}
+        />
+      )}
     </Card>
   );
 }
