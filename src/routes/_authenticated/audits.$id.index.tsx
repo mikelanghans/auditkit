@@ -660,6 +660,11 @@ function ItemRow({
               <Sparkles className="h-3 w-3" /> Auto-detected
             </Badge>
           )}
+          {aiAssisted && (
+            <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide bg-purple-500/15 text-purple-700 dark:text-purple-300 hover:bg-purple-500/20">
+              <Brain className="h-3 w-3" /> AI Assisted
+            </Badge>
+          )}
           <div className="flex items-center gap-1">
             <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
             <StatusBtn label="Fail" icon={<X className="h-4 w-4" />} active={status === "fail"} color="fail" onClick={() => onSet("fail", notes || null)} />
