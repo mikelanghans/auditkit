@@ -234,8 +234,20 @@ function AuditView() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{audit.data?.title}</h1>
-          <p className="text-sm text-muted-foreground">
-            {(audit.data as any)?.client?.name} · <span className="capitalize">{audit.data?.status.replace("_", " ")}</span>
+          <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
+            <span>
+              {(audit.data as any)?.client?.name} · <span className="capitalize">{audit.data?.status.replace("_", " ")}</span>
+            </span>
+            {(audit.data as any)?.client?.github_repo_url && (audit.data as any)?.client?.github_token && (
+              <span
+                title={`GitHub connected · ${(audit.data as any).client.github_repo_url}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-muted/40 text-xs"
+              >
+                <Github className="h-3 w-3" />
+                <span className="h-1.5 w-1.5 rounded-full bg-status-pass" />
+                <span className="text-[10px] uppercase tracking-wide">GitHub</span>
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
