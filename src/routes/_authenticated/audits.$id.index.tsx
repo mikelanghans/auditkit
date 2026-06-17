@@ -473,6 +473,7 @@ function AuditView() {
             return (
               <ItemRow
                 key={it.id}
+                auditId={id}
                 item={it}
                 finding={f}
                 autoScanned={!!f?.auto_scanned}
