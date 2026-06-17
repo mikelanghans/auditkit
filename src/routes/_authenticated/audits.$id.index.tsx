@@ -558,7 +558,7 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, appUrl, clientId, savedRepos, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onAIAssistResult,
+  auditId, appUrl, clientId, savedRepos, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onAIAssistResult, aiScanPreset, onAIScanPresetConsumed,
 }: {
   auditId: string;
   appUrl: string | null;
@@ -570,11 +570,16 @@ function ShieldScanBanner({
   onRepoResult: (s: {
     passes: number; fails: number; findings: number; repo: string; at: string;
     dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+    aiEndpoints?: DetectedEndpoint[];
+    aiDetectError?: string | null;
   }) => void;
   onSupabaseResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
   onAIResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
   onAIAssistResult: (s: AIAssistSummary) => void;
+  aiScanPreset: AIScanPreset | null;
+  onAIScanPresetConsumed: () => void;
 }) {
+
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(0);
