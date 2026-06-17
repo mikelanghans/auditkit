@@ -64,9 +64,6 @@ function ClientDetail() {
             {client.data.app_url && (
               <p className="text-sm mt-1"><span className="text-muted-foreground">App:</span>{" "}<a href={client.data.app_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">{client.data.app_url}</a></p>
             )}
-            {client.data.github_repo_url && (
-              <p className="text-sm"><span className="text-muted-foreground">Repo:</span>{" "}<a href={client.data.github_repo_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">{client.data.github_repo_url}</a>{client.data.github_token ? " · PAT set" : " · no PAT"}</p>
-            )}
             {client.data.notes && (
               <p className="text-sm mt-3 max-w-2xl whitespace-pre-wrap">{client.data.notes}</p>
             )}
