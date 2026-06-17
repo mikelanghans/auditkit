@@ -209,7 +209,7 @@ export const runAutoScan = createServerFn({ method: "POST" })
       results.push(checkDebugMode(body, h));
       results.push(await checkViteExposure(base, body));
     } else {
-      const warnKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "sensitive_url_params", "bundle_secrets", "debug_mode"];
+      const warnKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "sensitive_url_params", "bundle_secrets", "debug_mode", "vite_exposure"];
       for (const key of warnKeys) {
         results.push({ key, status: "warn", notes: `Could not fetch ${base}: ${mainErr ?? "unknown error"}` });
       }
