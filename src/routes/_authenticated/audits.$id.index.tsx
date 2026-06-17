@@ -287,10 +287,12 @@ function AuditView() {
         <div className="space-y-3">
           <ShieldScanBanner
             auditId={id}
+            appUrl={(audit.data as any)?.client?.app_url ?? null}
             hasScanned={hasAutoScanned}
             onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
             onSurfaceResult={setSurfaceSummary}
             onRepoResult={setRepoSummary}
+            onSupabaseResult={setSupabaseSummary}
           />
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
