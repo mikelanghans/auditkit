@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft, Printer } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
+import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -130,7 +131,10 @@ function ReportPage() {
                       <StatusPill status={f?.status} />
                     </div>
                     {f?.notes && (
-                      <div className="mt-2 text-sm bg-muted/50 rounded p-2 whitespace-pre-wrap">{f.notes}</div>
+                      <div className="mt-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Evidence</div>
+                        <EvidenceBlocks notes={f.notes} />
+                      </div>
                     )}
                   </div>
                 );
