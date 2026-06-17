@@ -476,6 +476,7 @@ function AuditView() {
                 item={it}
                 finding={f}
                 autoScanned={!!f?.auto_scanned}
+                aiAssisted={!!f?.ai_assisted}
                 onSet={(status, notes) => {
                   // Block changing another item while a Fail in this category has no notes
                   const blocker = rawCatItems.find((other) => {
