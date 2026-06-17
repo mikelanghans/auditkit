@@ -363,6 +363,19 @@ function AuditView() {
                       </div>
                     </div>
                   )}
+                  {aiSummary && (
+                    <div className="rounded-md border border-border bg-card p-2">
+                      <div className="font-medium text-foreground">AI Endpoint</div>
+                      <div className="text-muted-foreground truncate">{aiSummary.endpoint}</div>
+                      <div className="mt-1 space-x-1">
+                        <span className="text-status-pass">{aiSummary.passes} pass</span> ·{" "}
+                        <span className="text-status-fail">{aiSummary.fails} fail</span>
+                        {aiSummary.critical > 0 && <span className="text-status-fail"> · {aiSummary.critical} critical</span>}
+                        {aiSummary.high > 0 && <span className="text-status-fail"> · {aiSummary.high} high</span>}
+                        {aiSummary.medium > 0 && <span className="text-status-na"> · {aiSummary.medium} medium</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {failedItems.length > 0 && (
