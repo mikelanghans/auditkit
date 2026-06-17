@@ -9,6 +9,7 @@ import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { computeSecurityScore, gradeTone } from "@/lib/security-score";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/report")({
   head: () => ({ meta: [{ title: "Report — AuditKit" }] }),
@@ -78,6 +79,12 @@ function ReportPage() {
     return t;
   }, [items.data, map]);
 
+  const security = useMemo(() => {
+    const statusMap = new Map<string, string | null | undefined>();
+    map.forEach((v, k) => statusMap.set(k, v.status));
+    return computeSecurityScore((items.data ?? []) as any, statusMap as any);
+  }, [items.data, map]);
+
   return (
     <div className="space-y-6 print:space-y-4">
       <div className="flex items-center justify-between print:hidden">
@@ -103,13 +110,16 @@ function ReportPage() {
 
         <section className="mb-8">
           <h2 className="text-lg font-semibold mb-3">Summary</h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <Stat label="Total" value={totals.total} />
+          <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_1fr_1fr_1fr] gap-3">
+            <SecurityScoreCard score={security.score} grade={security.grade} />
             <Stat label="Pass" value={totals.pass} tone="pass" />
             <Stat label="Fail" value={totals.fail} tone="fail" />
             <Stat label="N/A" value={totals.na} tone="na" />
             <Stat label="Unanswered" value={totals.unanswered} />
           </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Score is severity-weighted across rated items (Pass / Pass + Fail). N/A and unanswered items are excluded.
+          </p>
         </section>
 
         {grouped.map(([cat, list]) => (
@@ -173,6 +183,36 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "pa
     <Card className="p-3">
       <div className="text-xs uppercase text-muted-foreground">{label}</div>
       <div className={cn("text-2xl font-semibold mt-1", tone && tones[tone])}>{value}</div>
+    </Card>
+  );
+}
+
+function SecurityScoreCard({ score, grade }: { score: number | null; grade: "A" | "B" | "C" | "D" | "F" | "—" }) {
+  const tone = gradeTone(grade);
+  const cardCls = {
+    pass: "border-l-status-pass bg-status-pass/[0.06]",
+    warn: "border-l-status-na bg-status-na/[0.06]",
+    fail: "border-l-status-fail bg-status-fail/[0.06]",
+    muted: "border-l-border",
+  }[tone];
+  const numCls = {
+    pass: "text-status-pass",
+    warn: "text-status-na",
+    fail: "text-status-fail",
+    muted: "text-foreground",
+  }[tone];
+  return (
+    <Card className={cn("p-3 border-l-4", cardCls)}>
+      <div className="text-xs uppercase text-muted-foreground">Security Score</div>
+      <div className="flex items-baseline gap-2 mt-1">
+        <span className={cn("text-3xl font-semibold tabular-nums", numCls)}>
+          {score ?? "—"}
+        </span>
+        {score !== null && <span className="text-sm text-muted-foreground">/ 100</span>}
+        <span className={cn("ml-auto inline-flex items-center justify-center min-w-[2.25rem] h-9 px-2 rounded-md border font-mono text-lg font-semibold", numCls)}>
+          {grade}
+        </span>
+      </div>
     </Card>
   );
 }
