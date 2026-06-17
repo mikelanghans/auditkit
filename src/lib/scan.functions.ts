@@ -207,6 +207,7 @@ export const runAutoScan = createServerFn({ method: "POST" })
       results.push(checkSensitiveUrlParams(body, base));
       results.push(checkBundleSecrets(body));
       results.push(checkDebugMode(body, h));
+      results.push(await checkViteExposure(base, body));
     } else {
       const warnKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "sensitive_url_params", "bundle_secrets", "debug_mode"];
       for (const key of warnKeys) {
