@@ -628,7 +628,7 @@ function ShieldScanBanner({
           </Button>
           <RepoScanDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={onRepoResult} />
           <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
-          <AIScanDialog auditId={auditId} onDone={onDone} onResult={onAIResult} />
+          <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={onAIResult} />
           <AIAssistDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onResult={onAIAssistResult} />
           
           

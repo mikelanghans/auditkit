@@ -1,34 +1,50 @@
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Bot, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, ChevronDown, ChevronRight, GitBranch, Loader2, Plus, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { runAIScan, type AIPayloadResult } from "@/lib/ai-scan.functions";
+import { detectAIEndpoints, type DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
+import type { SavedRepo } from "@/components/repo-launcher";
 import { cn } from "@/lib/utils";
+
+type Mode = "repo-pick" | "detecting" | "endpoint-pick" | "manual";
 
 export function AIScanDialog({
   auditId,
+  appUrl,
+  savedRepos,
   onDone,
   onResult,
 }: {
   auditId: string;
+  appUrl: string | null;
+  savedRepos: SavedRepo[];
   onDone: () => void;
   onResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
 }) {
   const scan = useServerFn(runAIScan);
+  const detect = useServerFn(detectAIEndpoints);
+
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>("manual");
   const [endpointUrl, setEndpointUrl] = useState("");
   const [promptField, setPromptField] = useState("prompt");
   const [authToken, setAuthToken] = useState("");
   const [pending, setPending] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<AIPayloadResult[] | null>(null);
   const [endpointLabel, setEndpointLabel] = useState("");
+  const [detected, setDetected] = useState<DetectedEndpoint[]>([]);
+  const [detectMeta, setDetectMeta] = useState<{ repo: string; filesScanned: number; supabaseBaseDetected: boolean; appBaseDetected: boolean } | null>(null);
+
+  const hasRepos = savedRepos.length > 0;
 
   useEffect(() => {
     if (!pending) { setProgress(0); return; }
@@ -45,6 +61,56 @@ export function AIScanDialog({
     setAuthToken("");
     setResults(null);
     setEndpointLabel("");
+    setDetected([]);
+    setDetectMeta(null);
+    setMode(hasRepos ? (savedRepos.length === 1 ? "detecting" : "repo-pick") : "manual");
+  };
+
+  const runDetect = async (repo: SavedRepo) => {
+    if (!repo.github_token) {
+      toast.error(`No PAT stored for "${repo.label}". Add one in the client profile.`);
+      setMode("manual");
+      return;
+    }
+    setDetecting(true);
+    setMode("detecting");
+    const tid = toast.loading(`Scanning ${repo.label} for AI endpoints…`);
+    try {
+      const res = await detect({ data: { repoUrl: repo.repo_url, token: repo.github_token, appUrl } });
+      if (!res.ok) {
+        toast.error(res.error, { id: tid });
+        setMode("manual");
+        return;
+      }
+      setDetected(res.endpoints);
+      setDetectMeta({ repo: res.repo, filesScanned: res.filesScanned, supabaseBaseDetected: res.supabaseBaseDetected, appBaseDetected: res.appBaseDetected });
+      if (res.endpoints.length === 0) {
+        toast.message("No AI endpoints detected — enter one manually.", { id: tid });
+        setMode("manual");
+      } else {
+        toast.success(`Found ${res.endpoints.length} AI endpoint${res.endpoints.length === 1 ? "" : "s"} in ${res.repo}`, { id: tid });
+        setMode("endpoint-pick");
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Detection failed", { id: tid });
+      setMode("manual");
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const openDialog = () => {
+    reset();
+    setOpen(true);
+    if (savedRepos.length === 1) {
+      void runDetect(savedRepos[0]);
+    }
+  };
+
+  const pickDetected = (ep: DetectedEndpoint) => {
+    setEndpointUrl(ep.url);
+    setPromptField(ep.promptField);
+    setMode("manual");
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -66,10 +132,7 @@ export function AIScanDialog({
         },
       });
       setProgress(100);
-      if (!res.ok) {
-        toast.error(res.error, { id: tid });
-        return;
-      }
+      if (!res.ok) { toast.error(res.error, { id: tid }); return; }
       const { counts } = res;
       const headline = counts.critical > 0
         ? `${counts.critical} CRITICAL injection${counts.critical === 1 ? "" : "s"} succeeded`
@@ -80,12 +143,8 @@ export function AIScanDialog({
       setResults(res.results);
       setEndpointLabel(res.endpoint);
       onResult({
-        passes: counts.passes,
-        fails: counts.fails,
-        endpoint: res.endpoint,
-        critical: counts.critical,
-        high: counts.high,
-        medium: counts.medium,
+        passes: counts.passes, fails: counts.fails, endpoint: res.endpoint,
+        critical: counts.critical, high: counts.high, medium: counts.medium,
         at: new Date().toISOString(),
       });
       onDone();
@@ -97,98 +156,178 @@ export function AIScanDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) reset(); setOpen(o); } }}>
-      <DialogTrigger asChild>
-        <Button variant="outline">
-          <Bot className="h-4 w-4 mr-1" /> Scan AI Endpoints
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={(o) => { if (!pending && !detecting) { if (!o) reset(); setOpen(o); } }}>
+      <Button variant="outline" onClick={openDialog}>
+        <Bot className="h-4 w-4 mr-1" /> Scan AI Endpoints
+        {hasRepos && (
+          <span className="ml-1.5 inline-flex items-center" title={`${savedRepos.length} repo${savedRepos.length === 1 ? "" : "s"} available for auto-detect`}>
+            <Sparkles className="h-3 w-3 text-status-pass" />
+          </span>
+        )}
+      </Button>
+
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <form onSubmit={submit} className="space-y-4">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Bot className="h-4 w-4" /> Scan AI endpoint for prompt injection
-            </DialogTitle>
-            <DialogDescription>
-              Sends 6 prompt-injection probes (instruction extraction, override, mode switch, context overflow) and
-              classifies each response for prompt leakage and architecture disclosure.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Bot className="h-4 w-4" /> Scan AI endpoint for prompt injection
+          </DialogTitle>
+          <DialogDescription>
+            Sends 6 prompt-injection probes (instruction extraction, override, mode switch, context overflow) and classifies each response for prompt leakage and architecture disclosure.
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="rounded-md border border-status-na/50 bg-status-na/5 p-3 text-xs">
-            <div className="flex items-center gap-1.5 font-semibold text-foreground/90">
-              <AlertTriangle className="h-3.5 w-3.5 text-status-na" /> Authorized testing only
-            </div>
-            <p className="text-foreground/80 mt-1">
-              Only run this against endpoints you have explicit permission to test. Probing third-party AI APIs without
-              authorization may violate their terms of service or applicable law.
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="ai-url">AI Endpoint URL</Label>
-            <Input
-              id="ai-url"
-              placeholder="https://app.example.com/api/generate"
-              value={endpointUrl}
-              onChange={(e) => setEndpointUrl(e.target.value)}
-              disabled={pending}
-              autoFocus
-              autoComplete="off"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="ai-field">Prompt field name</Label>
-            <Input
-              id="ai-field"
-              placeholder="prompt"
-              value={promptField}
-              onChange={(e) => setPromptField(e.target.value)}
-              disabled={pending}
-              autoComplete="off"
-            />
-            <p className="text-xs text-muted-foreground">
-              The JSON body field that carries the user prompt. Request will be <code>{`{"${promptField || "prompt"}": "…"}`}</code>.
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="ai-auth">Auth token <span className="text-muted-foreground font-normal">(optional)</span></Label>
-            <Input
-              id="ai-auth"
-              type="password"
-              placeholder="Bearer eyJ… or sk-…"
-              value={authToken}
-              onChange={(e) => setAuthToken(e.target.value)}
-              disabled={pending}
-              autoComplete="off"
-            />
-            <p className="text-xs text-muted-foreground">Sent as the Authorization header. "Bearer " prefix added automatically.</p>
-          </div>
-
-          {pending && <Progress value={progress} />}
-
-          {results && (
-            <div className="space-y-2 pt-2 border-t">
-              <div className="text-sm font-medium flex items-center gap-2">
-                Results <span className="text-xs text-muted-foreground font-normal truncate">{endpointLabel}</span>
-              </div>
-              {results.map((r, i) => (
-                <ResultRow key={i} r={r} />
+        {mode === "repo-pick" && (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Pick a repo to auto-detect AI endpoints:</p>
+            <ul className="space-y-1.5">
+              {savedRepos.map((r) => (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    disabled={detecting}
+                    onClick={() => runDetect(r)}
+                    className="w-full flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-left hover:border-navy/50 hover:bg-muted/40 transition-colors disabled:opacity-50"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="font-medium text-sm truncate">{r.label}</span>
+                        {!r.github_token && <span className="text-[10px] uppercase tracking-wide text-status-fail">no PAT</span>}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{r.repo_url}</div>
+                    </div>
+                    <span className="text-xs text-navy shrink-0">Detect →</span>
+                  </button>
+                </li>
               ))}
-            </div>
-          )}
+            </ul>
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => setMode("manual")}>
+                <Plus className="h-4 w-4 mr-1" /> Enter manually
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { reset(); setOpen(false); }} disabled={pending}>
-              Close
-            </Button>
-            <Button type="submit" disabled={pending}>
-              {pending ? (<><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Probing…</>) : results ? "Re-run scan" : "Run scan"}
-            </Button>
-          </DialogFooter>
-        </form>
+        {mode === "detecting" && (
+          <div className="py-6 text-center space-y-3">
+            <Loader2 className="h-6 w-6 animate-spin mx-auto text-navy" />
+            <p className="text-sm text-muted-foreground">Scanning repo for AI endpoints…</p>
+          </div>
+        )}
+
+        {mode === "endpoint-pick" && detectMeta && (
+          <div className="space-y-3">
+            <div className="text-xs text-muted-foreground">
+              {detectMeta.repo} · {detectMeta.filesScanned} candidate files scanned · {detected.length} endpoint{detected.length === 1 ? "" : "s"} found
+              {!detectMeta.supabaseBaseDetected && detected.some((e) => e.kind === "supabase-function") && (
+                <span className="block text-status-na mt-0.5">⚠ Supabase URL not found in repo — edge function URLs will need to be completed manually.</span>
+              )}
+              {!detectMeta.appBaseDetected && detected.some((e) => e.kind !== "supabase-function") && (
+                <span className="block text-status-na mt-0.5">⚠ Client app URL not set — route endpoints are relative paths.</span>
+              )}
+            </div>
+            <ul className="space-y-1.5">
+              {detected.map((ep, i) => (
+                <li key={`${ep.filePath}-${i}`}>
+                  <button
+                    type="button"
+                    onClick={() => pickDetected(ep)}
+                    className="w-full flex items-start justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-left hover:border-navy/50 hover:bg-muted/40 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Wand2 className="h-3.5 w-3.5 shrink-0 text-navy" />
+                        <span className="font-medium text-sm">{ep.source}</span>
+                        {ep.partialUrl && <Badge variant="outline" className="text-[10px] uppercase border-status-na/50 text-status-na">partial URL</Badge>}
+                        {ep.requiresAuth && <Badge variant="outline" className="text-[10px] uppercase">auth</Badge>}
+                        <Badge variant="secondary" className="text-[10px] font-mono lowercase">field: {ep.promptField}</Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground font-mono truncate mt-0.5">{ep.url || "(URL needs to be completed)"}</div>
+                      <div className="text-[11px] text-muted-foreground/80 italic truncate mt-0.5">{ep.filePath}</div>
+                    </div>
+                    <span className="text-xs text-navy shrink-0 self-center">Use →</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => setMode("manual")}>
+                <Plus className="h-4 w-4 mr-1" /> Enter manually
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {mode === "manual" && (
+          <form onSubmit={submit} className="space-y-4">
+            <div className="rounded-md border border-status-na/50 bg-status-na/5 p-3 text-xs">
+              <div className="flex items-center gap-1.5 font-semibold text-foreground/90">
+                <AlertTriangle className="h-3.5 w-3.5 text-status-na" /> Authorized testing only
+              </div>
+              <p className="text-foreground/80 mt-1">
+                Only run this against endpoints you have explicit permission to test.
+              </p>
+            </div>
+
+            {hasRepos && detected.length === 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={detecting}
+                onClick={() => savedRepos.length === 1 ? runDetect(savedRepos[0]) : setMode("repo-pick")}
+              >
+                {detecting ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+                Auto-detect from repo
+              </Button>
+            )}
+            {detected.length > 0 && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setMode("endpoint-pick")}>
+                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back to detected endpoints
+              </Button>
+            )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-url">AI Endpoint URL</Label>
+              <Input id="ai-url" placeholder="https://app.example.com/api/generate" value={endpointUrl} onChange={(e) => setEndpointUrl(e.target.value)} disabled={pending} autoComplete="off" />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-field">Prompt field name</Label>
+              <Input id="ai-field" placeholder="prompt" value={promptField} onChange={(e) => setPromptField(e.target.value)} disabled={pending} autoComplete="off" />
+              <p className="text-xs text-muted-foreground">
+                The JSON body field that carries the user prompt. Request will be <code>{`{"${promptField || "prompt"}": "…"}`}</code>.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-auth">Auth token <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Input id="ai-auth" type="password" placeholder="Bearer eyJ… or sk-…" value={authToken} onChange={(e) => setAuthToken(e.target.value)} disabled={pending} autoComplete="off" />
+              <p className="text-xs text-muted-foreground">Sent as the Authorization header. "Bearer " prefix added automatically.</p>
+            </div>
+
+            {pending && <Progress value={progress} />}
+
+            {results && (
+              <div className="space-y-2 pt-2 border-t">
+                <div className="text-sm font-medium flex items-center gap-2">
+                  Results <span className="text-xs text-muted-foreground font-normal truncate">{endpointLabel}</span>
+                </div>
+                {results.map((r, i) => <ResultRow key={i} r={r} />)}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { reset(); setOpen(false); }} disabled={pending}>Close</Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? (<><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Probing…</>) : results ? "Re-run scan" : "Run scan"}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );
