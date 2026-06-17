@@ -855,7 +855,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
       onSaved={() => qc.invalidateQueries({ queryKey: ["client-repos", clientId] })}
       onRun={async ({ repoUrl, token, loadingToastId }) => {
         try {
-          const res = await scan({ data: { auditId, repoUrl, token } });
+          const res = await scan({ data: { auditId, repoUrl, token, appUrl } });
           if (!res.ok) { toast.error(res.error, { id: loadingToastId }); return false; }
           const fails = res.results.filter((r) => r.status === "fail").length;
           const passes = res.results.filter((r) => r.status === "pass").length;
@@ -863,9 +863,10 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
           const depDesc = dep?.ok
             ? ` · ${dep.packagesScanned} pkgs / ${dep.findings?.length ?? 0} vulnerable`
             : dep && !dep.ok ? ` · deps: ${dep.error}` : "";
+          const aiDesc = (res.aiEndpoints?.length ?? 0) > 0 ? ` · ${res.aiEndpoints!.length} AI endpoint(s)` : "";
           toast.success(
             `Repo scan complete — ${passes} pass, ${fails} fail`,
-            { id: loadingToastId, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}` },
+            { id: loadingToastId, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}${aiDesc}` },
           );
           onRepoResult({
             passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString(),
@@ -874,6 +875,8 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
                   ? { ok: true, path: dep.path, packagesScanned: dep.packagesScanned, counts: dep.counts, status: dep.status, findings: dep.findings }
                   : { ok: false, error: dep.error })
               : undefined,
+            aiEndpoints: res.aiEndpoints ?? [],
+            aiDetectError: res.aiDetectError ?? null,
           });
           onDone();
           return true;
@@ -881,6 +884,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
           toast.error(err?.message ?? "Repo scan failed", { id: loadingToastId });
           return false;
         }
+
       }}
     />
   );
