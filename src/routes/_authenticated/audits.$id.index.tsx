@@ -556,3 +556,117 @@ function StatusBtn({
     </button>
   );
 }
+
+function RepoScanDialog({ auditId, onDone }: { auditId: string; onDone: () => void }) {
+  const scan = useServerFn(runRepoScan);
+  const [open, setOpen] = useState(false);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [pending, setPending] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!pending) { setProgress(0); return; }
+    setProgress(6);
+    const iv = setInterval(() => {
+      setProgress((p) => (p < 92 ? p + Math.max(0.5, (92 - p) * 0.04) : p));
+    }, 250);
+    return () => clearInterval(iv);
+  }, [pending]);
+
+  const reset = () => { setRepoUrl(""); setToken(""); };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!repoUrl.trim() || !token.trim()) {
+      toast.error("Enter both the repo URL and a personal access token.");
+      return;
+    }
+    setPending(true);
+    const tid = toast.loading("Scanning repo commits…");
+    try {
+      const res = await scan({ data: { auditId, repoUrl: repoUrl.trim(), token: token.trim() } });
+      setProgress(100);
+      const fails = res.results.filter((r) => r.status === "fail").length;
+      const passes = res.results.filter((r) => r.status === "pass").length;
+      toast.success(
+        `Repo scan complete — ${passes} pass, ${fails} fail`,
+        { id: tid, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)` },
+      );
+      onDone();
+      reset();
+      setOpen(false);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Repo scan failed", { id: tid });
+    } finally {
+      setTimeout(() => setPending(false), 400);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!pending) setOpen(o); }}>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <GitBranch className="h-4 w-4 mr-1" /> Scan Repo
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <form onSubmit={submit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Github className="h-4 w-4" /> Scan GitHub repo
+            </DialogTitle>
+            <DialogDescription>
+              Scans the last 100 commits on the default branch for committed <code>.env</code> files and known
+              secret patterns (Supabase service role, Stripe, OpenAI, Anthropic, AWS, PEM keys, GitHub tokens).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="repo-url">Repository URL</Label>
+            <Input
+              id="repo-url"
+              placeholder="https://github.com/owner/repo"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              disabled={pending}
+              autoFocus
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="pat">GitHub personal access token</Label>
+            <Input
+              id="pat"
+              type="password"
+              placeholder="ghp_… or github_pat_…"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              disabled={pending}
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Needs <strong>read-only repo scope</strong> (Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>, or a classic PAT with <code>repo</code> for private repos / <code>public_repo</code> for public). The token is <strong>never stored</strong> — it is used only for this scan and discarded afterward.
+            </p>
+          </div>
+
+          {pending && (
+            <div className="space-y-1.5">
+              <Progress value={progress} />
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" /> Fetching commits and scanning patches… this usually takes 10–15s.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" disabled={pending} onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" disabled={pending}>
+              {pending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Scanning…</> : <><GitBranch className="h-4 w-4 mr-1" /> Start scan</>}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
