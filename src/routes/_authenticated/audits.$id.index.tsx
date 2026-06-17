@@ -60,6 +60,24 @@ function AuditView() {
     },
   });
 
+  const clientId = (audit.data as any)?.client?.id ?? null;
+  const clientRepos = useQuery({
+    queryKey: ["client-repos", clientId],
+    enabled: !!clientId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_repos")
+        .select("id, label, repo_url, github_token")
+        .eq("client_id", clientId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const savedRepos = clientRepos.data ?? [];
+
+
+
   const items = useQuery({
     queryKey: ["checklist-items"],
     queryFn: async () => {
