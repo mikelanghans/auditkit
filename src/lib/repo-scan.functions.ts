@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { runDepScan, type DepFinding } from "./dep-scan-core";
 
 const TIMEOUT_MS = 15_000;
 const MAX_COMMITS = 100;
