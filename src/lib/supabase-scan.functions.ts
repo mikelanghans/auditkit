@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertSafeOutboundUrl, SSRFBlockedError } from "./ssrf-guard";
+
 
 const TIMEOUT_MS = 15_000;
 const MAX_TABLES_PROBED = 60;
