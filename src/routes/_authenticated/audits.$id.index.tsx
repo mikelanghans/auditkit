@@ -825,16 +825,20 @@ function StatusBtn({
   );
 }
 
-function RepoScanDialog({ auditId, clientId, savedRepos, onDone, onRepoResult }: {
+function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoResult }: {
   auditId: string;
+  appUrl: string | null;
   clientId: string | null;
   savedRepos: SavedRepo[];
   onDone: () => void;
   onRepoResult: (s: {
     passes: number; fails: number; findings: number; repo: string; at: string;
     dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+    aiEndpoints?: DetectedEndpoint[];
+    aiDetectError?: string | null;
   }) => void;
 }) {
+
   const scan = useServerFn(runRepoScan);
   const qc = useQueryClient();
 
