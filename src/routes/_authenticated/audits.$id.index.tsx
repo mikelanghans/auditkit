@@ -312,7 +312,16 @@ function AuditView() {
             onRepoResult={setRepoSummary}
             onSupabaseResult={setSupabaseSummary}
             onAIResult={setAISummary}
+            onAIAssistResult={setAIAssistSummary}
           />
+          {aiAssistSummary && (
+            <AIAssistReviewPanel
+              auditId={id}
+              summary={aiAssistSummary}
+              onChange={setAIAssistSummary}
+              onRefresh={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+            />
+          )}
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
               const f = findingsMap.get(it.id);
