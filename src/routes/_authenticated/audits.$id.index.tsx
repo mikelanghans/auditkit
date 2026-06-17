@@ -39,7 +39,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null };
+type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null };
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -75,7 +75,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted")
+        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
