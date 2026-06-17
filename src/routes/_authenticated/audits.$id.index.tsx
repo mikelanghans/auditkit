@@ -601,7 +601,11 @@ function StatusBtn({
   );
 }
 
-function RepoScanDialog({ auditId, onDone }: { auditId: string; onDone: () => void }) {
+function RepoScanDialog({ auditId, onDone, onRepoResult }: {
+  auditId: string;
+  onDone: () => void;
+  onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
+}) {
   const scan = useServerFn(runRepoScan);
   const [open, setOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
@@ -637,6 +641,7 @@ function RepoScanDialog({ auditId, onDone }: { auditId: string; onDone: () => vo
         `Repo scan complete — ${passes} pass, ${fails} fail`,
         { id: tid, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)` },
       );
+      onRepoResult({ passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString() });
       onDone();
       reset();
       setOpen(false);
