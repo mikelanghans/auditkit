@@ -641,9 +641,10 @@ function ShieldScanBanner({
               <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
             )}
           </Button>
-          <RepoScanDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={onRepoResult} />
+          <RepoScanDialog auditId={auditId} appUrl={appUrl} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={onRepoResult} />
           <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
-          <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={onAIResult} />
+          <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={onAIResult} preset={aiScanPreset} onPresetConsumed={onAIScanPresetConsumed} />
+
           <AIAssistDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onResult={onAIAssistResult} />
           
           
