@@ -836,7 +836,7 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
             <div className="space-y-1.5">
               <Progress value={progress} />
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <Loader2 className="h-3 w-3 animate-spin" /> Fetching commits and scanning patches… this usually takes 10–15s.
+                <Loader2 className="h-3 w-3 animate-spin" /> Scanning commits + dependencies… this usually takes 15–25s.
               </p>
             </div>
           )}
