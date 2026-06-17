@@ -809,11 +809,10 @@ function StatusBtn({
   );
 }
 
-function RepoScanDialog({ auditId, clientId, savedRepoUrl, savedToken, onDone, onRepoResult }: {
+function RepoScanDialog({ auditId, clientId, savedRepos, onDone, onRepoResult }: {
   auditId: string;
   clientId: string | null;
-  savedRepoUrl: string | null;
-  savedToken: string | null;
+  savedRepos: SavedRepo[];
   onDone: () => void;
   onRepoResult: (s: {
     passes: number; fails: number; findings: number; repo: string; at: string;
@@ -822,182 +821,48 @@ function RepoScanDialog({ auditId, clientId, savedRepoUrl, savedToken, onDone, o
 }) {
   const scan = useServerFn(runRepoScan);
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [repoUrl, setRepoUrl] = useState("");
-  const [token, setToken] = useState("");
-  const [saveForClient, setSaveForClient] = useState(true);
-  const [pending, setPending] = useState(false);
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    if (!pending) { setProgress(0); return; }
-    setProgress(6);
-    const iv = setInterval(() => {
-      setProgress((p) => (p < 92 ? p + Math.max(0.5, (92 - p) * 0.04) : p));
-    }, 250);
-    return () => clearInterval(iv);
-  }, [pending]);
-
-  const reset = () => { setRepoUrl(""); setToken(""); };
-
-  const runScan = async (repo: string, tok: string) => {
-    setPending(true);
-    const tid = toast.loading("Scanning repo commits & dependencies…");
-    try {
-      const res = await scan({ data: { auditId, repoUrl: repo, token: tok } });
-      setProgress(100);
-      if (!res.ok) {
-        toast.error(res.error, { id: tid });
-        return false;
-      }
-      const fails = res.results.filter((r) => r.status === "fail").length;
-      const passes = res.results.filter((r) => r.status === "pass").length;
-      const dep = res.dep;
-      const depDesc = dep?.ok
-        ? ` · ${dep.packagesScanned} pkgs / ${dep.findings?.length ?? 0} vulnerable`
-        : dep && !dep.ok
-        ? ` · deps: ${dep.error}`
-        : "";
-      toast.success(
-        `Repo scan complete — ${passes} pass, ${fails} fail`,
-        { id: tid, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}` },
-      );
-      onRepoResult({
-        passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString(),
-        dep: dep
-          ? (dep.ok
-              ? { ok: true, path: dep.path, packagesScanned: dep.packagesScanned, counts: dep.counts, status: dep.status, findings: dep.findings }
-              : { ok: false, error: dep.error })
-          : undefined,
-      });
-      onDone();
-      return true;
-    } catch (err: any) {
-      toast.error(err?.message ?? "Repo scan failed", { id: tid });
-      return false;
-    } finally {
-      setTimeout(() => setPending(false), 400);
-    }
-  };
-
-  const hasSaved = !!(savedRepoUrl && savedToken);
-
-  const handleTriggerClick = async (e: React.MouseEvent) => {
-    if (hasSaved) {
-      e.preventDefault();
-      await runScan(savedRepoUrl!, savedToken!);
-    }
-  };
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repoUrl.trim() || !token.trim()) {
-      toast.error("Enter both the repo URL and a personal access token.");
-      return;
-    }
-    const ok = await runScan(repoUrl.trim(), token.trim());
-    if (ok && saveForClient && clientId) {
-      const { error } = await supabase
-        .from("clients")
-        .update({ github_repo_url: repoUrl.trim(), github_token: token.trim() })
-        .eq("id", clientId);
-      if (error) toast.error(`Saved scan, but failed to store credentials: ${error.message}`);
-      else {
-        qc.invalidateQueries({ queryKey: ["audit", auditId] });
-        qc.invalidateQueries({ queryKey: ["client", clientId] });
-        toast.success("GitHub credentials saved for this client");
-      }
-    }
-    if (ok) {
-      reset();
-      setOpen(false);
-    }
-  };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!pending) setOpen(o); }}>
-      <DialogTrigger asChild>
-        <Button variant="outline" onClick={handleTriggerClick} disabled={pending}>
-          {pending && hasSaved ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1" />}
-          Scan Repo
-          {hasSaved && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-status-pass" title="Using saved credentials" />}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
-        <form onSubmit={submit} className="space-y-4">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Github className="h-4 w-4" /> Scan GitHub repo
-            </DialogTitle>
-            <DialogDescription>
-              Two-phase scan: (1) last 100 commits on the default branch for committed <code>.env</code> files and known
-              secret patterns; (2) <code>package.json</code> dependencies checked against the npm advisory database for
-              known CVEs and version drift.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="repo-url">Repository URL</Label>
-            <Input
-              id="repo-url"
-              placeholder="https://github.com/owner/repo"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              disabled={pending}
-              autoFocus
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="pat">GitHub personal access token</Label>
-            <Input
-              id="pat"
-              type="password"
-              placeholder="ghp_… or github_pat_…"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              disabled={pending}
-              autoComplete="off"
-            />
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Needs <strong>read-only repo scope</strong> (Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>, or a classic PAT with <code>repo</code> for private repos / <code>public_repo</code> for public).
-            </p>
-          </div>
-
-          {clientId && (
-            <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={saveForClient}
-                onChange={(e) => setSaveForClient(e.target.checked)}
-                disabled={pending}
-                className="mt-0.5 h-4 w-4 rounded border-border accent-navy"
-              />
-              <span>
-                <span className="font-medium">Save for this client</span>
-                <span className="block text-xs text-muted-foreground">Reuse for future Scan Repo / AI Assist runs without re-entering.</span>
-              </span>
-            </label>
-          )}
-
-          {pending && (
-            <div className="space-y-1.5">
-              <Progress value={progress} />
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <Loader2 className="h-3 w-3 animate-spin" /> Scanning commits + dependencies… this usually takes 15–25s.
-              </p>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button type="button" variant="ghost" disabled={pending} onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={pending}>
-              {pending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Scanning…</> : <><GitBranch className="h-4 w-4 mr-1" /> Start scan</>}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <RepoLauncher
+      trigger={{ label: "Scan Repo", icon: <GitBranch className="h-4 w-4 mr-1" /> }}
+      clientId={clientId}
+      savedRepos={savedRepos}
+      title="Scan GitHub repo"
+      description={<>Two-phase scan: (1) last 100 commits on the default branch for committed <code>.env</code> files and known secret patterns; (2) <code>package.json</code> dependencies checked against the npm advisory database.</>}
+      submitLabel="Start scan"
+      runningLabel="Scanning commits + dependencies…"
+      loadingToast="Scanning repo commits & dependencies…"
+      onSaved={() => qc.invalidateQueries({ queryKey: ["client-repos", clientId] })}
+      onRun={async ({ repoUrl, token, loadingToastId }) => {
+        try {
+          const res = await scan({ data: { auditId, repoUrl, token } });
+          if (!res.ok) { toast.error(res.error, { id: loadingToastId }); return false; }
+          const fails = res.results.filter((r) => r.status === "fail").length;
+          const passes = res.results.filter((r) => r.status === "pass").length;
+          const dep = res.dep;
+          const depDesc = dep?.ok
+            ? ` · ${dep.packagesScanned} pkgs / ${dep.findings?.length ?? 0} vulnerable`
+            : dep && !dep.ok ? ` · deps: ${dep.error}` : "";
+          toast.success(
+            `Repo scan complete — ${passes} pass, ${fails} fail`,
+            { id: loadingToastId, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}` },
+          );
+          onRepoResult({
+            passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString(),
+            dep: dep
+              ? (dep.ok
+                  ? { ok: true, path: dep.path, packagesScanned: dep.packagesScanned, counts: dep.counts, status: dep.status, findings: dep.findings }
+                  : { ok: false, error: dep.error })
+              : undefined,
+          });
+          onDone();
+          return true;
+        } catch (err: any) {
+          toast.error(err?.message ?? "Repo scan failed", { id: loadingToastId });
+          return false;
+        }
+      }}
+    />
   );
 }
 
