@@ -216,6 +216,7 @@ function AuditView() {
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>
           </Link>
+          <DeleteAuditButton auditId={id} title={audit.data?.title} redirectTo="/dashboard" />
           {audit.data?.status !== "completed" && (
             <Button
               className="bg-navy text-navy-foreground hover:bg-navy/90"
