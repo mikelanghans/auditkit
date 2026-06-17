@@ -23,6 +23,7 @@ import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog } from "@/components/ai-scan-dialog";
 import { AIAssistDialog, AIAssistReviewPanel, type AIAssistSummary } from "@/components/ai-assist-dialog";
+import { LovablePromptButton } from "@/components/lovable-prompt-dialog";
 import type { DepFinding } from "@/lib/dep-scan-core";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
