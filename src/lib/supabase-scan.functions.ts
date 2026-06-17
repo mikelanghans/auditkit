@@ -300,6 +300,18 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     const appUrl = data.appUrl?.trim() || null;
     const projectRef = projectRefFromUrl(projectUrl);
 
+    try {
+      await assertSafeOutboundUrl(projectUrl);
+      if (appUrl) await assertSafeOutboundUrl(appUrl);
+    } catch (e) {
+      if (e instanceof SSRFBlockedError) {
+        return { ok: false as const, error: `Refusing to probe internal/private destination: ${e.message}` };
+      }
+      throw e;
+    }
+
+
+
     // Confirm audit ownership
     const { data: auditRow, error: aerr } = await supabase
       .from("audits")
