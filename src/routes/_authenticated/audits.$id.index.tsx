@@ -79,6 +79,20 @@ function AuditView() {
 
   const hasAutoScanned = useMemo(() => (findings.data ?? []).some((f) => f.auto_scanned), [findings.data]);
 
+  type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
+  type RepoSummary = { passes: number; fails: number; findings: number; repo: string; at: string };
+  const [surfaceSummary, setSurfaceSummary] = useState<SurfaceSummary | null>(null);
+  const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
+  const combinedSummary = useMemo(() => {
+    if (!surfaceSummary && !repoSummary) return null;
+    return {
+      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0),
+      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0),
+      warnings: surfaceSummary?.warnings ?? 0,
+      sources: [surfaceSummary && "Surface", repoSummary && "Repo"].filter(Boolean).join(" + "),
+    };
+  }, [surfaceSummary, repoSummary]);
+
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
     findings.data?.forEach((f) => m.set(f.checklist_item_id, f));
@@ -251,7 +265,30 @@ function AuditView() {
             auditId={id}
             hasScanned={hasAutoScanned}
             onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+            onSurfaceResult={setSurfaceSummary}
+            onRepoResult={setRepoSummary}
           />
+          {combinedSummary && (
+            <Card className="p-3 border-l-4 border-l-primary/60 bg-primary/[0.02]">
+              <div className="flex items-start gap-3 flex-wrap">
+                <CheckCircle2 className="h-4 w-4 text-status-pass mt-0.5 shrink-0" />
+                <div className="text-sm flex-1 min-w-0">
+                  <div className="font-medium">
+                    Combined scan results ({combinedSummary.sources})
+                  </div>
+                  <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                    <span><span className="text-status-pass font-medium">{combinedSummary.passes}</span> passed</span>
+                    <span><span className="text-status-fail font-medium">{combinedSummary.fails}</span> failed</span>
+                    {combinedSummary.warnings > 0 && (
+                      <span><span className="text-status-na font-medium">{combinedSummary.warnings}</span> warnings</span>
+                    )}
+                    {surfaceSummary && <span className="opacity-70">· Surface: {surfaceSummary.target}</span>}
+                    {repoSummary && <span className="opacity-70">· Repo: {repoSummary.repo} ({repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"})</span>}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
@@ -330,8 +367,14 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, hasScanned, onDone,
-}: { auditId: string; hasScanned: boolean; onDone: () => void }) {
+  auditId, hasScanned, onDone, onSurfaceResult, onRepoResult,
+}: {
+  auditId: string;
+  hasScanned: boolean;
+  onDone: () => void;
+  onSurfaceResult: (s: { passes: number; fails: number; warnings: number; target: string; at: string }) => void;
+  onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
+}) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -356,6 +399,7 @@ function ShieldScanBanner({
         `Surface scan complete — ${res.passes} passed, ${res.fails} failed, ${res.warnings} warnings`,
         { id: tid, description: res.target },
       );
+      onSurfaceResult({ passes: res.passes, fails: res.fails, warnings: res.warnings, target: res.target, at: new Date().toISOString() });
       onDone();
     } catch (e: any) {
       toast.error(e?.message ?? "Scan failed", { id: tid });
@@ -392,7 +436,7 @@ function ShieldScanBanner({
               <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
             )}
           </Button>
-          <RepoScanDialog auditId={auditId} onDone={onDone} />
+          <RepoScanDialog auditId={auditId} onDone={onDone} onRepoResult={onRepoResult} />
         </div>
       </div>
       {pending && (
@@ -557,7 +601,11 @@ function StatusBtn({
   );
 }
 
-function RepoScanDialog({ auditId, onDone }: { auditId: string; onDone: () => void }) {
+function RepoScanDialog({ auditId, onDone, onRepoResult }: {
+  auditId: string;
+  onDone: () => void;
+  onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
+}) {
   const scan = useServerFn(runRepoScan);
   const [open, setOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
@@ -593,6 +641,7 @@ function RepoScanDialog({ auditId, onDone }: { auditId: string; onDone: () => vo
         `Repo scan complete — ${passes} pass, ${fails} fail`,
         { id: tid, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)` },
       );
+      onRepoResult({ passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString() });
       onDone();
       reset();
       setOpen(false);
