@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const MAX_FILES = 20;
-const MAX_TOTAL_CHARS = 50_000;
-const MAX_FILE_CHARS = 12_000;
+const MAX_FILES = 12;
+const MAX_TOTAL_CHARS = 22_000;
+const MAX_FILE_CHARS = 5_000;
 const PRIORITY_KEYWORDS = [
   "auth", "api", "middleware", "supabase", "openai", "anthropic",
   "stripe", "generate", "prompt", "rls", "policy",
@@ -111,8 +111,8 @@ async function callClaude(systemPrompt: string, userPrompt: string): Promise<str
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      model: "claude-haiku-4-5",
+      max_tokens: 2048,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     }),
