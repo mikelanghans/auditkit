@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertSafeOutboundUrl, SSRFBlockedError } from "./ssrf-guard";
+
 
 type ScanStatus = "pass" | "fail" | "warn";
 type CheckResult = { key: string; status: ScanStatus; notes: string };
