@@ -156,6 +156,8 @@ function ReportPage() {
           totals={totals}
         />
 
+        <ScopeSnapshot items={scopeSnapshot} score={security.score} />
+
         {grouped.map(([cat, list]) => (
           <section key={cat} className="mb-6 break-inside-avoid">
             <h2 className="text-lg font-semibold border-b pb-2 mb-3">{cat}</h2>
