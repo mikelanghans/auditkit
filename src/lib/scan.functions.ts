@@ -102,6 +102,68 @@ function checkDebugMode(body: string, h: Headers): CheckResult {
   return { key: "debug_mode", status: "fail", notes: `Possible debug-mode signals:\n${notes}` };
 }
 
+const SENSITIVE_VITE_KEYWORDS = ["SECRET", "KEY", "TOKEN", "PASSWORD", "PRIVATE", "SERVICE_ROLE", "ANON", "API"];
+const MAX_BUNDLES = 15;
+const MAX_BUNDLE_BYTES = 2_000_000;
+
+function extractScriptUrls(html: string, base: string): string[] {
+  const urls = new Set<string>();
+  const re = /<script\b[^>]*\bsrc=["']([^"']+\.[mc]?js(?:\?[^"']*)?)["']/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      urls.add(new URL(m[1], base + "/").toString());
+    } catch {
+      /* ignore */
+    }
+  }
+  return Array.from(urls).slice(0, MAX_BUNDLES);
+}
+
+async function checkViteExposure(base: string, html: string): Promise<CheckResult> {
+  const scriptUrls = extractScriptUrls(html, base);
+  const sources: { url: string; body: string }[] = [{ url: base, body: html }];
+  for (const url of scriptUrls) {
+    try {
+      const r = await timedFetch(url, { headers: { "user-agent": "AuditKit-Scanner/1.0" } });
+      if (!r.ok) continue;
+      const text = (await r.text()).slice(0, MAX_BUNDLE_BYTES);
+      sources.push({ url, body: text });
+    } catch {
+      /* skip */
+    }
+  }
+
+  const viteVarRe = /\bVITE_[A-Z0-9_]+/g;
+  const foundByVar = new Map<string, Set<string>>();
+  for (const { url, body } of sources) {
+    const matches = body.match(viteVarRe);
+    if (!matches) continue;
+    for (const name of matches) {
+      const upper = name.toUpperCase();
+      if (!SENSITIVE_VITE_KEYWORDS.some((kw) => upper.includes(kw))) continue;
+      if (!foundByVar.has(upper)) foundByVar.set(upper, new Set());
+      foundByVar.get(upper)!.add(url);
+    }
+  }
+
+  if (foundByVar.size === 0) {
+    return {
+      key: "vite_exposure",
+      status: "pass",
+      notes: `Scanned ${sources.length} source(s) (HTML + ${scriptUrls.length} JS bundle(s)). No VITE_ variable names containing sensitive keywords (${SENSITIVE_VITE_KEYWORDS.join(", ")}) were detected in the served bundle.`,
+    };
+  }
+  const lines = Array.from(foundByVar.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, urls]) => `- ${name}  (in ${urls.size} file${urls.size > 1 ? "s" : ""})`);
+  return {
+    key: "vite_exposure",
+    status: "fail",
+    notes: `Found ${foundByVar.size} sensitive VITE_-prefixed variable name(s) in the served client bundle (scanned ${sources.length} source(s)). Anything prefixed VITE_ is inlined by Vite into the public browser bundle and is readable by every visitor. Rotate these secrets and move them to server-only env vars (drop the VITE_ prefix).\n\nDetected:\n${lines.join("\n")}`,
+  };
+}
+
 export const runAutoScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { auditId: string }) => {
