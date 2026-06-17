@@ -53,7 +53,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(id, name, app_url, github_repo_url, github_token)")
+        .select("id, title, status, started_at, completed_at, summary, client:clients(id, name, app_url)")
         .eq("id", id).single();
       if (error) throw error;
       return data;
