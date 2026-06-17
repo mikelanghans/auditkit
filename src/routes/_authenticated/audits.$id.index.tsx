@@ -357,7 +357,10 @@ function AuditView() {
             onSupabaseResult={setSupabaseSummary}
             onAIResult={setAISummary}
             onAIAssistResult={setAIAssistSummary}
+            aiScanPreset={aiScanPreset}
+            onAIScanPresetConsumed={() => setAIScanPreset(null)}
           />
+
           {aiAssistSummary && (
             <AIAssistReviewPanel
               auditId={id}
