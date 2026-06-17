@@ -263,11 +263,22 @@ export const runRepoScan = createServerFn({ method: "POST" })
       written.push({ title, status: res.status, matched: true });
     }
 
+    // ---- Phase 2: dependency vulnerability scan ----
+    const dep = await runDepScan({
+      owner: parsed.owner,
+      repo: parsed.repo,
+      token: data.token,
+      defaultBranch,
+      supabase,
+      auditId: data.auditId,
+    });
+
     return {
       ok: true as const,
       repo: `${parsed.owner}/${parsed.repo}`,
       commitsScanned: commits.length,
       findings: unique,
       results: written,
+      dep,
     };
   });
