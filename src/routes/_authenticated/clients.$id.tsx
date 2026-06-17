@@ -187,140 +187,200 @@ function Field({ label, value, onChange, type = "text", required, placeholder }:
 
 function ConnectedAccountsSection({ client }: { client: any }) {
   const qc = useQueryClient();
-  const [editing, setEditing] = useState(false);
-  const [repoUrl, setRepoUrl] = useState(client.github_repo_url ?? "");
+  const repos = useQuery({
+    queryKey: ["client-repos", client.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("client_repos")
+        .select("id, label, repo_url, github_token, updated_at")
+        .eq("client_id", client.id)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
   const [token, setToken] = useState("");
-  const connected = !!(client.github_repo_url && client.github_token);
 
-  useEffect(() => {
-    setRepoUrl(client.github_repo_url ?? "");
+  const reset = () => { setLabel(""); setRepoUrl(""); setToken(""); setAdding(false); setEditingId(null); };
+
+  const upsert = useMutation({
+    mutationFn: async () => {
+      if (editingId) {
+        const update: any = { label: label.trim() || "Repo", repo_url: repoUrl.trim() };
+        if (token.trim()) update.github_token = token.trim();
+        const { error } = await supabase.from("client_repos").update(update).eq("id", editingId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("client_repos").insert({
+          client_id: client.id,
+          label: label.trim() || "Repo",
+          repo_url: repoUrl.trim(),
+          github_token: token.trim() || null,
+        });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-repos", client.id] });
+      toast.success(editingId ? "Repo updated" : "Repo added");
+      reset();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("client_repos").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-repos", client.id] });
+      toast.success("Repo disconnected");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const startEdit = (r: any) => {
+    setEditingId(r.id);
+    setAdding(false);
+    setLabel(r.label);
+    setRepoUrl(r.repo_url);
     setToken("");
-  }, [client.id, client.github_repo_url, client.github_token]);
+  };
 
-  const save = useMutation({
-    mutationFn: async () => {
-      const update: any = { github_repo_url: repoUrl.trim() || null };
-      if (token.trim()) update.github_token = token.trim();
-      const { error } = await supabase.from("clients").update(update).eq("id", client.id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["client", client.id] });
-      setEditing(false);
-      setToken("");
-      toast.success("GitHub credentials saved");
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const disconnect = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase
-        .from("clients")
-        .update({ github_repo_url: null, github_token: null })
-        .eq("id", client.id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["client", client.id] });
-      setRepoUrl("");
-      setToken("");
-      toast.success("GitHub disconnected");
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
+  const list = repos.data ?? [];
 
   return (
     <section>
-      <h2 className="text-lg font-semibold mb-3">Connected Accounts</h2>
-      <Card className="p-4">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex items-start gap-3 min-w-0">
-            <div className="rounded-md bg-muted p-2 shrink-0">
-              <Github className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">GitHub</span>
-                {connected ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-status-pass">
-                    <span className="h-1.5 w-1.5 rounded-full bg-status-pass" /> Connected
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Not connected</span>
-                )}
-              </div>
-              {connected && !editing && (
-                <a href={client.github_repo_url} target="_blank" rel="noreferrer" className="text-sm text-navy hover:underline break-all">
-                  {client.github_repo_url}
-                </a>
-              )}
-              {!connected && !editing && (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Add a repo URL and PAT to enable one-click Scan Repo and AI Assist.
-                </p>
-              )}
-            </div>
-          </div>
-          {!editing && (
-            <div className="flex items-center gap-2 shrink-0">
-              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-                <Pencil className="h-3.5 w-3.5 mr-1" /> {connected ? "Update" : "Connect"}
-              </Button>
-              {connected && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => disconnect.mutate()}
-                  disabled={disconnect.isPending}
-                  className="text-status-fail border-status-fail/40 hover:bg-status-fail/5 hover:text-status-fail"
-                >
-                  <Unlink className="h-3.5 w-3.5 mr-1" /> Disconnect
-                </Button>
-              )}
-            </div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold">Connected Accounts</h2>
+        {!adding && !editingId && (
+          <Button variant="outline" size="sm" onClick={() => { reset(); setAdding(true); }}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Add repo
+          </Button>
+        )}
+      </div>
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="rounded-md bg-muted p-1.5"><Github className="h-4 w-4" /></div>
+          <span className="font-medium text-sm">GitHub</span>
+          {list.length > 0 ? (
+            <span className="inline-flex items-center gap-1 text-xs text-status-pass">
+              <span className="h-1.5 w-1.5 rounded-full bg-status-pass" /> {list.length} connected
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">Not connected</span>
           )}
         </div>
 
-        {editing && (
-          <div className="space-y-3 mt-4">
-            <div className="space-y-1.5">
-              <Label>Repository URL</Label>
-              <Input
-                type="url"
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/owner/repo"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Personal Access Token</Label>
-              <Input
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder={client.github_token ? "•••••••• (leave blank to keep existing)" : "ghp_… or github_pat_…"}
-              />
-              <p className="text-xs text-muted-foreground">
-                Fine-grained PAT needs <em>Contents: Read</em> + <em>Metadata: Read</em>. Stored on the client and reused for future scans.
-              </p>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setRepoUrl(client.github_repo_url ?? ""); setToken(""); }}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => save.mutate()}
-                disabled={save.isPending || !repoUrl.trim() || (!client.github_token && !token.trim())}
-                className="bg-navy text-navy-foreground hover:bg-navy/90"
-              >
-                Save
-              </Button>
-            </div>
+        {list.length === 0 && !adding && (
+          <p className="text-xs text-muted-foreground">
+            Add one or more repos to enable one-click Scan Repo and AI Assist.
+          </p>
+        )}
+
+        {list.length > 0 && (
+          <ul className="divide-y divide-border rounded-md border border-border">
+            {list.map((r: any) => (
+              <li key={r.id} className="p-3">
+                {editingId === r.id ? (
+                  <RepoForm
+                    label={label} setLabel={setLabel}
+                    repoUrl={repoUrl} setRepoUrl={setRepoUrl}
+                    token={token} setToken={setToken}
+                    tokenPlaceholder="•••••••• (leave blank to keep existing)"
+                    onCancel={reset}
+                    onSave={() => upsert.mutate()}
+                    saving={upsert.isPending}
+                    canSave={!!repoUrl.trim()}
+                  />
+                ) : (
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{r.label}</span>
+                        {!r.github_token && <span className="text-[10px] uppercase text-status-fail">no PAT</span>}
+                      </div>
+                      <a href={r.repo_url} target="_blank" rel="noreferrer" className="text-xs text-navy hover:underline break-all">
+                        {r.repo_url}
+                      </a>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button variant="ghost" size="sm" onClick={() => startEdit(r)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => remove.mutate(r.id)}
+                        disabled={remove.isPending}
+                        className="text-status-fail hover:text-status-fail hover:bg-status-fail/5"
+                      >
+                        <Unlink className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {adding && (
+          <div className="rounded-md border border-border p-3">
+            <RepoForm
+              label={label} setLabel={setLabel}
+              repoUrl={repoUrl} setRepoUrl={setRepoUrl}
+              token={token} setToken={setToken}
+              tokenPlaceholder="ghp_… or github_pat_…"
+              onCancel={reset}
+              onSave={() => upsert.mutate()}
+              saving={upsert.isPending}
+              canSave={!!repoUrl.trim() && !!token.trim()}
+            />
           </div>
         )}
       </Card>
     </section>
+  );
+}
+
+function RepoForm({
+  label, setLabel, repoUrl, setRepoUrl, token, setToken, tokenPlaceholder,
+  onCancel, onSave, saving, canSave,
+}: {
+  label: string; setLabel: (v: string) => void;
+  repoUrl: string; setRepoUrl: (v: string) => void;
+  token: string; setToken: (v: string) => void;
+  tokenPlaceholder: string;
+  onCancel: () => void; onSave: () => void; saving: boolean; canSave: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <Label>Label</Label>
+        <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Frontend, API, Worker" />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Repository URL</Label>
+        <Input type="url" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://github.com/owner/repo" />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Personal Access Token</Label>
+        <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={tokenPlaceholder} />
+        <p className="text-xs text-muted-foreground">Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.</p>
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button size="sm" onClick={onSave} disabled={saving || !canSave} className="bg-navy text-navy-foreground hover:bg-navy/90">
+          Save
+        </Button>
+      </div>
+    </div>
   );
 }
