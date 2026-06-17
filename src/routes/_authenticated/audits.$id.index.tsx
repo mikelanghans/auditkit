@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ import { runRepoScan } from "@/lib/repo-scan.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog } from "@/components/ai-scan-dialog";
+import { DependencyScanDialog, type DepScanResult } from "@/components/dependency-scan-dialog";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
   head: () => ({ meta: [{ title: "Audit — AuditKit" }] }),
@@ -90,15 +91,20 @@ function AuditView() {
   const [repoSummary, setRepoSummary] = useState<RepoSummary | null>(null);
   const [supabaseSummary, setSupabaseSummary] = useState<SupabaseSummary | null>(null);
   const [aiSummary, setAISummary] = useState<AISummary | null>(null);
+  const [depResult, setDepResult] = useState<DepScanResult | null>(null);
+  const depPassFail = useMemo(() => {
+    if (!depResult) return { passes: 0, fails: 0 };
+    return { passes: depResult.status === "pass" ? 1 : 0, fails: depResult.status === "fail" ? 1 : 0 };
+  }, [depResult]);
   const combinedSummary = useMemo(() => {
-    if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary) return null;
+    if (!surfaceSummary && !repoSummary && !supabaseSummary && !aiSummary && !depResult) return null;
     return {
-      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0) + (aiSummary?.passes ?? 0),
-      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0) + (aiSummary?.fails ?? 0),
+      passes: (surfaceSummary?.passes ?? 0) + (repoSummary?.passes ?? 0) + (supabaseSummary?.passes ?? 0) + (aiSummary?.passes ?? 0) + depPassFail.passes,
+      fails: (surfaceSummary?.fails ?? 0) + (repoSummary?.fails ?? 0) + (supabaseSummary?.fails ?? 0) + (aiSummary?.fails ?? 0) + depPassFail.fails,
       warnings: surfaceSummary?.warnings ?? 0,
-      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase", aiSummary && "AI"].filter(Boolean).join(" + "),
+      sources: [surfaceSummary && "Surface", repoSummary && "Repo", supabaseSummary && "Supabase", aiSummary && "AI", depResult && "Deps"].filter(Boolean).join(" + "),
     };
-  }, [surfaceSummary, repoSummary, supabaseSummary, aiSummary]);
+  }, [surfaceSummary, repoSummary, supabaseSummary, aiSummary, depResult, depPassFail]);
 
   const findingsMap = useMemo(() => {
     const m = new Map<string, Finding>();
@@ -298,6 +304,7 @@ function AuditView() {
             onRepoResult={setRepoSummary}
             onSupabaseResult={setSupabaseSummary}
             onAIResult={setAISummary}
+            onDepResult={setDepResult}
           />
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
@@ -328,7 +335,7 @@ function AuditView() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
                   {surfaceSummary && (
                     <div className="rounded-md border border-border bg-card p-2">
                       <div className="font-medium text-foreground">Surface</div>
@@ -376,6 +383,19 @@ function AuditView() {
                       </div>
                     </div>
                   )}
+                  {depResult && (
+                    <div className="rounded-md border border-border bg-card p-2">
+                      <div className="font-medium text-foreground">Dependencies</div>
+                      <div className="text-muted-foreground truncate">{depResult.repo} · {depResult.packagesScanned} pkgs</div>
+                      <div className="mt-1 space-x-1">
+                        {depResult.counts.critical > 0 && <span className="text-status-fail">{depResult.counts.critical} critical</span>}
+                        {depResult.counts.high > 0 && <span className="text-status-fail"> · {depResult.counts.high} high</span>}
+                        {depResult.counts.medium > 0 && <span className="text-status-na"> · {depResult.counts.medium} medium</span>}
+                        {depResult.counts.low > 0 && <span className="text-muted-foreground"> · {depResult.counts.low} low</span>}
+                        {depResult.findings.length === 0 && <span className="text-status-pass">all clean</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {failedItems.length > 0 && (
@@ -404,6 +424,7 @@ function AuditView() {
               </Card>
             );
           })()}
+          {depResult && depResult.findings.length > 0 && <DependencyResultsPanel result={depResult} />}
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
             <ToggleGroup
@@ -482,7 +503,7 @@ function BackLink() {
 }
 
 function ShieldScanBanner({
-  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult,
+  auditId, appUrl, hasScanned, onDone, onSurfaceResult, onRepoResult, onSupabaseResult, onAIResult, onDepResult,
 }: {
   auditId: string;
   appUrl: string | null;
@@ -492,6 +513,7 @@ function ShieldScanBanner({
   onRepoResult: (s: { passes: number; fails: number; findings: number; repo: string; at: string }) => void;
   onSupabaseResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
   onAIResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
+  onDepResult: (r: DepScanResult) => void;
 }) {
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
@@ -557,6 +579,7 @@ function ShieldScanBanner({
           <RepoScanDialog auditId={auditId} onDone={onDone} onRepoResult={onRepoResult} />
           <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
           <AIScanDialog auditId={auditId} onDone={onDone} onResult={onAIResult} />
+          <DependencyScanDialog auditId={auditId} onDone={onDone} onResult={onDepResult} />
         </div>
       </div>
       {pending && (
@@ -813,5 +836,71 @@ function RepoScanDialog({ auditId, onDone, onRepoResult }: {
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+type DepFindingSev = DepScanResult["findings"][number]["severity"];
+
+function DependencyResultsPanel({ result }: { result: DepScanResult }) {
+  const sevClass = (s: DepFindingSev) => {
+    if (s === "critical") return "bg-status-fail/10 text-status-fail border-status-fail/40";
+    if (s === "high") return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/40";
+    if (s === "medium") return "bg-status-na/10 text-status-na border-status-na/40";
+    return "bg-muted text-muted-foreground border-border";
+  };
+  const rowClass = (s: DepFindingSev) => {
+    if (s === "critical") return "bg-status-fail/5";
+    if (s === "high") return "bg-amber-500/5";
+    return "";
+  };
+  return (
+    <Card className="p-4 border-l-4 border-l-amber-500/60">
+      <div className="flex items-center gap-2 mb-3">
+        <Package className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+        <div className="font-medium text-sm">Dependency scan — {result.repo}</div>
+        <div className="ml-auto text-xs text-muted-foreground">
+          {result.packagesScanned} scanned · {result.findings.length} flagged
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="text-left px-3 py-2 font-medium">Package</th>
+              <th className="text-left px-3 py-2 font-medium">Current</th>
+              <th className="text-left px-3 py-2 font-medium">Latest</th>
+              <th className="text-left px-3 py-2 font-medium">Severity</th>
+              <th className="text-left px-3 py-2 font-medium">CVE / Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.findings.map((f, i) => (
+              <tr key={`${f.name}-${i}`} className={cn("border-t border-border", rowClass(f.severity))}>
+                <td className="px-3 py-2 font-mono text-xs">{f.name}</td>
+                <td className="px-3 py-2 font-mono text-xs">{f.current}</td>
+                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{f.latest ?? "—"}</td>
+                <td className="px-3 py-2">
+                  <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-medium uppercase", sevClass(f.severity))}>
+                    {f.severity}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  {f.cve && (
+                    <a
+                      href={f.advisoryUrl ?? `https://nvd.nist.gov/vuln/detail/${f.cve}`}
+                      target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 font-mono text-primary hover:underline"
+                    >
+                      {f.cve} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                  <div className="text-muted-foreground">{f.reason}</div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
