@@ -36,6 +36,17 @@ function AuthPage() {
     navigate({ to: "/dashboard", replace: true });
   }
 
+  async function forgotPassword() {
+    if (!email) return toast.error("Enter your email above first.");
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setLoading(false);
+    if (error) return toast.error(error.message);
+    toast.success("Password reset email sent. Check your inbox.");
+  }
+
   async function signUp(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -76,6 +87,13 @@ function AuthPage() {
                 <Button type="submit" disabled={loading} className="w-full bg-navy text-navy-foreground hover:bg-navy/90">
                   {loading ? "Signing in…" : "Sign in"}
                 </Button>
+                <button
+                  type="button"
+                  onClick={forgotPassword}
+                  className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2"
+                >
+                  Forgot password?
+                </button>
               </form>
             </TabsContent>
             <TabsContent value="signup">
