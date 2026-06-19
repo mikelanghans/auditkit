@@ -16,19 +16,87 @@ export const Route = createFileRoute("/reset-password")({
 function ResetPasswordPage() {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("Validating reset link…");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Supabase auto-parses the recovery token from the URL hash and creates a session.
+    let mounted = true;
+
+    const markReady = () => {
+      if (!mounted) return;
+      setReady(true);
+      setStatusMessage("Enter and confirm your new password below.");
+    };
+
+    const markError = (message: string) => {
+      if (!mounted) return;
+      setReady(false);
+      setStatusMessage(message);
+      toast.error(message);
+    };
+
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") setReady(true);
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") markReady();
     });
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) setReady(true);
-    });
-    return () => sub.subscription.unsubscribe();
+
+    async function validateResetLink() {
+      const query = new URLSearchParams(window.location.search);
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const linkError = query.get("error_description") || hash.get("error_description");
+
+      if (linkError) {
+        markError(linkError);
+        return;
+      }
+
+      const code = query.get("code");
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          markError(error.message);
+          return;
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+        markReady();
+        return;
+      }
+
+      const accessToken = hash.get("access_token");
+      const refreshToken = hash.get("refresh_token");
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (error) {
+          markError(error.message);
+          return;
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+        markReady();
+        return;
+      }
+
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        markError(error.message);
+        return;
+      }
+      if (data.session) {
+        markReady();
+        return;
+      }
+      markError("This reset link is invalid or expired. Request a new password reset email.");
+    }
+
+    validateResetLink();
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -55,11 +123,7 @@ function ResetPasswordPage() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-md bg-card border rounded-xl p-6 shadow-sm">
           <h1 className="text-lg font-semibold mb-1">Choose a new password</h1>
-          <p className="text-sm text-muted-foreground mb-4">
-            {ready
-              ? "Enter and confirm your new password below."
-              : "Validating reset link…"}
-          </p>
+          <p className="text-sm text-muted-foreground mb-4">{statusMessage}</p>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="pw">New password</Label>
