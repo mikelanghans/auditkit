@@ -364,3 +364,122 @@ export const applyAIAssistFinding = createServerFn({ method: "POST" })
     if (error) return { ok: false as const, error: error.message };
     return { ok: true as const };
   });
+
+export type RecheckInput = {
+  auditId: string;
+  checklistItemId: string;
+  repoUrl: string;
+  token: string;
+};
+
+export const recheckAIAssistItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: RecheckInput) => input)
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const parsed = parseRepo(data.repoUrl ?? "");
+    if (!parsed) return { ok: false as const, error: "Invalid GitHub repo URL." };
+    if (!data.token?.trim()) return { ok: false as const, error: "GitHub token is required." };
+
+    const { data: auditRow } = await supabase
+      .from("audits").select("id, created_by").eq("id", data.auditId).single();
+    if (!auditRow || auditRow.created_by !== userId) {
+      return { ok: false as const, error: "Audit not found or access denied." };
+    }
+
+    const { data: item, error: ierr } = await supabase
+      .from("checklist_items")
+      .select("id, title, category, checklist_key")
+      .eq("id", data.checklistItemId)
+      .single();
+    if (ierr || !item) return { ok: false as const, error: "Checklist item not found." };
+
+    let repoData;
+    try {
+      repoData = await fetchRepoFiles(parsed.owner, parsed.repo, data.token.trim(), DEPTH_CAPS.deep.maxFiles);
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message ?? "Failed to read repository." };
+    }
+    if (repoData.files.length === 0) {
+      return { ok: false as const, error: "No source files found in the repo." };
+    }
+
+    const batches = chunkFiles(repoData.files, DEPTH_CAPS.deep.maxBatches);
+    const itemKey = (item.checklist_key || slugify(item.title)).toLowerCase();
+    const checklistList = `- key="${itemKey}" | title="${item.title}" | category=${item.category}`;
+    const confRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
+    let best: AIAssistFinding | null = null;
+    const batchErrors: string[] = [];
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      const codeBlob = batch.map((f) => `=== FILE: ${f.path} ===\n${f.content}`).join("\n\n");
+      const userPrompt =
+        `Repository: ${parsed.owner}/${parsed.repo}@${repoData.branch}\n` +
+        `Batch ${i + 1}/${batches.length} — files in this batch: ${batch.length}\n\n` +
+        `RE-CHECK A SINGLE CHECKLIST ITEM. Only return a finding if you have concrete code evidence in these files. If the code satisfies the condition, return a pass with the supporting evidence. If you have no evidence either way, return an empty array.\n\n` +
+        `CHECKLIST ITEM:\n${checklistList}\n\n` +
+        `SOURCE FILES:\n${codeBlob}`;
+
+      let raw: string;
+      let truncated = false;
+      try {
+        const result = await callClaude(SYSTEM_PROMPT, userPrompt);
+        raw = result.text;
+        truncated = result.truncated;
+      } catch (e: any) {
+        batchErrors.push(`batch ${i + 1}: ${e?.message ?? "Claude request failed"}`);
+        continue;
+      }
+
+      let arr: any[];
+      try { arr = extractJson(raw, truncated); }
+      catch { batchErrors.push(`batch ${i + 1}: parse error`); continue; }
+
+      for (const f of arr) {
+        const key = String(f?.checklist_key ?? "").toLowerCase().trim();
+        if (key !== itemKey) continue;
+        const status = f?.suggested_status === "fail" ? "fail" : f?.suggested_status === "pass" ? "pass" : null;
+        const confidence = f?.confidence === "high" ? "high" : f?.confidence === "medium" ? "medium" : f?.confidence === "low" ? "low" : null;
+        if (!status || !confidence) continue;
+        const finding: AIAssistFinding = {
+          checklist_item_id: item.id,
+          checklist_title: item.title,
+          category: item.category,
+          suggested_status: status,
+          confidence,
+          reasoning: String(f?.reasoning ?? "").slice(0, 1000),
+          evidence: String(f?.evidence ?? "").slice(0, 2000),
+        };
+        const prevScore = best ? (best.suggested_status === "fail" ? 10 : 0) + confRank[best.confidence] : -1;
+        const newScore = (status === "fail" ? 10 : 0) + confRank[confidence];
+        if (newScore > prevScore) best = finding;
+      }
+    }
+
+    if (!best) {
+      return {
+        ok: true as const,
+        applied: false as const,
+        message: "No evidence found in the scanned files — status unchanged.",
+        partial: batchErrors.length > 0 ? batchErrors : undefined,
+      };
+    }
+
+    const stamp = new Date().toISOString();
+    const notes = `[AI Re-check ${stamp}] (${best.confidence} confidence)\n${best.reasoning}\n\nEvidence:\n${best.evidence}`;
+    const { error } = await supabase.from("audit_findings").upsert(
+      { audit_id: data.auditId, checklist_item_id: item.id, status: best.suggested_status, notes, ai_assisted: true },
+      { onConflict: "audit_id,checklist_item_id" },
+    );
+    if (error) return { ok: false as const, error: error.message };
+
+    return {
+      ok: true as const,
+      applied: true as const,
+      status: best.suggested_status,
+      confidence: best.confidence,
+      reasoning: best.reasoning,
+      partial: batchErrors.length > 0 ? batchErrors : undefined,
+    };
+  });

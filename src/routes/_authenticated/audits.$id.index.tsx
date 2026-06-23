@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { runAutoScan } from "@/lib/scan.functions";
 
 import { runRepoScan } from "@/lib/repo-scan.functions";
+import { recheckAIAssistItem } from "@/lib/ai-assist.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog, type AIScanPreset } from "@/components/ai-scan-dialog";
@@ -537,6 +538,7 @@ function AuditView() {
                 finding={f}
                 autoScanned={!!f?.auto_scanned}
                 aiAssisted={!!f?.ai_assisted}
+                savedRepos={savedRepos}
                 onSet={(status, notes) => {
                   // Block changing another item while a Fail in this category has no notes
                   const blocker = rawCatItems.find((other) => {
@@ -678,8 +680,8 @@ function ShieldScanBanner({
 
 
 function ItemRow({
-  auditId, item, finding, autoScanned, aiAssisted, onSet,
-}: { auditId: string; item: Item; finding: Finding | undefined; autoScanned: boolean; aiAssisted: boolean; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
+  auditId, item, finding, autoScanned, aiAssisted, savedRepos, onSet,
+}: { auditId: string; item: Item; finding: Finding | undefined; autoScanned: boolean; aiAssisted: boolean; savedRepos: SavedRepo[]; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
   const qc = useQueryClient();
   const [notes, setNotes] = useState(finding?.notes ?? "");
   const status = finding?.status ?? null;
@@ -730,9 +732,12 @@ function ItemRow({
             </Badge>
           )}
           {aiAssisted && (
-            <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide bg-purple-500/15 text-purple-700 dark:text-purple-300 hover:bg-purple-500/20">
-              <Brain className="h-3 w-3" /> AI Assisted
-            </Badge>
+            <>
+              <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide bg-purple-500/15 text-purple-700 dark:text-purple-300 hover:bg-purple-500/20">
+                <Brain className="h-3 w-3" /> AI Assisted
+              </Badge>
+              <RecheckItemButton auditId={auditId} checklistItemId={item.id} savedRepos={savedRepos} />
+            </>
           )}
           <div className="flex items-center gap-1">
             <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
@@ -814,6 +819,61 @@ function ItemRow({
     </Card>
   );
 }
+
+function RecheckItemButton({
+  auditId, checklistItemId, savedRepos,
+}: { auditId: string; checklistItemId: string; savedRepos: SavedRepo[] }) {
+  const qc = useQueryClient();
+  const recheck = useServerFn(recheckAIAssistItem);
+  const [pending, setPending] = useState(false);
+
+  const repo = savedRepos.find((r) => r.github_token && r.repo_url) ?? null;
+  const disabled = pending || !repo;
+
+  const run = async () => {
+    if (!repo?.repo_url || !repo?.github_token) {
+      toast.error("Connect a GitHub repo with a token to re-check this item.");
+      return;
+    }
+    setPending(true);
+    const tid = toast.loading(`Re-checking with ${repo.label}…`);
+    try {
+      const res = await recheck({
+        data: { auditId, checklistItemId, repoUrl: repo.repo_url, token: repo.github_token },
+      });
+      if (!res.ok) {
+        toast.error(res.error ?? "Re-check failed", { id: tid });
+        return;
+      }
+      if (!res.applied) {
+        toast.message(res.message ?? "No evidence found.", { id: tid });
+      } else {
+        toast.success(`Re-check: ${res.status?.toUpperCase()} (${res.confidence} confidence)`, { id: tid });
+        qc.invalidateQueries({ queryKey: ["findings", auditId] });
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Re-check failed", { id: tid });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="h-7 px-2 text-xs gap-1 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10"
+      onClick={run}
+      disabled={disabled}
+      title={repo ? `Re-scan repo for this item using ${repo.label}` : "Connect a GitHub repo with a token to enable re-check"}
+    >
+      {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+      Re-check
+    </Button>
+  );
+}
+
+
 
 function StatusBtn({
   label, icon, active, color, onClick,
