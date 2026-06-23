@@ -205,7 +205,63 @@ export function AIScanDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {mode === "repo-pick" && (
+        {needTokenFor && (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const r = needTokenFor;
+              const tok = pendingToken.trim();
+              if (!tok) return;
+              if (savePendingToken) {
+                const { error } = await supabase.from("client_repos").update({ github_token: tok }).eq("id", r.id);
+                if (error) toast.error(`Could not save token: ${error.message}`);
+                else qc.invalidateQueries({ queryKey: ["client-repos"] });
+              }
+              setNeedTokenFor(null);
+              setPendingToken("");
+              await runDetect(r, tok);
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <div className="text-sm font-medium">{needTokenFor.label}</div>
+              <div className="text-xs text-muted-foreground break-all">{needTokenFor.repo_url}</div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-pending-token">Personal access token</Label>
+              <Input
+                id="ai-pending-token"
+                type="password"
+                placeholder="ghp_… or github_pat_…"
+                value={pendingToken}
+                onChange={(e) => setPendingToken(e.target.value)}
+                autoFocus
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.</p>
+            </div>
+            <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={savePendingToken}
+                onChange={(e) => setSavePendingToken(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-navy"
+              />
+              <span>
+                <span className="font-medium">Remember this token</span>
+                <span className="block text-xs text-muted-foreground">Saves the PAT on this repo so future scans run with one click.</span>
+              </span>
+            </label>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => { setNeedTokenFor(null); setPendingToken(""); setMode(savedRepos.length >= 2 ? "repo-pick" : "manual"); }}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!pendingToken.trim()}>Detect endpoints</Button>
+            </DialogFooter>
+          </form>
+        )}
+
+        {!needTokenFor && mode === "repo-pick" && (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Pick a repo to auto-detect AI endpoints:</p>
             <ul className="space-y-1.5">
