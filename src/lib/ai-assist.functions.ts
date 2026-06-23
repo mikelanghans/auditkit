@@ -1,9 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const MAX_FILES = 12;
-const MAX_TOTAL_CHARS = 22_000;
-const MAX_FILE_CHARS = 5_000;
+// Per-batch budget sent to Claude (well under 200k-token context window)
+const BATCH_MAX_FILES = 40;
+const BATCH_MAX_CHARS = 120_000;
+const MAX_FILE_CHARS = 12_000;
+// Hard cap on total files scanned across batches to bound cost/time
+const MAX_TOTAL_FILES = 400;
+const MAX_BATCHES = 12;
 const PRIORITY_KEYWORDS = [
   "auth", "api", "middleware", "supabase", "openai", "anthropic",
   "stripe", "generate", "prompt", "rls", "policy",
