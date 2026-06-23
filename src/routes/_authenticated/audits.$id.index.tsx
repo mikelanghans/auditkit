@@ -820,6 +820,61 @@ function ItemRow({
   );
 }
 
+function RecheckItemButton({
+  auditId, checklistItemId, savedRepos,
+}: { auditId: string; checklistItemId: string; savedRepos: SavedRepo[] }) {
+  const qc = useQueryClient();
+  const recheck = useServerFn(recheckAIAssistItem);
+  const [pending, setPending] = useState(false);
+
+  const repo = savedRepos.find((r) => r.github_token && r.repo_url) ?? null;
+  const disabled = pending || !repo;
+
+  const run = async () => {
+    if (!repo?.repo_url || !repo?.github_token) {
+      toast.error("Connect a GitHub repo with a token to re-check this item.");
+      return;
+    }
+    setPending(true);
+    const tid = toast.loading(`Re-checking with ${repo.label}…`);
+    try {
+      const res = await recheck({
+        data: { auditId, checklistItemId, repoUrl: repo.repo_url, token: repo.github_token },
+      });
+      if (!res.ok) {
+        toast.error(res.error ?? "Re-check failed", { id: tid });
+        return;
+      }
+      if (!res.applied) {
+        toast.message(res.message ?? "No evidence found.", { id: tid });
+      } else {
+        toast.success(`Re-check: ${res.status?.toUpperCase()} (${res.confidence} confidence)`, { id: tid });
+        qc.invalidateQueries({ queryKey: ["findings", auditId] });
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Re-check failed", { id: tid });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="h-7 px-2 text-xs gap-1 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10"
+      onClick={run}
+      disabled={disabled}
+      title={repo ? `Re-scan repo for this item using ${repo.label}` : "Connect a GitHub repo with a token to enable re-check"}
+    >
+      {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+      Re-check
+    </Button>
+  );
+}
+
+
+
 function StatusBtn({
   label, icon, active, color, onClick,
 }: { label: string; icon: React.ReactNode; active: boolean; color: "pass" | "fail" | "na"; onClick: () => void }) {
