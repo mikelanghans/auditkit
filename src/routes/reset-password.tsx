@@ -112,16 +112,6 @@ function ResetPasswordPage() {
     };
   }, []);
 
-  async function waitForSession(timeoutMs = 4000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) return data.session;
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    return null;
-  }
-
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (password.length < 6) return toast.error("Password must be at least 6 characters.");
