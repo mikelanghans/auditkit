@@ -88,8 +88,18 @@ function AuthPage() {
                 <Field id="email1" label="Email" type="email" value={email} onChange={setEmail} />
                 {!resetSent && (
                   <>
-                    <Field id="pw1" label="Password" type="password" value={password} onChange={setPassword} />
-                    <Button type="submit" disabled={loading} className="w-full bg-navy text-navy-foreground hover:bg-navy/90">
+                    <Field
+                      id="pw1"
+                      label="Password"
+                      type="password"
+                      value={password}
+                      onChange={setPassword}
+                    />
+                    <Button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full bg-navy text-navy-foreground hover:bg-navy/90"
+                    >
                       {loading ? "Signing in…" : "Sign in"}
                     </Button>
                   </>
@@ -112,8 +122,18 @@ function AuthPage() {
               <form onSubmit={signUp} className="space-y-4 mt-4">
                 <Field id="name2" label="Full name" value={fullName} onChange={setFullName} />
                 <Field id="email2" label="Email" type="email" value={email} onChange={setEmail} />
-                <Field id="pw2" label="Password" type="password" value={password} onChange={setPassword} />
-                <Button type="submit" disabled={loading} className="w-full bg-navy text-navy-foreground hover:bg-navy/90">
+                <Field
+                  id="pw2"
+                  label="Password"
+                  type="password"
+                  value={password}
+                  onChange={setPassword}
+                />
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-navy text-navy-foreground hover:bg-navy/90"
+                >
                   {loading ? "Creating…" : "Create account"}
                 </Button>
               </form>
