@@ -309,10 +309,8 @@ function ConnectedAccountsSection({ client }: { client: any }) {
                   <RepoForm
                     label={label} setLabel={setLabel}
                     repoUrl={repoUrl} setRepoUrl={setRepoUrl}
-                    token={token} setToken={setToken}
                     websiteUrl={websiteUrl} setWebsiteUrl={setWebsiteUrl}
                     websites={websites}
-                    tokenPlaceholder="•••••••• (leave blank to keep existing)"
                     onCancel={reset}
                     onSave={() => upsert.mutate()}
                     saving={upsert.isPending}
