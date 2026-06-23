@@ -72,7 +72,7 @@ function scoreFile(path: string): number {
   return s;
 }
 
-async function fetchRepoFiles(owner: string, repo: string, token: string) {
+async function fetchRepoFiles(owner: string, repo: string, token: string, maxFiles: number) {
   const repoMeta = await gh<{ default_branch: string }>(
     `https://api.github.com/repos/${owner}/${repo}`, token,
   );
@@ -85,7 +85,7 @@ async function fetchRepoFiles(owner: string, repo: string, token: string) {
     .map((n) => ({ ...n, score: scoreFile(n.path) }))
     .filter((n) => n.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_TOTAL_FILES);
+    .slice(0, maxFiles);
 
   const picked: { path: string; content: string }[] = [];
   let total = 0;
