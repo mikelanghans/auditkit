@@ -98,17 +98,23 @@ function ResetPasswordPage() {
           setStatusMessage("Enter and confirm your new password below.");
           cleanUrl();
         } else {
-          setStatusMessage("This reset link is invalid or expired. Request a new password reset email.");
+          setStatusMessage(invalidLinkMessage);
         }
       })
       .catch(() => {
         if (!mounted) return;
-        setStatusMessage("This reset link is invalid or expired. Request a new password reset email.");
+        setStatusMessage(invalidLinkMessage);
       });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION")) {
+      if (
+        session &&
+        (event === "PASSWORD_RECOVERY" ||
+          event === "SIGNED_IN" ||
+          event === "TOKEN_REFRESHED" ||
+          event === "INITIAL_SESSION")
+      ) {
         setReady(true);
         setStatusMessage("Enter and confirm your new password below.");
         cleanUrl();
@@ -119,7 +125,7 @@ function ResetPasswordPage() {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [cleanUrl, ensureRecoverySession, invalidLinkMessage]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -130,8 +136,8 @@ function ResetPasswordPage() {
       const session = await ensureRecoverySession();
       if (!session) {
         setLoading(false);
-        setStatusMessage("This reset link is invalid or expired. Request a new password reset email.");
-        return toast.error("This reset link is invalid or expired. Request a new password reset email.");
+        setStatusMessage(invalidLinkMessage);
+        return toast.error(invalidLinkMessage);
       }
       setReady(true);
       await new Promise((r) => setTimeout(r, 500));
@@ -142,8 +148,8 @@ function ResetPasswordPage() {
       navigate({ to: "/dashboard", replace: true });
     } catch (error) {
       setLoading(false);
-      setStatusMessage("This reset link is invalid or expired. Request a new password reset email.");
-      return toast.error(error instanceof Error ? error.message : "This reset link is invalid or expired. Request a new password reset email.");
+      setStatusMessage(invalidLinkMessage);
+      return toast.error(error instanceof Error ? error.message : invalidLinkMessage);
     }
   }
 
