@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,25 +16,28 @@ export const Route = createFileRoute("/reset-password")({
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
-  const [statusMessage, setStatusMessage] = useState("Enter and confirm your new password below.");
+  const invalidLinkMessage = "This reset link is invalid or expired. Request a new password reset email.";
+  const [statusMessage, setStatusMessage] = useState(
+    "Enter and confirm your new password below.",
+  );
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const sessionSetupPromiseRef = useRef<Promise<Session | null> | null>(null);
 
-  const cleanUrl = () => {
+  const cleanUrl = useCallback(() => {
     if (window.location.search || window.location.hash) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  };
+  }, []);
 
-  const readAuthParams = () => {
+  const readAuthParams = useCallback(() => {
     const url = new URL(window.location.href);
     const params = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
     url.searchParams.forEach((value, key) => params.set(key, value));
     return params;
-  };
+  }, []);
 
   async function resolveRecoverySession() {
     const params = readAuthParams();
