@@ -62,8 +62,17 @@ function ClientDetail() {
             <p className="text-sm text-muted-foreground">
               {client.data.contact_name || "—"}{client.data.contact_email ? ` · ${client.data.contact_email}` : ""}
             </p>
-            {client.data.app_url && (
-              <p className="text-sm mt-1"><span className="text-muted-foreground">App:</span>{" "}<a href={client.data.app_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">{client.data.app_url}</a></p>
+            {client.data.websites && client.data.websites.length > 0 && (
+              <div className="text-sm mt-1 space-y-0.5">
+                <span className="text-muted-foreground">Websites:</span>
+                <ul className="space-y-0.5">
+                  {client.data.websites.map((w: string) => (
+                    <li key={w}>
+                      <a href={w} target="_blank" rel="noreferrer" className="text-navy hover:underline break-all">{w}</a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {client.data.notes && (
               <p className="text-sm mt-3 max-w-2xl whitespace-pre-wrap">{client.data.notes}</p>
