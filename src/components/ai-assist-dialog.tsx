@@ -148,6 +148,15 @@ export function AIAssistReviewPanel({
 {f.evidence}
                     </pre>
                   )}
+                  {f.suggested_status === "fail" && (
+                    <FixPromptButton
+                      adhoc={{
+                        title: f.checklist_title,
+                        category: f.category,
+                        notes: [f.reasoning, f.evidence].filter(Boolean).join("\n\n"),
+                      }}
+                    />
+                  )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
                   <Button
