@@ -71,7 +71,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("client_repos")
-        .select("id, label, repo_url, github_token, website_url")
+        .select("id, label, repo_url, website_url")
         .eq("client_id", clientId)
         .order("created_at", { ascending: true });
       if (error) throw error;
@@ -872,19 +872,24 @@ function RecheckItemButton({
   const recheck = useServerFn(recheckAIAssistItem);
   const [pending, setPending] = useState(false);
 
-  const repo = savedRepos.find((r) => r.github_token && r.repo_url) ?? null;
-  const disabled = pending || !repo;
+  const repo = savedRepos.find((r) => r.repo_url) ?? null;
+  const cachedToken = repo ? (typeof window !== "undefined" ? window.sessionStorage.getItem("repo-pat:" + repo.id) : null) : null;
+  const disabled = pending || !repo || !cachedToken;
 
   const run = async () => {
-    if (!repo?.repo_url || !repo?.github_token) {
-      toast.error("Connect a GitHub repo with a token to re-check this item.");
+    if (!repo?.repo_url) {
+      toast.error("Connect a GitHub repo to re-check this item.");
+      return;
+    }
+    if (!cachedToken) {
+      toast.error("Run a repo scan first to provide a GitHub token for this session.");
       return;
     }
     setPending(true);
     const tid = toast.loading(`Re-checking with ${repo.label}…`);
     try {
       const res = await recheck({
-        data: { auditId, checklistItemId, repoUrl: repo.repo_url, token: repo.github_token },
+        data: { auditId, checklistItemId, repoUrl: repo.repo_url, token: cachedToken },
       });
       if (!res.ok) {
         toast.error(res.error ?? "Re-check failed", { id: tid });
