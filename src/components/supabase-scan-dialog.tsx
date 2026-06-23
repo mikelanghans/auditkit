@@ -185,7 +185,7 @@ export function SupabaseScanDialog({
               </p>
             ) : (
               <p className="text-xs text-status-na">
-                No client app_url on file — bundle scan and service-role-exposure check will be skipped.
+                No website URL provided — bundle scan and service-role-exposure check will be skipped.
               </p>
             )}
 

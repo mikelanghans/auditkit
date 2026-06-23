@@ -118,18 +118,22 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
   const qc = useQueryClient();
   const navigate = useNavigate();
 
   const clients = useQuery({
-    queryKey: ["clients", "list"],
+    queryKey: ["clients", "list-with-websites"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("clients").select("id, name").order("name");
+      const { data, error } = await supabase.from("clients").select("id, name, websites").order("name");
       if (error) throw error;
       return data ?? [];
     },
     enabled: open,
   });
+
+  const selectedClient = clients.data?.find((c) => c.id === clientId);
+  const websiteOptions = selectedClient?.websites ?? [];
 
   const create = useMutation({
     mutationFn: async () => {
@@ -137,7 +141,13 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
       if (!u.user) throw new Error("Not signed in");
       const { data, error } = await supabase
         .from("audits")
-        .insert({ title, client_id: clientId, created_by: u.user.id, status: "in_progress" })
+        .insert({
+          title,
+          client_id: clientId,
+          created_by: u.user.id,
+          status: "in_progress",
+          website_url: websiteUrl || null,
+        })
         .select("id")
         .single();
       if (error) throw error;
@@ -148,6 +158,7 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
       setOpen(false);
       setTitle("");
       setClientId("");
+      setWebsiteUrl("");
       toast.success("Audit created");
       navigate({ to: "/audits/$id", params: { id: d.id } });
     },
@@ -172,7 +183,7 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Client</Label>
-            <Select value={clientId} onValueChange={setClientId}>
+            <Select value={clientId} onValueChange={(v) => { setClientId(v); setWebsiteUrl(""); }}>
               <SelectTrigger><SelectValue placeholder={clients.data?.length ? "Select a client" : "No clients yet — create one first"} /></SelectTrigger>
               <SelectContent>
                 {clients.data?.map((c) => (
@@ -181,6 +192,23 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
               </SelectContent>
             </Select>
           </div>
+          {clientId && (
+            <div className="space-y-1.5">
+              <Label>Website</Label>
+              {websiteOptions.length > 0 ? (
+                <Select value={websiteUrl} onValueChange={setWebsiteUrl}>
+                  <SelectTrigger><SelectValue placeholder="Select a website" /></SelectTrigger>
+                  <SelectContent>
+                    {websiteOptions.map((w) => (
+                      <SelectItem key={w} value={w}>{w}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-xs text-muted-foreground">This client has no websites configured. Add one on the client first.</p>
+              )}
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>Audit title</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Q2 2026 Security Review" />
@@ -189,7 +217,7 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
         <DialogFooter>
           <Button
             onClick={() => create.mutate()}
-            disabled={!title || !clientId || create.isPending}
+            disabled={!title || !clientId || !websiteUrl || create.isPending}
             className="bg-navy text-navy-foreground hover:bg-navy/90"
           >
             Start audit

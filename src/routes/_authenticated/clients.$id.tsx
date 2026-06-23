@@ -19,6 +19,7 @@ import { ArrowLeft, ArrowRight, Pencil, Github, Unlink, Plus } from "lucide-reac
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { NewAuditDialog } from "./dashboard";
+import { WebsitesField } from "./clients.index";
 
 export const Route = createFileRoute("/_authenticated/clients/$id")({
   head: () => ({ meta: [{ title: "Client — AuditKit" }] }),
@@ -61,8 +62,17 @@ function ClientDetail() {
             <p className="text-sm text-muted-foreground">
               {client.data.contact_name || "—"}{client.data.contact_email ? ` · ${client.data.contact_email}` : ""}
             </p>
-            {client.data.app_url && (
-              <p className="text-sm mt-1"><span className="text-muted-foreground">App:</span>{" "}<a href={client.data.app_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">{client.data.app_url}</a></p>
+            {client.data.websites && client.data.websites.length > 0 && (
+              <div className="text-sm mt-1 space-y-0.5">
+                <span className="text-muted-foreground">Websites:</span>
+                <ul className="space-y-0.5">
+                  {client.data.websites.map((w: string) => (
+                    <li key={w}>
+                      <a href={w} target="_blank" rel="noreferrer" className="text-navy hover:underline break-all">{w}</a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {client.data.notes && (
               <p className="text-sm mt-3 max-w-2xl whitespace-pre-wrap">{client.data.notes}</p>
@@ -111,7 +121,9 @@ function EditClientDialog({ client }: { client: any }) {
   const [name, setName] = useState(client.name ?? "");
   const [contactName, setContactName] = useState(client.contact_name ?? "");
   const [contactEmail, setContactEmail] = useState(client.contact_email ?? "");
-  const [appUrl, setAppUrl] = useState(client.app_url ?? "");
+  const [websites, setWebsites] = useState<string[]>(
+    client.websites && client.websites.length > 0 ? client.websites : [""],
+  );
   const [notes, setNotes] = useState(client.notes ?? "");
   const qc = useQueryClient();
 
@@ -120,19 +132,20 @@ function EditClientDialog({ client }: { client: any }) {
     setName(client.name ?? "");
     setContactName(client.contact_name ?? "");
     setContactEmail(client.contact_email ?? "");
-    setAppUrl(client.app_url ?? "");
+    setWebsites(client.websites && client.websites.length > 0 ? client.websites : [""]);
     setNotes(client.notes ?? "");
   }, [open, client]);
 
   const save = useMutation({
     mutationFn: async () => {
+      const cleaned = websites.map((w) => w.trim()).filter(Boolean);
       const { error } = await supabase
         .from("clients")
         .update({
           name,
           contact_name: contactName || null,
           contact_email: contactEmail || null,
-          app_url: appUrl || null,
+          websites: cleaned,
           notes: notes || null,
         })
         .eq("id", client.id);
@@ -160,7 +173,7 @@ function EditClientDialog({ client }: { client: any }) {
           <Field label="Name" value={name} onChange={setName} required />
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
-          <Field label="App URL" value={appUrl} onChange={setAppUrl} type="url" />
+          <WebsitesField websites={websites} setWebsites={setWebsites} />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />

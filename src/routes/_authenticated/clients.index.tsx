@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, ArrowRight } from "lucide-react";
+import { Plus, ArrowRight, X } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
@@ -72,7 +72,7 @@ function NewClientDialog() {
   const [name, setName] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  const [appUrl, setAppUrl] = useState("");
+  const [websites, setWebsites] = useState<string[]>([""]);
   const [notes, setNotes] = useState("");
   const qc = useQueryClient();
 
@@ -80,11 +80,12 @@ function NewClientDialog() {
     mutationFn: async () => {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) throw new Error("Not signed in");
+      const cleaned = websites.map((w) => w.trim()).filter(Boolean);
       const { error } = await supabase.from("clients").insert({
         name,
         contact_name: contactName || null,
         contact_email: contactEmail || null,
-        app_url: appUrl || null,
+        websites: cleaned,
         notes: notes || null,
         created_by: u.user.id,
       });
@@ -93,7 +94,7 @@ function NewClientDialog() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients"] });
       setOpen(false);
-      setName(""); setContactName(""); setContactEmail(""); setAppUrl(""); setNotes("");
+      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setNotes("");
       toast.success("Client added");
     },
     onError: (e: any) => toast.error(e.message),
@@ -112,7 +113,7 @@ function NewClientDialog() {
           <Field label="Name" value={name} onChange={setName} required />
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
-          <Field label="App URL" value={appUrl} onChange={setAppUrl} type="url" />
+          <WebsitesField websites={websites} setWebsites={setWebsites} />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
@@ -125,6 +126,30 @@ function NewClientDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function WebsitesField({ websites, setWebsites }: { websites: string[]; setWebsites: (w: string[]) => void }) {
+  const update = (i: number, v: string) => setWebsites(websites.map((w, idx) => (idx === i ? v : w)));
+  const add = () => setWebsites([...websites, ""]);
+  const remove = (i: number) => setWebsites(websites.length === 1 ? [""] : websites.filter((_, idx) => idx !== i));
+  return (
+    <div className="space-y-1.5">
+      <Label>Websites</Label>
+      <div className="space-y-2">
+        {websites.map((w, i) => (
+          <div key={i} className="flex gap-2">
+            <Input type="url" value={w} onChange={(e) => update(i, e.target.value)} placeholder="https://example.com" />
+            <Button type="button" variant="ghost" size="icon" onClick={() => remove(i)} aria-label="Remove website">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      <Button type="button" variant="outline" size="sm" onClick={add}>
+        <Plus className="h-3.5 w-3.5 mr-1" /> Add website
+      </Button>
+    </div>
   );
 }
 
