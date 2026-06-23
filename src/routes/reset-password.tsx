@@ -12,6 +12,7 @@ const resetAccessTokenStorageKey = "auditkit-reset-access-token";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabasePublishableKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+const authApiKey = supabasePublishableKey ?? "";
 
 export const Route = createFileRoute("/reset-password")({
   ssr: false,
@@ -185,35 +186,45 @@ function ResetPasswordPage() {
     if (password !== confirm) return toast.error("Passwords do not match.");
     setLoading(true);
     try {
-      const session = await ensureRecoverySession();
-      if (!session) {
+      const session = await waitForStoredSession(1200);
+      const recoveryAccessToken = getRecoveryAccessToken() || readAuthParams().get("access_token");
+      if (!session && !recoveryAccessToken) {
         setLoading(false);
         setStatusMessage(invalidLinkMessage);
         return toast.error(invalidLinkMessage);
       }
+
       setReady(true);
-      let { error } = await supabase.auth.updateUser({ password });
-      let updateErrorMessage = error?.message;
-      const recoveryAccessToken = getRecoveryAccessToken();
-      if (error && recoveryAccessToken) {
+      let updateSucceeded = false;
+      let updateErrorMessage: string | undefined;
+
+      if (session) {
+        const { error } = await supabase.auth.updateUser({ password });
+        updateSucceeded = !error;
+        updateErrorMessage = error?.message;
+      }
+
+      if (!updateSucceeded && recoveryAccessToken) {
         const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
           method: "PUT",
           headers: {
-            apikey: supabasePublishableKey,
+            apikey: authApiKey,
             authorization: `Bearer ${recoveryAccessToken}`,
             "content-type": "application/json",
           },
           body: JSON.stringify({ password }),
         });
         if (response.ok) {
-          error = null;
+          updateSucceeded = true;
+          updateErrorMessage = undefined;
         } else {
           const body = await response.json().catch(() => null);
-          updateErrorMessage = body?.msg || body?.message || error.message;
+          updateErrorMessage = body?.msg || body?.message || updateErrorMessage;
         }
       }
+
       setLoading(false);
-      if (error) return toast.error(updateErrorMessage || error.message);
+      if (!updateSucceeded) return toast.error(updateErrorMessage || invalidLinkMessage);
       clearRecoveryAccessToken();
       toast.success("Password updated. You're signed in.");
       navigate({ to: "/dashboard", replace: true });
