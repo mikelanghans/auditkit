@@ -103,13 +103,46 @@ export function RepoLauncher({
     setOpen(true);
   };
 
+  const [needTokenFor, setNeedTokenFor] = useState<SavedRepo | null>(null);
+  const [pendingToken, setPendingToken] = useState("");
+  const [savePendingToken, setSavePendingToken] = useState(true);
+
+  const promptToken = (r: SavedRepo) => {
+    setNeedTokenFor(r);
+    setPendingToken("");
+    setSavePendingToken(true);
+    setOpen(true);
+  };
+
   const runSaved = async (r: SavedRepo) => {
     if (!r.github_token) {
-      toast.error(`No PAT stored for "${r.label}". Update it in the client profile.`);
+      promptToken(r);
       return;
     }
     const ok = await runWith(r.repo_url, r.github_token);
     if (ok) setOpen(false);
+  };
+
+  const submitPendingToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!needTokenFor || !pendingToken.trim()) return;
+    const r = needTokenFor;
+    const tok = pendingToken.trim();
+    const ok = await runWith(r.repo_url, tok);
+    if (ok && savePendingToken) {
+      const { error } = await supabase.from("client_repos").update({ github_token: tok }).eq("id", r.id);
+      if (error) toast.error(`Scanned, but failed to save token: ${error.message}`);
+      else {
+        if (clientId) qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
+        onSaved?.();
+        toast.success("Token saved for this repo");
+      }
+    }
+    if (ok) {
+      setNeedTokenFor(null);
+      setPendingToken("");
+      setOpen(false);
+    }
   };
 
   const submitForm = async (e: React.FormEvent) => {
