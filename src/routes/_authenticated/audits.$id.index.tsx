@@ -679,8 +679,8 @@ function ShieldScanBanner({
 
 
 function ItemRow({
-  auditId, item, finding, autoScanned, aiAssisted, onSet,
-}: { auditId: string; item: Item; finding: Finding | undefined; autoScanned: boolean; aiAssisted: boolean; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
+  auditId, item, finding, autoScanned, aiAssisted, savedRepos, onSet,
+}: { auditId: string; item: Item; finding: Finding | undefined; autoScanned: boolean; aiAssisted: boolean; savedRepos: SavedRepo[]; onSet: (status: "pass" | "fail" | "na", notes: string | null) => void }) {
   const qc = useQueryClient();
   const [notes, setNotes] = useState(finding?.notes ?? "");
   const status = finding?.status ?? null;
