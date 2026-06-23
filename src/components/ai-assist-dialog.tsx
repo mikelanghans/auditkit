@@ -7,6 +7,7 @@ import { Brain, Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { RepoLauncher, type SavedRepo } from "@/components/repo-launcher";
 import { runAIAssist, applyAIAssistFinding, type AIAssistFinding } from "@/lib/ai-assist.functions";
+import { FixPromptButton } from "@/components/fix-prompt-dialog";
 
 export type AIAssistSummary = {
   repo: string;
