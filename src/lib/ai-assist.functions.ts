@@ -221,11 +221,16 @@ export const runAIAssist = createServerFn({ method: "POST" })
       `SOURCE FILES:\n${codeBlob}`;
 
     let raw: string;
-    try { raw = await callClaude(SYSTEM_PROMPT, userPrompt); }
+    let truncated = false;
+    try {
+      const result = await callClaude(SYSTEM_PROMPT, userPrompt);
+      raw = result.text;
+      truncated = result.truncated;
+    }
     catch (e: any) { return { ok: false as const, error: e?.message ?? "Claude request failed." }; }
 
     let arr: any[];
-    try { arr = extractJson(raw); }
+    try { arr = extractJson(raw, truncated); }
     catch (e: any) { return { ok: false as const, error: `Could not parse Claude output: ${e?.message}` }; }
 
     const itemByKey = new Map<string, any>();
