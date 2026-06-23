@@ -100,7 +100,7 @@ async function fetchRepoFiles(owner: string, repo: string, token: string) {
   return { branch, files: picked, totalChars: total, scanned: candidates.length };
 }
 
-async function callClaude(systemPrompt: string, userPrompt: string): Promise<string> {
+async function callClaude(systemPrompt: string, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not configured.");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -112,7 +112,7 @@ async function callClaude(systemPrompt: string, userPrompt: string): Promise<str
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5",
-      max_tokens: 2048,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     }),
@@ -124,19 +124,46 @@ async function callClaude(systemPrompt: string, userPrompt: string): Promise<str
     ? body.content.map((c: any) => c?.text ?? "").join("\n").trim()
     : "";
   if (!out) throw new Error("Claude returned an empty response.");
-  return out;
+  return { text: out, truncated: body.stop_reason === "max_tokens" };
 }
 
-function extractJson(text: string): any[] {
+function repairTruncatedArray(slice: string): string {
+  const inner = slice.replace(/^\s*\[/, "").replace(/\]\s*$/, "");
+  let depth = 0, inStr = false, esc = false, lastGood = -1;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") { depth--; if (depth === 0 && ch === "}") lastGood = i; }
+  }
+  if (lastGood < 0) return "[]";
+  return "[" + inner.slice(0, lastGood + 1) + "]";
+}
+
+function extractJson(text: string, truncated: boolean): any[] {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidate = fenced ? fenced[1] : text;
   const start = candidate.indexOf("[");
   const end = candidate.lastIndexOf("]");
-  if (start < 0 || end < 0 || end < start) throw new Error("No JSON array found in Claude response.");
-  const slice = candidate.slice(start, end + 1);
-  const parsed = JSON.parse(slice);
-  if (!Array.isArray(parsed)) throw new Error("Claude JSON is not an array.");
-  return parsed;
+  if (start < 0) throw new Error("No JSON array found in Claude response.");
+  const slice = end > start ? candidate.slice(start, end + 1) : candidate.slice(start);
+  try {
+    const parsed = JSON.parse(slice);
+    if (!Array.isArray(parsed)) throw new Error("Claude JSON is not an array.");
+    return parsed;
+  } catch (e) {
+    const repaired = repairTruncatedArray(slice);
+    const parsed = JSON.parse(repaired);
+    if (!Array.isArray(parsed)) throw new Error("Claude JSON is not an array.");
+    if (!truncated && parsed.length === 0) throw e;
+    return parsed;
+  }
 }
 
 const SYSTEM_PROMPT =
@@ -194,11 +221,16 @@ export const runAIAssist = createServerFn({ method: "POST" })
       `SOURCE FILES:\n${codeBlob}`;
 
     let raw: string;
-    try { raw = await callClaude(SYSTEM_PROMPT, userPrompt); }
+    let truncated = false;
+    try {
+      const result = await callClaude(SYSTEM_PROMPT, userPrompt);
+      raw = result.text;
+      truncated = result.truncated;
+    }
     catch (e: any) { return { ok: false as const, error: e?.message ?? "Claude request failed." }; }
 
     let arr: any[];
-    try { arr = extractJson(raw); }
+    try { arr = extractJson(raw, truncated); }
     catch (e: any) { return { ok: false as const, error: `Could not parse Claude output: ${e?.message}` }; }
 
     const itemByKey = new Map<string, any>();
