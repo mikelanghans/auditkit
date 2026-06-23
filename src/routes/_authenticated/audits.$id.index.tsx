@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { runAutoScan } from "@/lib/scan.functions";
 
 import { runRepoScan } from "@/lib/repo-scan.functions";
+import { recheckAIAssistItem } from "@/lib/ai-assist.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog, type AIScanPreset } from "@/components/ai-scan-dialog";
