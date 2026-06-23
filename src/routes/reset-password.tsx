@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -15,30 +16,105 @@ export const Route = createFileRoute("/reset-password")({
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
+  const invalidLinkMessage =
+    "This reset link is invalid or expired. Request a new password reset email.";
   const [statusMessage, setStatusMessage] = useState("Enter and confirm your new password below.");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [ready, setReady] = useState(false);
+  const sessionSetupPromiseRef = useRef<Promise<Session | null> | null>(null);
+
+  const cleanUrl = useCallback(() => {
+    if (window.location.search || window.location.hash) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  const readAuthParams = useCallback(() => {
+    const url = new URL(window.location.href);
+    const params = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
+    url.searchParams.forEach((value, key) => params.set(key, value));
+    return params;
+  }, []);
+
+  const resolveRecoverySession = useCallback(async () => {
+    const params = readAuthParams();
+    const tokenHash = params.get("token_hash");
+    const code = params.get("code");
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+
+    if (tokenHash) {
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: "recovery",
+      });
+      if (error) throw error;
+      return data.session;
+    }
+
+    if (code) {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      return data.session;
+    }
+
+    if (accessToken && refreshToken) {
+      const { data, error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (error) throw error;
+      return data.session;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    return data.session;
+  }, [readAuthParams]);
+
+  const ensureRecoverySession = useCallback(async () => {
+    if (!sessionSetupPromiseRef.current) {
+      sessionSetupPromiseRef.current = resolveRecoverySession();
+    }
+
+    try {
+      return await sessionSetupPromiseRef.current;
+    } catch (error) {
+      sessionSetupPromiseRef.current = null;
+      throw error;
+    }
+  }, [resolveRecoverySession]);
 
   useEffect(() => {
     let mounted = true;
 
-    const cleanUrl = () => {
-      if (window.location.search || window.location.hash) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    };
-
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session && mounted) {
-        setStatusMessage("Enter and confirm your new password below.");
-        cleanUrl();
-      }
-    });
+    ensureRecoverySession()
+      .then((session) => {
+        if (!mounted) return;
+        if (session) {
+          setReady(true);
+          setStatusMessage("Enter and confirm your new password below.");
+          cleanUrl();
+        } else {
+          setStatusMessage(invalidLinkMessage);
+        }
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setStatusMessage(invalidLinkMessage);
+      });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION")) {
+      if (
+        session &&
+        (event === "PASSWORD_RECOVERY" ||
+          event === "SIGNED_IN" ||
+          event === "TOKEN_REFRESHED" ||
+          event === "INITIAL_SESSION")
+      ) {
+        setReady(true);
         setStatusMessage("Enter and confirm your new password below.");
         cleanUrl();
       }
@@ -48,34 +124,32 @@ function ResetPasswordPage() {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, []);
-
-  async function waitForSession(timeoutMs = 4000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) return data.session;
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    return null;
-  }
+  }, [cleanUrl, ensureRecoverySession, invalidLinkMessage]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (password.length < 6) return toast.error("Password must be at least 6 characters.");
     if (password !== confirm) return toast.error("Passwords do not match.");
     setLoading(true);
-    const session = await waitForSession();
-    if (!session) {
+    try {
+      const session = await ensureRecoverySession();
+      if (!session) {
+        setLoading(false);
+        setStatusMessage(invalidLinkMessage);
+        return toast.error(invalidLinkMessage);
+      }
+      setReady(true);
+      await new Promise((r) => setTimeout(r, 500));
+      const { error } = await supabase.auth.updateUser({ password });
       setLoading(false);
-      setStatusMessage("This reset link is invalid or expired. Request a new password reset email.");
-      return toast.error("This reset link is invalid or expired. Request a new password reset email.");
+      if (error) return toast.error(error.message);
+      toast.success("Password updated. You're signed in.");
+      navigate({ to: "/dashboard", replace: true });
+    } catch (error) {
+      setLoading(false);
+      setStatusMessage(invalidLinkMessage);
+      return toast.error(error instanceof Error ? error.message : invalidLinkMessage);
     }
-    const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
-    if (error) return toast.error(error.message);
-    toast.success("Password updated. You're signed in.");
-    navigate({ to: "/dashboard", replace: true });
   }
 
   return (
@@ -94,13 +168,29 @@ function ResetPasswordPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="pw">New password</Label>
-              <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <Input
+                id="pw"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pw2">Confirm new password</Label>
-              <Input id="pw2" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+              <Input
+                id="pw2"
+                type="password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                required
+              />
             </div>
-            <Button type="submit" disabled={loading} className="w-full bg-navy text-navy-foreground hover:bg-navy/90">
+            <Button
+              type="submit"
+              disabled={loading || !ready}
+              className="w-full bg-navy text-navy-foreground hover:bg-navy/90"
+            >
               {loading ? "Updating…" : "Update password"}
             </Button>
           </form>
