@@ -8,6 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+const resetAccessTokenStorageKey = "auditkit-reset-access-token";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabasePublishableKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+const authApiKey = supabasePublishableKey ?? "";
+
 export const Route = createFileRoute("/reset-password")({
   ssr: false,
   head: () => ({ meta: [{ title: "Reset password — AuditKit" }] }),
@@ -24,6 +30,22 @@ function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const sessionSetupPromiseRef = useRef<Promise<Session | null> | null>(null);
+  const recoveryAccessTokenRef = useRef<string | null>(null);
+
+  const rememberRecoveryAccessToken = useCallback((token?: string | null) => {
+    if (!token) return;
+    recoveryAccessTokenRef.current = token;
+    window.sessionStorage.setItem(resetAccessTokenStorageKey, token);
+  }, []);
+
+  const getRecoveryAccessToken = useCallback(() => {
+    return recoveryAccessTokenRef.current || window.sessionStorage.getItem(resetAccessTokenStorageKey);
+  }, []);
+
+  const clearRecoveryAccessToken = useCallback(() => {
+    recoveryAccessTokenRef.current = null;
+    window.sessionStorage.removeItem(resetAccessTokenStorageKey);
+  }, []);
 
   const cleanUrl = useCallback(() => {
     if (window.location.search || window.location.hash) {
@@ -43,12 +65,15 @@ function ResetPasswordPage() {
 
     while (Date.now() - startedAt < timeoutMs) {
       const { data } = await supabase.auth.getSession();
-      if (data.session) return data.session;
+      if (data.session) {
+        rememberRecoveryAccessToken(data.session.access_token);
+        return data.session;
+      }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
     return null;
-  }, []);
+  }, [rememberRecoveryAccessToken]);
 
   const resolveRecoverySession = useCallback(async () => {
     const params = readAuthParams();
@@ -66,26 +91,30 @@ function ResetPasswordPage() {
         type: "recovery",
       });
       if (error) throw error;
+      rememberRecoveryAccessToken(data.session?.access_token);
       return data.session;
     }
 
     if (code) {
       const { data, error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) throw error;
+      rememberRecoveryAccessToken(data.session?.access_token);
       return data.session;
     }
 
     if (accessToken && refreshToken) {
+      rememberRecoveryAccessToken(accessToken);
       const { data, error } = await supabase.auth.setSession({
         access_token: accessToken,
         refresh_token: refreshToken,
       });
       if (error) throw error;
+      rememberRecoveryAccessToken(data.session?.access_token);
       return data.session;
     }
 
     return waitForStoredSession();
-  }, [readAuthParams, waitForStoredSession]);
+  }, [readAuthParams, rememberRecoveryAccessToken, waitForStoredSession]);
 
   const ensureRecoverySession = useCallback(async () => {
     if (!sessionSetupPromiseRef.current) {
@@ -138,6 +167,7 @@ function ResetPasswordPage() {
           event === "TOKEN_REFRESHED" ||
           event === "INITIAL_SESSION")
       ) {
+        rememberRecoveryAccessToken(session.access_token);
         setReady(true);
         setStatusMessage("Enter and confirm your new password below.");
         cleanUrl();
@@ -156,16 +186,46 @@ function ResetPasswordPage() {
     if (password !== confirm) return toast.error("Passwords do not match.");
     setLoading(true);
     try {
-      const session = await ensureRecoverySession();
-      if (!session) {
+      const session = await waitForStoredSession(1200);
+      const recoveryAccessToken = getRecoveryAccessToken() || readAuthParams().get("access_token");
+      if (!session && !recoveryAccessToken) {
         setLoading(false);
         setStatusMessage(invalidLinkMessage);
         return toast.error(invalidLinkMessage);
       }
+
       setReady(true);
-      const { error } = await supabase.auth.updateUser({ password });
+      let updateSucceeded = false;
+      let updateErrorMessage: string | undefined;
+
+      if (session) {
+        const { error } = await supabase.auth.updateUser({ password });
+        updateSucceeded = !error;
+        updateErrorMessage = error?.message;
+      }
+
+      if (!updateSucceeded && recoveryAccessToken) {
+        const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+          method: "PUT",
+          headers: {
+            apikey: authApiKey,
+            authorization: `Bearer ${recoveryAccessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ password }),
+        });
+        if (response.ok) {
+          updateSucceeded = true;
+          updateErrorMessage = undefined;
+        } else {
+          const body = await response.json().catch(() => null);
+          updateErrorMessage = body?.msg || body?.message || updateErrorMessage;
+        }
+      }
+
       setLoading(false);
-      if (error) return toast.error(error.message);
+      if (!updateSucceeded) return toast.error(updateErrorMessage || invalidLinkMessage);
+      clearRecoveryAccessToken();
       toast.success("Password updated. You're signed in.");
       navigate({ to: "/dashboard", replace: true });
     } catch (error) {
