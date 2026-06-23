@@ -375,16 +375,14 @@ function ConnectedAccountsSection({ client }: { client: any }) {
 }
 
 function RepoForm({
-  label, setLabel, repoUrl, setRepoUrl, token, setToken, tokenPlaceholder,
+  label, setLabel, repoUrl, setRepoUrl,
   websiteUrl, setWebsiteUrl, websites,
   onCancel, onSave, saving, canSave,
 }: {
   label: string; setLabel: (v: string) => void;
   repoUrl: string; setRepoUrl: (v: string) => void;
-  token: string; setToken: (v: string) => void;
   websiteUrl: string; setWebsiteUrl: (v: string) => void;
   websites: string[];
-  tokenPlaceholder: string;
   onCancel: () => void; onSave: () => void; saving: boolean; canSave: boolean;
 }) {
   const UNASSIGNED = "__unassigned__";
@@ -417,11 +415,7 @@ function RepoForm({
         <Label>Repository URL</Label>
         <Input type="url" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://github.com/owner/repo" />
       </div>
-      <div className="space-y-1.5">
-        <Label>Personal Access Token</Label>
-        <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={tokenPlaceholder} />
-        <p className="text-xs text-muted-foreground">Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.</p>
-      </div>
+      <p className="text-xs text-muted-foreground">You'll be asked for a Personal Access Token the first time you scan this repo.</p>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
         <Button size="sm" onClick={onSave} disabled={saving || !canSave} className="bg-navy text-navy-foreground hover:bg-navy/90">
