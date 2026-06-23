@@ -213,6 +213,8 @@ export function RepoLauncher({
           </DialogDescription>
         </DialogHeader>
 
+        {!needTokenFor && extraControls ? <div>{extraControls}</div> : null}
+
         {needTokenFor ? (
           <form onSubmit={submitPendingToken} className="space-y-4">
             <div className="text-xs text-muted-foreground break-all">{needTokenFor.repo_url}</div>
