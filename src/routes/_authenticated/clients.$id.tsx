@@ -360,14 +360,12 @@ function ConnectedAccountsSection({ client }: { client: any }) {
             <RepoForm
               label={label} setLabel={setLabel}
               repoUrl={repoUrl} setRepoUrl={setRepoUrl}
-              token={token} setToken={setToken}
               websiteUrl={websiteUrl} setWebsiteUrl={setWebsiteUrl}
               websites={websites}
-              tokenPlaceholder="ghp_… or github_pat_…"
               onCancel={reset}
               onSave={() => upsert.mutate()}
               saving={upsert.isPending}
-              canSave={!!repoUrl.trim() && !!token.trim()}
+              canSave={!!repoUrl.trim()}
             />
           </div>
         )}
