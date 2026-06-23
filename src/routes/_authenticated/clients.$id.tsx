@@ -219,28 +219,24 @@ function ConnectedAccountsSection({ client }: { client: any }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
-  const [token, setToken] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState<string>("");
 
-  const reset = () => { setLabel(""); setRepoUrl(""); setToken(""); setWebsiteUrl(""); setAdding(false); setEditingId(null); };
+  const reset = () => { setLabel(""); setRepoUrl(""); setWebsiteUrl(""); setAdding(false); setEditingId(null); };
 
   const upsert = useMutation({
     mutationFn: async () => {
       if (editingId) {
-        const update: any = {
+        const { error } = await supabase.from("client_repos").update({
           label: label.trim() || "Repo",
           repo_url: repoUrl.trim(),
           website_url: websiteUrl || null,
-        };
-        if (token.trim()) update.github_token = token.trim();
-        const { error } = await supabase.from("client_repos").update(update).eq("id", editingId);
+        }).eq("id", editingId);
         if (error) throw error;
       } else {
         const { error } = await supabase.from("client_repos").insert({
           client_id: client.id,
           label: label.trim() || "Repo",
           repo_url: repoUrl.trim(),
-          github_token: token.trim() || null,
           website_url: websiteUrl || null,
         });
         if (error) throw error;
@@ -271,7 +267,6 @@ function ConnectedAccountsSection({ client }: { client: any }) {
     setAdding(false);
     setLabel(r.label);
     setRepoUrl(r.repo_url);
-    setToken("");
     setWebsiteUrl(r.website_url ?? "");
   };
 
@@ -314,10 +309,8 @@ function ConnectedAccountsSection({ client }: { client: any }) {
                   <RepoForm
                     label={label} setLabel={setLabel}
                     repoUrl={repoUrl} setRepoUrl={setRepoUrl}
-                    token={token} setToken={setToken}
                     websiteUrl={websiteUrl} setWebsiteUrl={setWebsiteUrl}
                     websites={websites}
-                    tokenPlaceholder="•••••••• (leave blank to keep existing)"
                     onCancel={reset}
                     onSave={() => upsert.mutate()}
                     saving={upsert.isPending}
@@ -367,14 +360,12 @@ function ConnectedAccountsSection({ client }: { client: any }) {
             <RepoForm
               label={label} setLabel={setLabel}
               repoUrl={repoUrl} setRepoUrl={setRepoUrl}
-              token={token} setToken={setToken}
               websiteUrl={websiteUrl} setWebsiteUrl={setWebsiteUrl}
               websites={websites}
-              tokenPlaceholder="ghp_… or github_pat_…"
               onCancel={reset}
               onSave={() => upsert.mutate()}
               saving={upsert.isPending}
-              canSave={!!repoUrl.trim() && !!token.trim()}
+              canSave={!!repoUrl.trim()}
             />
           </div>
         )}
@@ -384,16 +375,14 @@ function ConnectedAccountsSection({ client }: { client: any }) {
 }
 
 function RepoForm({
-  label, setLabel, repoUrl, setRepoUrl, token, setToken, tokenPlaceholder,
+  label, setLabel, repoUrl, setRepoUrl,
   websiteUrl, setWebsiteUrl, websites,
   onCancel, onSave, saving, canSave,
 }: {
   label: string; setLabel: (v: string) => void;
   repoUrl: string; setRepoUrl: (v: string) => void;
-  token: string; setToken: (v: string) => void;
   websiteUrl: string; setWebsiteUrl: (v: string) => void;
   websites: string[];
-  tokenPlaceholder: string;
   onCancel: () => void; onSave: () => void; saving: boolean; canSave: boolean;
 }) {
   const UNASSIGNED = "__unassigned__";
@@ -426,11 +415,7 @@ function RepoForm({
         <Label>Repository URL</Label>
         <Input type="url" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://github.com/owner/repo" />
       </div>
-      <div className="space-y-1.5">
-        <Label>Personal Access Token</Label>
-        <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={tokenPlaceholder} />
-        <p className="text-xs text-muted-foreground">Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.</p>
-      </div>
+      <p className="text-xs text-muted-foreground">You'll be asked for a Personal Access Token the first time you scan this repo.</p>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
         <Button size="sm" onClick={onSave} disabled={saving || !canSave} className="bg-navy text-navy-foreground hover:bg-navy/90">

@@ -84,12 +84,7 @@ export function RepoLauncher({
     if (savedRepos.length === 1) {
       const r = savedRepos[0];
       if (!r.github_token) {
-        // saved repo missing token — open form prefilled
-        setRepoUrl(r.repo_url);
-        setLabel(r.label);
-        setToken("");
-        setMode("form");
-        setOpen(true);
+        promptToken(r);
         return;
       }
       await runWith(r.repo_url, r.github_token);
@@ -103,13 +98,46 @@ export function RepoLauncher({
     setOpen(true);
   };
 
+  const [needTokenFor, setNeedTokenFor] = useState<SavedRepo | null>(null);
+  const [pendingToken, setPendingToken] = useState("");
+  const [savePendingToken, setSavePendingToken] = useState(true);
+
+  const promptToken = (r: SavedRepo) => {
+    setNeedTokenFor(r);
+    setPendingToken("");
+    setSavePendingToken(true);
+    setOpen(true);
+  };
+
   const runSaved = async (r: SavedRepo) => {
     if (!r.github_token) {
-      toast.error(`No PAT stored for "${r.label}". Update it in the client profile.`);
+      promptToken(r);
       return;
     }
     const ok = await runWith(r.repo_url, r.github_token);
     if (ok) setOpen(false);
+  };
+
+  const submitPendingToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!needTokenFor || !pendingToken.trim()) return;
+    const r = needTokenFor;
+    const tok = pendingToken.trim();
+    const ok = await runWith(r.repo_url, tok);
+    if (ok && savePendingToken) {
+      const { error } = await supabase.from("client_repos").update({ github_token: tok }).eq("id", r.id);
+      if (error) toast.error(`Scanned, but failed to save token: ${error.message}`);
+      else {
+        if (clientId) qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
+        onSaved?.();
+        toast.success("Token saved for this repo");
+      }
+    }
+    if (ok) {
+      setNeedTokenFor(null);
+      setPendingToken("");
+      setOpen(false);
+    }
   };
 
   const submitForm = async (e: React.FormEvent) => {
@@ -140,7 +168,7 @@ export function RepoLauncher({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) reset(); setOpen(o); } }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) { reset(); setNeedTokenFor(null); setPendingToken(""); } setOpen(o); } }}>
       <Button
         variant={trigger.variant ?? "outline"}
         onClick={handleTriggerClick}
@@ -163,12 +191,63 @@ export function RepoLauncher({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Github className="h-4 w-4" /> {title}
+            <Github className="h-4 w-4" /> {needTokenFor ? `PAT required for ${needTokenFor.label}` : title}
           </DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription>
+            {needTokenFor ? "Enter a GitHub Personal Access Token to scan this repo." : description}
+          </DialogDescription>
         </DialogHeader>
 
-        {mode === "picker" ? (
+        {needTokenFor ? (
+          <form onSubmit={submitPendingToken} className="space-y-4">
+            <div className="text-xs text-muted-foreground break-all">{needTokenFor.repo_url}</div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rl-pending-token">Personal access token</Label>
+              <Input
+                id="rl-pending-token"
+                type="password"
+                placeholder="ghp_… or github_pat_…"
+                value={pendingToken}
+                onChange={(e) => setPendingToken(e.target.value)}
+                disabled={pending}
+                autoFocus
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">
+                Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.
+              </p>
+            </div>
+            <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={savePendingToken}
+                onChange={(e) => setSavePendingToken(e.target.checked)}
+                disabled={pending}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-navy"
+              />
+              <span>
+                <span className="font-medium">Remember this token</span>
+                <span className="block text-xs text-muted-foreground">Saves the PAT on this repo so future scans run with one click.</span>
+              </span>
+            </label>
+            {pending && (
+              <div className="space-y-1.5">
+                <Progress value={progress} />
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" /> {runningLabel}
+                </p>
+              </div>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="ghost" disabled={pending} onClick={() => { setNeedTokenFor(null); if (savedRepos.length >= 2) setMode("picker"); else setOpen(false); }}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending || !pendingToken.trim()}>
+                {pending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> {runningLabel}</> : submitLabel}
+              </Button>
+            </DialogFooter>
+          </form>
+        ) : mode === "picker" ? (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Pick a saved repo to scan:</p>
             <ul className="space-y-1.5">

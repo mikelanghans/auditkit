@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { runAIScan, type AIPayloadResult } from "@/lib/ai-scan.functions";
 import { detectAIEndpoints, type DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import type { SavedRepo } from "@/components/repo-launcher";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
 type Mode = "repo-pick" | "detecting" | "endpoint-pick" | "manual";
@@ -51,6 +53,10 @@ export function AIScanDialog({
   const [detectMeta, setDetectMeta] = useState<{ repo: string; filesScanned: number; supabaseBaseDetected: boolean; appBaseDetected: boolean } | null>(null);
 
   const hasRepos = savedRepos.length > 0;
+  const qc = useQueryClient();
+  const [needTokenFor, setNeedTokenFor] = useState<SavedRepo | null>(null);
+  const [pendingToken, setPendingToken] = useState("");
+  const [savePendingToken, setSavePendingToken] = useState(true);
 
   // External preset (from “Test for Injection” buttons) — opens dialog prefilled in manual mode.
   useEffect(() => {
@@ -86,9 +92,12 @@ export function AIScanDialog({
     setMode(hasRepos ? (savedRepos.length === 1 ? "detecting" : "repo-pick") : "manual");
   };
 
-  const runDetect = async (repo: SavedRepo) => {
-    if (!repo.github_token) {
-      toast.error(`No PAT stored for "${repo.label}". Add one in the client profile.`);
+  const runDetect = async (repo: SavedRepo, overrideToken?: string) => {
+    const token = overrideToken ?? repo.github_token;
+    if (!token) {
+      setNeedTokenFor(repo);
+      setPendingToken("");
+      setSavePendingToken(true);
       setMode("manual");
       return;
     }
@@ -96,7 +105,7 @@ export function AIScanDialog({
     setMode("detecting");
     const tid = toast.loading(`Scanning ${repo.label} for AI endpoints…`);
     try {
-      const res = await detect({ data: { repoUrl: repo.repo_url, token: repo.github_token, appUrl } });
+      const res = await detect({ data: { repoUrl: repo.repo_url, token, appUrl } });
       if (!res.ok) {
         toast.error(res.error, { id: tid });
         setMode("manual");
@@ -176,7 +185,7 @@ export function AIScanDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!pending && !detecting) { if (!o) reset(); setOpen(o); } }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!pending && !detecting) { if (!o) { reset(); setNeedTokenFor(null); setPendingToken(""); } setOpen(o); } }}>
       <Button variant="outline" onClick={openDialog}>
         <Bot className="h-4 w-4 mr-1" /> Scan AI Endpoints
         {hasRepos && (
@@ -196,7 +205,63 @@ export function AIScanDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {mode === "repo-pick" && (
+        {needTokenFor && (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const r = needTokenFor;
+              const tok = pendingToken.trim();
+              if (!tok) return;
+              if (savePendingToken) {
+                const { error } = await supabase.from("client_repos").update({ github_token: tok }).eq("id", r.id);
+                if (error) toast.error(`Could not save token: ${error.message}`);
+                else qc.invalidateQueries({ queryKey: ["client-repos"] });
+              }
+              setNeedTokenFor(null);
+              setPendingToken("");
+              await runDetect(r, tok);
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <div className="text-sm font-medium">{needTokenFor.label}</div>
+              <div className="text-xs text-muted-foreground break-all">{needTokenFor.repo_url}</div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-pending-token">Personal access token</Label>
+              <Input
+                id="ai-pending-token"
+                type="password"
+                placeholder="ghp_… or github_pat_…"
+                value={pendingToken}
+                onChange={(e) => setPendingToken(e.target.value)}
+                autoFocus
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.</p>
+            </div>
+            <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={savePendingToken}
+                onChange={(e) => setSavePendingToken(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-navy"
+              />
+              <span>
+                <span className="font-medium">Remember this token</span>
+                <span className="block text-xs text-muted-foreground">Saves the PAT on this repo so future scans run with one click.</span>
+              </span>
+            </label>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => { setNeedTokenFor(null); setPendingToken(""); setMode(savedRepos.length >= 2 ? "repo-pick" : "manual"); }}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!pendingToken.trim()}>Detect endpoints</Button>
+            </DialogFooter>
+          </form>
+        )}
+
+        {!needTokenFor && mode === "repo-pick" && (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Pick a repo to auto-detect AI endpoints:</p>
             <ul className="space-y-1.5">
@@ -230,14 +295,14 @@ export function AIScanDialog({
           </div>
         )}
 
-        {mode === "detecting" && (
+        {!needTokenFor && mode === "detecting" && (
           <div className="py-6 text-center space-y-3">
             <Loader2 className="h-6 w-6 animate-spin mx-auto text-navy" />
             <p className="text-sm text-muted-foreground">Scanning repo for AI endpoints…</p>
           </div>
         )}
 
-        {mode === "endpoint-pick" && detectMeta && (
+        {!needTokenFor && mode === "endpoint-pick" && detectMeta && (
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground">
               {detectMeta.repo} · {detectMeta.filesScanned} candidate files scanned · {detected.length} endpoint{detected.length === 1 ? "" : "s"} found
@@ -281,7 +346,7 @@ export function AIScanDialog({
           </div>
         )}
 
-        {mode === "manual" && (
+        {!needTokenFor && mode === "manual" && (
           <form onSubmit={submit} className="space-y-4">
             <div className="rounded-md border border-status-na/50 bg-status-na/5 p-3 text-xs">
               <div className="flex items-center gap-1.5 font-semibold text-foreground/90">
