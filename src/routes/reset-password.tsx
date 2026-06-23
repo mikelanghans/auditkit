@@ -23,17 +23,26 @@ function ResetPasswordPage() {
   useEffect(() => {
     let mounted = true;
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "INITIAL_SESSION") {
-        supabase.auth.getSession().then(({ data }) => {
-          if (data.session && mounted) setStatusMessage("Enter and confirm your new password below.");
-        });
+    const cleanUrl = () => {
+      if (window.location.search || window.location.hash) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session && mounted) {
+        setStatusMessage("Enter and confirm your new password below.");
+        cleanUrl();
       }
     });
 
-    if (window.location.search || window.location.hash) {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION")) {
+        setStatusMessage("Enter and confirm your new password below.");
+        cleanUrl();
+      }
+    });
 
     return () => {
       mounted = false;
@@ -41,13 +50,23 @@ function ResetPasswordPage() {
     };
   }, []);
 
+  async function waitForSession(timeoutMs = 4000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) return data.session;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return null;
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (password.length < 6) return toast.error("Password must be at least 6 characters.");
     if (password !== confirm) return toast.error("Passwords do not match.");
     setLoading(true);
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session) {
+    const session = await waitForSession();
+    if (!session) {
       setLoading(false);
       setStatusMessage("This reset link is invalid or expired. Request a new password reset email.");
       return toast.error("This reset link is invalid or expired. Request a new password reset email.");
