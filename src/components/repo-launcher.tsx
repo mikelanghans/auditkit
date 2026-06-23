@@ -53,6 +53,7 @@ export function RepoLauncher({
   const [label, setLabel] = useState("");
   const [saveForClient, setSaveForClient] = useState(true);
   const [pending, setPending] = useState(false);
+  const [runningRepoId, setRunningRepoId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
 
   const hasSaved = savedRepos.length > 0;
@@ -114,8 +115,13 @@ export function RepoLauncher({
       promptToken(r);
       return;
     }
-    const ok = await runWith(r.repo_url, r.github_token);
-    if (ok) setOpen(false);
+    setRunningRepoId(r.id);
+    try {
+      const ok = await runWith(r.repo_url, r.github_token);
+      if (ok) setOpen(false);
+    } finally {
+      setRunningRepoId(null);
+    }
   };
 
   const submitPendingToken = async (e: React.FormEvent) => {
@@ -267,7 +273,7 @@ export function RepoLauncher({
                       </div>
                       <div className="text-xs text-muted-foreground truncate">{r.repo_url}</div>
                     </div>
-                    {pending ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <span className="text-xs text-navy shrink-0">Scan →</span>}
+                    {runningRepoId === r.id ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <span className="text-xs text-navy shrink-0">Scan →</span>}
                   </button>
                 </li>
               ))}
