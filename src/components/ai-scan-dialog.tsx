@@ -295,14 +295,14 @@ export function AIScanDialog({
           </div>
         )}
 
-        {mode === "detecting" && (
+        {!needTokenFor && mode === "detecting" && (
           <div className="py-6 text-center space-y-3">
             <Loader2 className="h-6 w-6 animate-spin mx-auto text-navy" />
             <p className="text-sm text-muted-foreground">Scanning repo for AI endpoints…</p>
           </div>
         )}
 
-        {mode === "endpoint-pick" && detectMeta && (
+        {!needTokenFor && mode === "endpoint-pick" && detectMeta && (
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground">
               {detectMeta.repo} · {detectMeta.filesScanned} candidate files scanned · {detected.length} endpoint{detected.length === 1 ? "" : "s"} found
@@ -346,7 +346,7 @@ export function AIScanDialog({
           </div>
         )}
 
-        {mode === "manual" && (
+        {!needTokenFor && mode === "manual" && (
           <form onSubmit={submit} className="space-y-4">
             <div className="rounded-md border border-status-na/50 bg-status-na/5 p-3 text-xs">
               <div className="flex items-center gap-1.5 font-semibold text-foreground/90">
