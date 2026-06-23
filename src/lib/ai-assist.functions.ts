@@ -222,9 +222,12 @@ export const runAIAssist = createServerFn({ method: "POST" })
     if (cerr) throw new Error(cerr.message);
     const items = checklist ?? [];
 
+    const depth: AIAssistDepth = data.depth ?? "standard";
+    const caps = DEPTH_CAPS[depth];
+
     let repoData;
     try {
-      repoData = await fetchRepoFiles(parsed.owner, parsed.repo, data.token.trim());
+      repoData = await fetchRepoFiles(parsed.owner, parsed.repo, data.token.trim(), caps.maxFiles);
     } catch (e: any) {
       return { ok: false as const, error: e?.message ?? "Failed to read repository." };
     }
@@ -243,7 +246,7 @@ export const runAIAssist = createServerFn({ method: "POST" })
       itemByKey.set(it.title.toLowerCase(), it);
     }
 
-    const batches = chunkFiles(repoData.files);
+    const batches = chunkFiles(repoData.files, caps.maxBatches);
     const stamp = new Date().toISOString();
     // dedupe findings across batches: keep highest confidence per checklist item
     const confRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
