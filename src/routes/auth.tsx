@@ -146,12 +146,28 @@ function AuthPage() {
 }
 
 function Field({
-  id, label, value, onChange, type = "text",
-}: { id: string; label: string; value: string; onChange: (v: string) => void; type?: string }) {
+  id,
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+}) {
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} type={type} value={value} onChange={(e) => onChange(e.target.value)} required />
+      <Input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required
+      />
     </div>
   );
 }
