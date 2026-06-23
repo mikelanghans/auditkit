@@ -1,0 +1,1 @@
+ALTER TABLE public.client_repos ADD COLUMN website_url text;
