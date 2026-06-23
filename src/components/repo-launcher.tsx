@@ -273,7 +273,7 @@ export function RepoLauncher({
                       </div>
                       <div className="text-xs text-muted-foreground truncate">{r.repo_url}</div>
                     </div>
-                    {pending ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <span className="text-xs text-navy shrink-0">Scan →</span>}
+                    {runningRepoId === r.id ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <span className="text-xs text-navy shrink-0">Scan →</span>}
                   </button>
                 </li>
               ))}
