@@ -191,12 +191,63 @@ export function RepoLauncher({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Github className="h-4 w-4" /> {title}
+            <Github className="h-4 w-4" /> {needTokenFor ? `PAT required for ${needTokenFor.label}` : title}
           </DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription>
+            {needTokenFor ? "Enter a GitHub Personal Access Token to scan this repo." : description}
+          </DialogDescription>
         </DialogHeader>
 
-        {mode === "picker" ? (
+        {needTokenFor ? (
+          <form onSubmit={submitPendingToken} className="space-y-4">
+            <div className="text-xs text-muted-foreground break-all">{needTokenFor.repo_url}</div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rl-pending-token">Personal access token</Label>
+              <Input
+                id="rl-pending-token"
+                type="password"
+                placeholder="ghp_… or github_pat_…"
+                value={pendingToken}
+                onChange={(e) => setPendingToken(e.target.value)}
+                disabled={pending}
+                autoFocus
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">
+                Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.
+              </p>
+            </div>
+            <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={savePendingToken}
+                onChange={(e) => setSavePendingToken(e.target.checked)}
+                disabled={pending}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-navy"
+              />
+              <span>
+                <span className="font-medium">Remember this token</span>
+                <span className="block text-xs text-muted-foreground">Saves the PAT on this repo so future scans run with one click.</span>
+              </span>
+            </label>
+            {pending && (
+              <div className="space-y-1.5">
+                <Progress value={progress} />
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" /> {runningLabel}
+                </p>
+              </div>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="ghost" disabled={pending} onClick={() => { setNeedTokenFor(null); if (savedRepos.length >= 2) setMode("picker"); else setOpen(false); }}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending || !pendingToken.trim()}>
+                {pending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> {runningLabel}</> : submitLabel}
+              </Button>
+            </DialogFooter>
+          </form>
+        ) : mode === "picker" ? (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Pick a saved repo to scan:</p>
             <ul className="space-y-1.5">
