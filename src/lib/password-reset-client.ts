@@ -8,6 +8,7 @@ export const passwordResetClient = createClient(supabaseUrl, supabasePublishable
   auth: {
     autoRefreshToken: true,
     detectSessionInUrl: false,
+    flowType: "implicit",
     persistSession: true,
     storage: typeof window !== "undefined" ? window.localStorage : undefined,
   },
