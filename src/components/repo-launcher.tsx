@@ -306,21 +306,10 @@ export function RepoLauncher({
                 autoComplete="off"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="rl-token">Personal access token</Label>
-              <Input
-                id="rl-token"
-                type="password"
-                placeholder="ghp_… or github_pat_…"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                disabled={pending}
-                autoComplete="off"
-              />
-              <p className="text-xs text-muted-foreground">
-                Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              You'll be prompted for a GitHub personal access token after the repo is saved.
+            </p>
+
 
             {clientId && (
               <>
