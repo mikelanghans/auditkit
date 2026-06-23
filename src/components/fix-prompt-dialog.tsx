@@ -144,7 +144,12 @@ export function FixPromptButton({
 {prompts[t.id]}
                   </pre>
                 ) : (
-                  <div className="text-sm text-muted-foreground py-10 text-center">No prompt yet.</div>
+                  <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground py-10">
+                    <span>No prompt yet for {t.label}.</span>
+                    <Button type="button" size="sm" variant="outline" onClick={() => loadIfNeeded(t.id)}>
+                      <Wand2 className="h-3.5 w-3.5 mr-1.5" /> Generate {t.label} prompt
+                    </Button>
+                  </div>
                 )}
               </TabsContent>
             ))}
