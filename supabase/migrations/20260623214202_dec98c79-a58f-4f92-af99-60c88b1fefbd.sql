@@ -1,0 +1,1 @@
+ALTER TABLE public.client_repos DROP COLUMN IF EXISTS github_token;
