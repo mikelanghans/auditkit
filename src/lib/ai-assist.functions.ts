@@ -319,9 +319,12 @@ export const runAIAssist = createServerFn({ method: "POST" })
       ok: true as const,
       repo: `${parsed.owner}/${parsed.repo}`,
       filesScanned: repoData.files.length,
+      batches: batches.length,
       highApplied: applied,
       mediumPending: medium,
-      total: arr.length,
+      total: totalRaw,
+      partial: batchErrors.length > 0 ? batchErrors : undefined,
+      truncatedTree: repoData.truncatedTree || undefined,
     };
   });
 
