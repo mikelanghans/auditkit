@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createClient, type Session } from "@supabase/supabase-js";
+import type { Session } from "@supabase/supabase-js";
 import { ShieldCheck } from "lucide-react";
+import { passwordResetClient } from "@/lib/password-reset-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,19 +13,6 @@ export const Route = createFileRoute("/reset-password")({
   head: () => ({ meta: [{ title: "Reset password — AuditKit" }] }),
   component: ResetPasswordPage,
 });
-
-const resetSupabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-  {
-    auth: {
-      autoRefreshToken: true,
-      detectSessionInUrl: false,
-      persistSession: true,
-      storage: typeof window !== "undefined" ? window.localStorage : undefined,
-    },
-  },
-);
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -54,7 +42,7 @@ function ResetPasswordPage() {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeoutMs) {
-      const { data } = await resetSupabase.auth.getSession();
+      const { data } = await passwordResetClient.auth.getSession();
       if (data.session) return data.session;
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
@@ -73,7 +61,7 @@ function ResetPasswordPage() {
     if (urlError) throw new Error(urlError.replace(/\+/g, " "));
 
     if (tokenHash) {
-      const { data, error } = await resetSupabase.auth.verifyOtp({
+      const { data, error } = await passwordResetClient.auth.verifyOtp({
         token_hash: tokenHash,
         type: "recovery",
       });
@@ -82,13 +70,13 @@ function ResetPasswordPage() {
     }
 
     if (code) {
-      const { data, error } = await resetSupabase.auth.exchangeCodeForSession(code);
+      const { data, error } = await passwordResetClient.auth.exchangeCodeForSession(code);
       if (error) throw error;
       return data.session;
     }
 
     if (accessToken && refreshToken) {
-      const { data, error } = await resetSupabase.auth.setSession({
+      const { data, error } = await passwordResetClient.auth.setSession({
         access_token: accessToken,
         refresh_token: refreshToken,
       });
@@ -131,7 +119,7 @@ function ResetPasswordPage() {
         setStatusMessage(invalidLinkMessage);
       });
 
-    const { data: sub } = resetSupabase.auth.onAuthStateChange((event, session) => {
+    const { data: sub } = passwordResetClient.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
       if (
         session &&
@@ -166,7 +154,7 @@ function ResetPasswordPage() {
       }
       setReady(true);
       await new Promise((r) => setTimeout(r, 500));
-      const { error } = await resetSupabase.auth.updateUser({ password });
+      const { error } = await passwordResetClient.auth.updateUser({ password });
       setLoading(false);
       if (error) return toast.error(error.message);
       toast.success("Password updated. You're signed in.");
