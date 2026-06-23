@@ -347,7 +347,7 @@ function AuditView() {
         <div className="space-y-3">
           <ShieldScanBanner
             auditId={id}
-            appUrl={(audit.data as any)?.client?.app_url ?? null}
+            appUrl={(audit.data as any)?.website_url ?? null}
             clientId={clientId}
             savedRepos={savedRepos}
             hasScanned={hasAutoScanned}
