@@ -20,6 +20,7 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -44,6 +45,8 @@ function AuthPage() {
     });
     setLoading(false);
     if (error) return toast.error(error.message);
+    setResetSent(true);
+    setPassword("");
     toast.success("Password reset email sent. Check your inbox.");
   }
 
@@ -83,16 +86,25 @@ function AuthPage() {
             <TabsContent value="signin">
               <form onSubmit={signIn} className="space-y-4 mt-4">
                 <Field id="email1" label="Email" type="email" value={email} onChange={setEmail} />
-                <Field id="pw1" label="Password" type="password" value={password} onChange={setPassword} />
-                <Button type="submit" disabled={loading} className="w-full bg-navy text-navy-foreground hover:bg-navy/90">
-                  {loading ? "Signing in…" : "Sign in"}
-                </Button>
+                {!resetSent && (
+                  <>
+                    <Field id="pw1" label="Password" type="password" value={password} onChange={setPassword} />
+                    <Button type="submit" disabled={loading} className="w-full bg-navy text-navy-foreground hover:bg-navy/90">
+                      {loading ? "Signing in…" : "Sign in"}
+                    </Button>
+                  </>
+                )}
+                {resetSent && (
+                  <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
+                    Password reset email sent. Open the link in that email to choose a new password.
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={forgotPassword}
                   className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2"
                 >
-                  Forgot password?
+                  {resetSent ? "Send reset email again" : "Forgot password?"}
                 </button>
               </form>
             </TabsContent>
