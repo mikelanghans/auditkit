@@ -50,12 +50,27 @@ function ResetPasswordPage() {
     return params;
   }, []);
 
+  const waitForStoredSession = useCallback(async (timeoutMs = 8000) => {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const { data } = await resetSupabase.auth.getSession();
+      if (data.session) return data.session;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    return null;
+  }, []);
+
   const resolveRecoverySession = useCallback(async () => {
     const params = readAuthParams();
+    const urlError = params.get("error_description") || params.get("error");
     const tokenHash = params.get("token_hash");
     const code = params.get("code");
     const accessToken = params.get("access_token");
     const refreshToken = params.get("refresh_token");
+
+    if (urlError) throw new Error(urlError.replace(/\+/g, " "));
 
     if (tokenHash) {
       const { data, error } = await resetSupabase.auth.verifyOtp({
@@ -81,9 +96,8 @@ function ResetPasswordPage() {
       return data.session;
     }
 
-    const { data } = await resetSupabase.auth.getSession();
-    return data.session;
-  }, [readAuthParams]);
+    return waitForStoredSession();
+  }, [readAuthParams, waitForStoredSession]);
 
   const ensureRecoverySession = useCallback(async () => {
     if (!sessionSetupPromiseRef.current) {
@@ -109,7 +123,7 @@ function ResetPasswordPage() {
           setStatusMessage("Enter and confirm your new password below.");
           cleanUrl();
         } else {
-          setStatusMessage(invalidLinkMessage);
+          setStatusMessage("Enter and confirm your new password below.");
         }
       })
       .catch(() => {
@@ -200,7 +214,7 @@ function ResetPasswordPage() {
             </div>
             <Button
               type="submit"
-              disabled={loading || !ready}
+              disabled={loading}
               className="w-full bg-navy text-navy-foreground hover:bg-navy/90"
             >
               {loading ? "Updating…" : "Update password"}
