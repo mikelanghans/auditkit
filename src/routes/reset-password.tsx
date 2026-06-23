@@ -66,6 +66,16 @@ function ResetPasswordPage() {
       return query.get(name) || hash.get(name);
     }
 
+    async function waitForSession(timeoutMs = 5000) {
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+        const { data } = await supabase.auth.getSession();
+        if (data.session) return data.session;
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+      }
+      return null;
+    }
+
     async function runValidation(): Promise<ValidationResult> {
       const existing = await supabase.auth.getSession();
       if (existing.data.session) return { ok: true };
@@ -73,6 +83,8 @@ function ResetPasswordPage() {
       const linkError = readParam("error_description");
 
       if (linkError) {
+        const delayed = await waitForSession();
+        if (delayed) return { ok: true };
         return { ok: false, message: linkError };
       }
 
@@ -117,6 +129,9 @@ function ResetPasswordPage() {
         }
         return { ok: true };
       }
+
+      const delayed = await waitForSession();
+      if (delayed) return { ok: true };
 
       return { ok: false, message: "This reset link is invalid or expired. Request a new password reset email." };
     }
