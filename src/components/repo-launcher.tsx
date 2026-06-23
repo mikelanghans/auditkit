@@ -134,7 +134,12 @@ export function RepoLauncher({
       toast.error("Enter the repo URL.");
       return;
     }
+    if (!token.trim()) {
+      toast.error("Enter a GitHub personal access token.");
+      return;
+    }
     const rurl = repoUrl.trim();
+    const tok = token.trim();
     let savedRepoRow: SavedRepo = {
       id: "",
       label: label.trim() || deriveLabel(rurl),
@@ -145,6 +150,7 @@ export function RepoLauncher({
         client_id: clientId,
         label: savedRepoRow.label,
         repo_url: rurl,
+        github_token: tok,
       }).select("id, label, repo_url").single();
       if (error) {
         toast.error(`Could not save repo: ${error.message}`);
@@ -154,8 +160,12 @@ export function RepoLauncher({
       qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
       onSaved?.();
     }
-    reset();
-    promptToken(savedRepoRow);
+    if (savedRepoRow.id) setCachedRepoToken(savedRepoRow.id, tok);
+    const ok = await runWith(rurl, tok);
+    if (ok) {
+      reset();
+      setOpen(false);
+    }
   };
 
 
