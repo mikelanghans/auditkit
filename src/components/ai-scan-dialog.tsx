@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { runAIScan, type AIPayloadResult } from "@/lib/ai-scan.functions";
 import { detectAIEndpoints, type DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import type { SavedRepo } from "@/components/repo-launcher";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
 type Mode = "repo-pick" | "detecting" | "endpoint-pick" | "manual";
