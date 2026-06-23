@@ -13,6 +13,15 @@ export const Route = createFileRoute("/reset-password")({
   component: ResetPasswordPage,
 });
 
+type ValidationResult = { ok: true } | { ok: false; message: string };
+
+let activeValidation:
+  | {
+      href: string;
+      promise: Promise<ValidationResult>;
+    }
+  | undefined;
+
 function ResetPasswordPage() {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
@@ -45,47 +54,57 @@ function ResetPasswordPage() {
       }
     });
 
-    async function validateResetLink() {
+    function cleanUrl() {
+      if (window.location.search || window.location.hash) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+
+    function readParam(name: string) {
       const query = new URLSearchParams(window.location.search);
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      const linkError = query.get("error_description") || hash.get("error_description");
+      return query.get(name) || hash.get(name);
+    }
+
+    async function runValidation(): Promise<ValidationResult> {
+      const existing = await supabase.auth.getSession();
+      if (existing.data.session) return { ok: true };
+
+      const linkError = readParam("error_description");
 
       if (linkError) {
-        markError(linkError);
-        return;
+        return { ok: false, message: linkError };
       }
 
-      // If a session already exists (StrictMode re-run, or already exchanged), done.
-      const existing = await supabase.auth.getSession();
-      if (existing.data.session) {
-        markReady();
-        if (window.location.search || window.location.hash) {
-          window.history.replaceState({}, document.title, window.location.pathname);
+      const tokenHash = readParam("token_hash");
+      const type = readParam("type");
+      if (tokenHash && type === "recovery") {
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: "recovery",
+        });
+        if (error) {
+          const after = await supabase.auth.getSession();
+          if (after.data.session) return { ok: true };
+          return { ok: false, message: error.message };
         }
-        return;
+        return { ok: true };
       }
 
-      const code = query.get("code");
+      const code = readParam("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
           // Code may have been consumed by a prior run — re-check session.
           const after = await supabase.auth.getSession();
-          if (after.data.session) {
-            markReady();
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return;
-          }
-          markError(error.message);
-          return;
+          if (after.data.session) return { ok: true };
+          return { ok: false, message: error.message };
         }
-        window.history.replaceState({}, document.title, window.location.pathname);
-        markReady();
-        return;
+        return { ok: true };
       }
 
-      const accessToken = hash.get("access_token");
-      const refreshToken = hash.get("refresh_token");
+      const accessToken = readParam("access_token");
+      const refreshToken = readParam("refresh_token");
       if (accessToken && refreshToken) {
         const { error } = await supabase.auth.setSession({
           access_token: accessToken,
@@ -93,20 +112,34 @@ function ResetPasswordPage() {
         });
         if (error) {
           const after = await supabase.auth.getSession();
-          if (after.data.session) {
-            markReady();
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return;
-          }
-          markError(error.message);
-          return;
+          if (after.data.session) return { ok: true };
+          return { ok: false, message: error.message };
         }
-        window.history.replaceState({}, document.title, window.location.pathname);
-        markReady();
-        return;
+        return { ok: true };
       }
 
-      markError("This reset link is invalid or expired. Request a new password reset email.");
+      return { ok: false, message: "This reset link is invalid or expired. Request a new password reset email." };
+    }
+
+    async function validateResetLink() {
+      const href = window.location.href;
+      if (!activeValidation || activeValidation.href !== href) {
+        activeValidation = { href, promise: runValidation() };
+      }
+
+      const result = await activeValidation.promise;
+      if (result.ok) {
+        markReady();
+        cleanUrl();
+      } else {
+        const after = await supabase.auth.getSession();
+        if (after.data.session) {
+          markReady();
+          cleanUrl();
+          return;
+        }
+        markError(result.message);
+      }
     }
 
     validateResetLink();
