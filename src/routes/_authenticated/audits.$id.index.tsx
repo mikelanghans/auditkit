@@ -727,9 +727,14 @@ function ItemRow({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {autoScanned && (
-            <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide">
-              <Sparkles className="h-3 w-3" /> Auto-detected
-            </Badge>
+            <>
+              <Badge variant="secondary" className="gap-1 text-[10px] uppercase tracking-wide">
+                <Sparkles className="h-3 w-3" /> Auto-detected
+              </Badge>
+              {finding?.notes?.startsWith("[Auto-scan ") && (
+                <SurfaceRecheckButton auditId={auditId} checklistItemId={item.id} />
+              )}
+            </>
           )}
           {aiAssisted && (
             <>
@@ -817,6 +822,46 @@ function ItemRow({
         </div>
       )}
     </Card>
+  );
+}
+
+function SurfaceRecheckButton({
+  auditId, checklistItemId,
+}: { auditId: string; checklistItemId: string }) {
+  const qc = useQueryClient();
+  const scan = useServerFn(runAutoScan);
+  const [pending, setPending] = useState(false);
+
+  const run = async () => {
+    setPending(true);
+    const tid = toast.loading("Re-scanning this surface finding…");
+    try {
+      const res = await scan({ data: { auditId } });
+      await qc.invalidateQueries({ queryKey: ["findings", auditId] });
+      const updated = qc.getQueryData<Finding[]>(["findings", auditId])?.find((f) => f.checklist_item_id === checklistItemId);
+      toast.success(
+        updated?.status === "pass" ? "Re-scan cleared this finding" : "Surface re-scan complete",
+        { id: tid, description: `${res.passes} passed · ${res.fails} failed · ${res.warnings} warnings` },
+      );
+    } catch (e: any) {
+      toast.error(e?.message ?? "Re-scan failed", { id: tid });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground hover:bg-muted"
+      onClick={run}
+      disabled={pending}
+      title="Re-run the surface scan and update this finding"
+    >
+      {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+      Re-scan
+    </Button>
   );
 }
 

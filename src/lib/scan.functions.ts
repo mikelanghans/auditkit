@@ -37,14 +37,45 @@ function header(h: Headers, name: string, key: string, friendly: string): CheckR
     : { key, status: "fail", notes: `Missing ${name} header.` };
 }
 
+function parseCspDirectives(csp: string): Map<string, string[]> {
+  const directives = new Map<string, string[]>();
+  for (const rawDirective of csp.split(";")) {
+    const parts = rawDirective.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) continue;
+    const [name, ...values] = parts;
+    directives.set(name.toLowerCase(), values.map((v) => v.toLowerCase()));
+  }
+  return directives;
+}
+
 function checkCsp(h: Headers): CheckResult {
-  const csp = h.get("content-security-policy") ?? h.get("content-security-policy-report-only");
-  if (!csp) return { key: "csp_header", status: "fail", notes: "No Content-Security-Policy header on the response." };
-  const unsafe = /unsafe-inline|unsafe-eval|\*/.test(csp);
+  const csp = h.get("content-security-policy");
+  const reportOnly = h.get("content-security-policy-report-only");
+  if (!csp) {
+    return {
+      key: "csp_header",
+      status: "fail",
+      notes: reportOnly
+        ? `Only Content-Security-Policy-Report-Only is present; no enforced Content-Security-Policy header found.\n\nReport-only policy:\n${reportOnly}`
+        : "No Content-Security-Policy header on the response.",
+    };
+  }
+
+  const directives = parseCspDirectives(csp);
+  const scriptSrc = directives.get("script-src") ?? directives.get("default-src") ?? [];
+  const unsafeScriptTokens = scriptSrc.filter((token) =>
+    token === "'unsafe-inline'" ||
+    token === "'unsafe-eval'" ||
+    token === "*" ||
+    token.includes("*") ||
+    token === "http:" ||
+    token === "https:"
+  );
+
   return {
     key: "csp_header",
-    status: unsafe ? "fail" : "pass",
-    notes: `CSP found:\n${csp}${unsafe ? "\n\nWarning: contains wildcard or unsafe-* directive." : ""}`,
+    status: unsafeScriptTokens.length > 0 ? "fail" : "pass",
+    notes: `CSP found:\n${csp}${unsafeScriptTokens.length > 0 ? `\n\nWarning: script-src allows unsafe sources: ${unsafeScriptTokens.join(", ")}` : ""}`,
   };
 }
 
