@@ -53,6 +53,10 @@ export function AIScanDialog({
   const [detectMeta, setDetectMeta] = useState<{ repo: string; filesScanned: number; supabaseBaseDetected: boolean; appBaseDetected: boolean } | null>(null);
 
   const hasRepos = savedRepos.length > 0;
+  const qc = useQueryClient();
+  const [needTokenFor, setNeedTokenFor] = useState<SavedRepo | null>(null);
+  const [pendingToken, setPendingToken] = useState("");
+  const [savePendingToken, setSavePendingToken] = useState(true);
 
   // External preset (from “Test for Injection” buttons) — opens dialog prefilled in manual mode.
   useEffect(() => {
