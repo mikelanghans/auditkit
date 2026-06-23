@@ -95,10 +95,12 @@ function ResetPasswordPage() {
     try {
       return await sessionSetupPromiseRef.current;
     } catch (error) {
+      const session = await waitForStoredSession(1200);
+      if (session) return session;
       sessionSetupPromiseRef.current = null;
       throw error;
     }
-  }, [resolveRecoverySession]);
+  }, [resolveRecoverySession, waitForStoredSession]);
 
   useEffect(() => {
     let mounted = true;
@@ -114,8 +116,16 @@ function ResetPasswordPage() {
           setStatusMessage("Enter and confirm your new password below.");
         }
       })
-      .catch(() => {
+      .catch(async () => {
         if (!mounted) return;
+        const session = await waitForStoredSession(1200);
+        if (!mounted) return;
+        if (session) {
+          setReady(true);
+          setStatusMessage("Enter and confirm your new password below.");
+          cleanUrl();
+          return;
+        }
         setStatusMessage(invalidLinkMessage);
       });
 
@@ -138,7 +148,7 @@ function ResetPasswordPage() {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, [cleanUrl, ensureRecoverySession, invalidLinkMessage]);
+  }, [cleanUrl, ensureRecoverySession, invalidLinkMessage, waitForStoredSession]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
