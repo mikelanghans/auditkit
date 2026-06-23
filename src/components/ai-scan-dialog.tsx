@@ -185,7 +185,7 @@ export function AIScanDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!pending && !detecting) { if (!o) reset(); setOpen(o); } }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!pending && !detecting) { if (!o) { reset(); setNeedTokenFor(null); setPendingToken(""); } setOpen(o); } }}>
       <Button variant="outline" onClick={openDialog}>
         <Bot className="h-4 w-4 mr-1" /> Scan AI Endpoints
         {hasRepos && (
