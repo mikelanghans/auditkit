@@ -16,10 +16,9 @@ export const Route = createFileRoute("/reset-password")({
 
 function ResetPasswordPage() {
   const navigate = useNavigate();
-  const invalidLinkMessage = "This reset link is invalid or expired. Request a new password reset email.";
-  const [statusMessage, setStatusMessage] = useState(
-    "Enter and confirm your new password below.",
-  );
+  const invalidLinkMessage =
+    "This reset link is invalid or expired. Request a new password reset email.";
+  const [statusMessage, setStatusMessage] = useState("Enter and confirm your new password below.");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
