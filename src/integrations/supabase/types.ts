@@ -170,6 +170,7 @@ export type Database = {
         Row: {
           client_id: string
           created_at: string
+          github_token: string | null
           id: string
           label: string
           repo_url: string
@@ -179,6 +180,7 @@ export type Database = {
         Insert: {
           client_id: string
           created_at?: string
+          github_token?: string | null
           id?: string
           label: string
           repo_url: string
@@ -188,6 +190,7 @@ export type Database = {
         Update: {
           client_id?: string
           created_at?: string
+          github_token?: string | null
           id?: string
           label?: string
           repo_url?: string

@@ -134,7 +134,12 @@ export function RepoLauncher({
       toast.error("Enter the repo URL.");
       return;
     }
+    if (!token.trim()) {
+      toast.error("Enter a GitHub personal access token.");
+      return;
+    }
     const rurl = repoUrl.trim();
+    const tok = token.trim();
     let savedRepoRow: SavedRepo = {
       id: "",
       label: label.trim() || deriveLabel(rurl),
@@ -145,6 +150,7 @@ export function RepoLauncher({
         client_id: clientId,
         label: savedRepoRow.label,
         repo_url: rurl,
+        github_token: tok,
       }).select("id, label, repo_url").single();
       if (error) {
         toast.error(`Could not save repo: ${error.message}`);
@@ -154,8 +160,12 @@ export function RepoLauncher({
       qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
       onSaved?.();
     }
-    reset();
-    promptToken(savedRepoRow);
+    if (savedRepoRow.id) setCachedRepoToken(savedRepoRow.id, tok);
+    const ok = await runWith(rurl, tok);
+    if (ok) {
+      reset();
+      setOpen(false);
+    }
   };
 
 
@@ -316,9 +326,21 @@ export function RepoLauncher({
                 autoComplete="off"
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              You'll be prompted for a GitHub personal access token after the repo is saved.
-            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="rl-token">Personal access token</Label>
+              <Input
+                id="rl-token"
+                type="password"
+                placeholder="ghp_… or github_pat_…"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                disabled={pending}
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">
+                Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.
+              </p>
+            </div>
 
 
             {clientId && (
