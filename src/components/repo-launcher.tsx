@@ -9,11 +9,12 @@ import { GitBranch, Github, Loader2, Plus, ArrowLeft, KeyRound } from "lucide-re
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
+import { getCachedRepoToken, setCachedRepoToken, clearCachedRepoToken } from "@/lib/repo-token-cache";
+
 export type SavedRepo = {
   id: string;
   label: string;
   repo_url: string;
-  github_token: string | null;
 };
 
 type Mode = "picker" | "form";
@@ -103,7 +104,7 @@ export function RepoLauncher({
 
   const promptToken = (r: SavedRepo) => {
     setNeedTokenFor(r);
-    setPendingToken(r.github_token ?? "");
+    setPendingToken(getCachedRepoToken(r.id) ?? "");
     setSavePendingToken(true);
     setOpen(true);
   };
@@ -112,23 +113,15 @@ export function RepoLauncher({
     promptToken(r);
   };
 
-
   const submitPendingToken = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!needTokenFor || !pendingToken.trim()) return;
     const r = needTokenFor;
     const tok = pendingToken.trim();
     const ok = await runWith(r.repo_url, tok);
-    if (ok && savePendingToken && r.id) {
-      const { error } = await supabase.from("client_repos").update({ github_token: tok }).eq("id", r.id);
-      if (error) toast.error(`Scanned, but failed to save token: ${error.message}`);
-      else {
-        if (clientId) qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
-        onSaved?.();
-        toast.success("Token saved for this repo");
-      }
-    }
     if (ok) {
+      if (savePendingToken && r.id) setCachedRepoToken(r.id, tok);
+      else clearCachedRepoToken(r.id);
       setNeedTokenFor(null);
       setPendingToken("");
       setOpen(false);
@@ -146,15 +139,13 @@ export function RepoLauncher({
       id: "",
       label: label.trim() || deriveLabel(rurl),
       repo_url: rurl,
-      github_token: null,
-    } as SavedRepo;
+    };
     if (saveForClient && clientId) {
       const { data: inserted, error } = await supabase.from("client_repos").insert({
         client_id: clientId,
         label: savedRepoRow.label,
         repo_url: rurl,
-        github_token: null,
-      }).select("id, label, repo_url, github_token").single();
+      }).select("id, label, repo_url").single();
       if (error) {
         toast.error(`Could not save repo: ${error.message}`);
         return;
