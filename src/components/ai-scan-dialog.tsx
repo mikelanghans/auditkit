@@ -92,9 +92,12 @@ export function AIScanDialog({
     setMode(hasRepos ? (savedRepos.length === 1 ? "detecting" : "repo-pick") : "manual");
   };
 
-  const runDetect = async (repo: SavedRepo) => {
-    if (!repo.github_token) {
-      toast.error(`No PAT stored for "${repo.label}". Add one in the client profile.`);
+  const runDetect = async (repo: SavedRepo, overrideToken?: string) => {
+    const token = overrideToken ?? repo.github_token;
+    if (!token) {
+      setNeedTokenFor(repo);
+      setPendingToken("");
+      setSavePendingToken(true);
       setMode("manual");
       return;
     }
