@@ -231,7 +231,10 @@ export const runAIAssist = createServerFn({ method: "POST" })
 
     let arr: any[];
     try { arr = extractJson(raw, truncated); }
-    catch (e: any) { return { ok: false as const, error: `Could not parse Claude output: ${e?.message}` }; }
+    catch (e: any) {
+      console.error("[ai-assist] parse failure", { truncated, rawHead: raw.slice(0, 500), rawTail: raw.slice(-500), len: raw.length });
+      return { ok: false as const, error: `Could not parse Claude output: ${e?.message}${truncated ? " (response was truncated)" : ""}` };
+    }
 
     const itemByKey = new Map<string, any>();
     for (const it of items) {
