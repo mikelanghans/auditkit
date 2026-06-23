@@ -74,7 +74,6 @@ export function FixPromptButton({
   const openDialog = () => {
     setOpen(true);
     setCopied(null);
-    void loadIfNeeded(active);
   };
 
 
@@ -82,7 +81,6 @@ export function FixPromptButton({
     const t = val as FixTarget;
     setActive(t);
     setCopied(null);
-    void loadIfNeeded(t);
   };
 
   const copy = async (target: FixTarget) => {
