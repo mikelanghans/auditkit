@@ -7,7 +7,7 @@ const supabasePublishableKey =
 export const passwordResetClient = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
     autoRefreshToken: true,
-    detectSessionInUrl: false,
+    detectSessionInUrl: true,
     flowType: "implicit",
     persistSession: true,
     storage: typeof window !== "undefined" ? window.localStorage : undefined,

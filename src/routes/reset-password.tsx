@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ShieldCheck } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { passwordResetClient } from "@/lib/password-reset-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,7 +64,7 @@ function ResetPasswordPage() {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeoutMs) {
-      const { data } = await supabase.auth.getSession();
+      const { data } = await passwordResetClient.auth.getSession();
       if (data.session) {
         rememberRecoveryAccessToken(data.session.access_token);
         return data.session;
@@ -86,7 +86,7 @@ function ResetPasswordPage() {
     if (urlError) throw new Error(urlError.replace(/\+/g, " "));
 
     if (tokenHash) {
-      const { data, error } = await supabase.auth.verifyOtp({
+      const { data, error } = await passwordResetClient.auth.verifyOtp({
         token_hash: tokenHash,
         type: "recovery",
       });
@@ -96,7 +96,7 @@ function ResetPasswordPage() {
     }
 
     if (code) {
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      const { data, error } = await passwordResetClient.auth.exchangeCodeForSession(code);
       if (error) throw error;
       rememberRecoveryAccessToken(data.session?.access_token);
       return data.session;
@@ -104,7 +104,7 @@ function ResetPasswordPage() {
 
     if (accessToken && refreshToken) {
       rememberRecoveryAccessToken(accessToken);
-      const { data, error } = await supabase.auth.setSession({
+      const { data, error } = await passwordResetClient.auth.setSession({
         access_token: accessToken,
         refresh_token: refreshToken,
       });
@@ -158,7 +158,7 @@ function ResetPasswordPage() {
         setStatusMessage(invalidLinkMessage);
       });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: sub } = passwordResetClient.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
       if (
         session &&
@@ -199,7 +199,7 @@ function ResetPasswordPage() {
       let updateErrorMessage: string | undefined;
 
       if (session) {
-        const { error } = await supabase.auth.updateUser({ password });
+        const { error } = await passwordResetClient.auth.updateUser({ password });
         updateSucceeded = !error;
         updateErrorMessage = error?.message;
       }
