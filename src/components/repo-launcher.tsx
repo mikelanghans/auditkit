@@ -130,7 +130,7 @@ export function RepoLauncher({
     const r = needTokenFor;
     const tok = pendingToken.trim();
     const ok = await runWith(r.repo_url, tok);
-    if (ok && savePendingToken) {
+    if (ok && savePendingToken && r.id) {
       const { error } = await supabase.from("client_repos").update({ github_token: tok }).eq("id", r.id);
       if (error) toast.error(`Scanned, but failed to save token: ${error.message}`);
       else {
@@ -148,30 +148,36 @@ export function RepoLauncher({
 
   const submitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!repoUrl.trim() || !token.trim()) {
-      toast.error("Enter both the repo URL and a personal access token.");
+    if (!repoUrl.trim()) {
+      toast.error("Enter the repo URL.");
       return;
     }
-    const ok = await runWith(repoUrl.trim(), token.trim());
-    if (ok && saveForClient && clientId) {
-      const { error } = await supabase.from("client_repos").insert({
+    const rurl = repoUrl.trim();
+    let savedRepoRow: SavedRepo = {
+      id: "",
+      label: label.trim() || deriveLabel(rurl),
+      repo_url: rurl,
+      github_token: null,
+    } as SavedRepo;
+    if (saveForClient && clientId) {
+      const { data: inserted, error } = await supabase.from("client_repos").insert({
         client_id: clientId,
-        label: label.trim() || deriveLabel(repoUrl.trim()),
-        repo_url: repoUrl.trim(),
-        github_token: token.trim(),
-      });
-      if (error) toast.error(`Saved scan, but failed to store credentials: ${error.message}`);
-      else {
-        qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
-        onSaved?.();
-        toast.success("Repo saved for this client");
+        label: savedRepoRow.label,
+        repo_url: rurl,
+        github_token: null,
+      }).select("id, label, repo_url, github_token").single();
+      if (error) {
+        toast.error(`Could not save repo: ${error.message}`);
+        return;
       }
+      savedRepoRow = inserted as SavedRepo;
+      qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
+      onSaved?.();
     }
-    if (ok) {
-      reset();
-      setOpen(false);
-    }
+    reset();
+    promptToken(savedRepoRow);
   };
+
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) { reset(); setNeedTokenFor(null); setPendingToken(""); } setOpen(o); } }}>
@@ -300,21 +306,10 @@ export function RepoLauncher({
                 autoComplete="off"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="rl-token">Personal access token</Label>
-              <Input
-                id="rl-token"
-                type="password"
-                placeholder="ghp_… or github_pat_…"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                disabled={pending}
-                autoComplete="off"
-              />
-              <p className="text-xs text-muted-foreground">
-                Fine-grained PAT: <em>Contents: Read</em> + <em>Metadata: Read</em>.
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              You'll be prompted for a GitHub personal access token after the repo is saved.
+            </p>
+
 
             {clientId && (
               <>
@@ -363,8 +358,9 @@ export function RepoLauncher({
               )}
               <Button type="button" variant="ghost" disabled={pending} onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={pending}>
-                {pending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> {runningLabel}</> : submitLabel}
+                Continue
               </Button>
+
             </DialogFooter>
           </form>
         )}
