@@ -358,8 +358,9 @@ export function RepoLauncher({
               )}
               <Button type="button" variant="ghost" disabled={pending} onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={pending}>
-                {pending ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> {runningLabel}</> : submitLabel}
+                Continue
               </Button>
+
             </DialogFooter>
           </form>
         )}
