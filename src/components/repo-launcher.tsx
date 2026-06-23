@@ -53,6 +53,7 @@ export function RepoLauncher({
   const [label, setLabel] = useState("");
   const [saveForClient, setSaveForClient] = useState(true);
   const [pending, setPending] = useState(false);
+  const [runningRepoId, setRunningRepoId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
 
   const hasSaved = savedRepos.length > 0;
