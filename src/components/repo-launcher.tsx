@@ -84,12 +84,7 @@ export function RepoLauncher({
     if (savedRepos.length === 1) {
       const r = savedRepos[0];
       if (!r.github_token) {
-        // saved repo missing token — open form prefilled
-        setRepoUrl(r.repo_url);
-        setLabel(r.label);
-        setToken("");
-        setMode("form");
-        setOpen(true);
+        promptToken(r);
         return;
       }
       await runWith(r.repo_url, r.github_token);
