@@ -32,10 +32,18 @@ const COLUMN: Record<FixTarget, "lovable_prompt" | "cursor_prompt" | "claude_pro
 };
 
 export type GenerateFixPromptInput = {
-  auditId: string;
-  checklistItemId: string;
+  auditId?: string;
+  checklistItemId?: string;
   target: FixTarget;
   force?: boolean;
+  // Ad-hoc mode (e.g. AI Assist suggestions not yet applied):
+  adhoc?: {
+    title: string;
+    category?: string;
+    description?: string;
+    what_to_look_for?: string;
+    notes?: string;
+  };
 };
 
 export const generateFixPrompt = createServerFn({ method: "POST" })
@@ -46,6 +54,22 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
     const target: FixTarget = data.target;
     const column = COLUMN[target];
     if (!column) return { ok: false as const, error: "Invalid target." };
+
+    // Ad-hoc mode: skip audit/finding lookups, don't cache.
+    if (data.adhoc) {
+      const item = data.adhoc;
+      const userMessage =
+        `Finding title: ${item.title}\n` +
+        (item.category ? `Category: ${item.category}\n` : "") +
+        (item.description ? `Description: ${item.description}\n` : "") +
+        (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
+        `\nAuditor notes & evidence:\n${(item.notes ?? "").trim() || "(no notes provided)"}`;
+      return await callClaude(target, userMessage);
+    }
+
+    if (!data.auditId || !data.checklistItemId) {
+      return { ok: false as const, error: "Missing auditId/checklistItemId." };
+    }
 
     const { data: auditRow, error: aerr } = await supabase
       .from("audits").select("id, created_by").eq("id", data.auditId).single();
@@ -73,6 +97,7 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       .select("title, category, description, what_to_look_for")
       .eq("id", data.checklistItemId).single();
     if (ierr || !item) return { ok: false as const, error: "Checklist item not found." };
+
 
     const key = process.env.ANTHROPIC_API_KEY;
     if (!key) return { ok: false as const, error: "ANTHROPIC_API_KEY is not configured." };
