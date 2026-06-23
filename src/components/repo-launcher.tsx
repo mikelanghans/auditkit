@@ -168,7 +168,7 @@ export function RepoLauncher({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) reset(); setOpen(o); } }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) { reset(); setNeedTokenFor(null); setPendingToken(""); } setOpen(o); } }}>
       <Button
         variant={trigger.variant ?? "outline"}
         onClick={handleTriggerClick}
