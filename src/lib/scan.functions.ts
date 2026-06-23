@@ -177,12 +177,14 @@ export const runAutoScan = createServerFn({ method: "POST" })
 
     const { data: audit, error: aerr } = await supabase
       .from("audits")
-      .select("id, client:clients(id, app_url, name)")
+      .select("id, website_url, client:clients(id, websites, name)")
       .eq("id", data.auditId)
       .single();
     if (aerr) throw new Error(aerr.message);
-    const appUrl = (audit as any)?.client?.app_url as string | null | undefined;
-    if (!appUrl) throw new Error("Client has no app URL set. Add one on the client and try again.");
+    const fromAudit = (audit as any)?.website_url as string | null | undefined;
+    const fromClient = ((audit as any)?.client?.websites as string[] | undefined)?.[0];
+    const appUrl = fromAudit || fromClient;
+    if (!appUrl) throw new Error("This audit has no website set. Add a website to the client and select it on the audit.");
     const base = normalizeUrl(appUrl);
     try {
       await assertSafeOutboundUrl(base);
