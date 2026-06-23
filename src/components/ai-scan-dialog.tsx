@@ -12,6 +12,7 @@ import { runAIScan, type AIPayloadResult } from "@/lib/ai-scan.functions";
 import { detectAIEndpoints, type DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import type { SavedRepo } from "@/components/repo-launcher";
 import { supabase } from "@/integrations/supabase/client";
+import { getCachedRepoToken, setCachedRepoToken, clearCachedRepoToken } from "@/lib/repo-token-cache";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
@@ -93,7 +94,7 @@ export function AIScanDialog({
   };
 
   const runDetect = async (repo: SavedRepo, overrideToken?: string) => {
-    const token = overrideToken ?? repo.github_token;
+    const token = overrideToken ?? getCachedRepoToken(repo.id);
     if (!token) {
       setNeedTokenFor(repo);
       setPendingToken("");
@@ -212,11 +213,8 @@ export function AIScanDialog({
               const r = needTokenFor;
               const tok = pendingToken.trim();
               if (!tok) return;
-              if (savePendingToken) {
-                const { error } = await supabase.from("client_repos").update({ github_token: tok }).eq("id", r.id);
-                if (error) toast.error(`Could not save token: ${error.message}`);
-                else qc.invalidateQueries({ queryKey: ["client-repos"] });
-              }
+              if (savePendingToken) setCachedRepoToken(r.id, tok);
+              else clearCachedRepoToken(r.id);
               setNeedTokenFor(null);
               setPendingToken("");
               await runDetect(r, tok);
