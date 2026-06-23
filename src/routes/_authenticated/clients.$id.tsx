@@ -219,28 +219,24 @@ function ConnectedAccountsSection({ client }: { client: any }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
-  const [token, setToken] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState<string>("");
 
-  const reset = () => { setLabel(""); setRepoUrl(""); setToken(""); setWebsiteUrl(""); setAdding(false); setEditingId(null); };
+  const reset = () => { setLabel(""); setRepoUrl(""); setWebsiteUrl(""); setAdding(false); setEditingId(null); };
 
   const upsert = useMutation({
     mutationFn: async () => {
       if (editingId) {
-        const update: any = {
+        const { error } = await supabase.from("client_repos").update({
           label: label.trim() || "Repo",
           repo_url: repoUrl.trim(),
           website_url: websiteUrl || null,
-        };
-        if (token.trim()) update.github_token = token.trim();
-        const { error } = await supabase.from("client_repos").update(update).eq("id", editingId);
+        }).eq("id", editingId);
         if (error) throw error;
       } else {
         const { error } = await supabase.from("client_repos").insert({
           client_id: client.id,
           label: label.trim() || "Repo",
           repo_url: repoUrl.trim(),
-          github_token: token.trim() || null,
           website_url: websiteUrl || null,
         });
         if (error) throw error;
@@ -271,7 +267,6 @@ function ConnectedAccountsSection({ client }: { client: any }) {
     setAdding(false);
     setLabel(r.label);
     setRepoUrl(r.repo_url);
-    setToken("");
     setWebsiteUrl(r.website_url ?? "");
   };
 
