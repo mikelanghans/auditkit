@@ -166,6 +166,7 @@ function ResetPasswordPage() {
           event === "TOKEN_REFRESHED" ||
           event === "INITIAL_SESSION")
       ) {
+        rememberRecoveryAccessToken(session.access_token);
         setReady(true);
         setStatusMessage("Enter and confirm your new password below.");
         cleanUrl();
@@ -191,9 +192,28 @@ function ResetPasswordPage() {
         return toast.error(invalidLinkMessage);
       }
       setReady(true);
-      const { error } = await supabase.auth.updateUser({ password });
+      let { error } = await supabase.auth.updateUser({ password });
+      const recoveryAccessToken = getRecoveryAccessToken();
+      if (error && recoveryAccessToken) {
+        const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+          method: "PUT",
+          headers: {
+            apikey: supabasePublishableKey,
+            authorization: `Bearer ${recoveryAccessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ password }),
+        });
+        if (response.ok) {
+          error = null;
+        } else {
+          const body = await response.json().catch(() => null);
+          error = new Error(body?.msg || body?.message || error.message);
+        }
+      }
       setLoading(false);
       if (error) return toast.error(error.message);
+      clearRecoveryAccessToken();
       toast.success("Password updated. You're signed in.");
       navigate({ to: "/dashboard", replace: true });
     } catch (error) {
