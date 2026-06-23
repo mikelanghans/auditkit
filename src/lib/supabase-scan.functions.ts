@@ -438,8 +438,8 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     let bundleCheck: CheckResult;
     let serviceRoleCheck: CheckResult;
     if (!appUrl) {
-      bundleCheck = { status: "na", notes: "No client app_url on file — cannot fetch JS bundle to scan." };
-      serviceRoleCheck = { status: "na", notes: "No client app_url on file — cannot verify the service role key is absent from the bundle." };
+      bundleCheck = { status: "na", notes: "No website URL provided — cannot fetch JS bundle to scan." };
+      serviceRoleCheck = { status: "na", notes: "No website URL provided — cannot verify the service role key is absent from the bundle." };
     } else if (!bundle || !bundle.ok) {
       const reason = bundle?.error ?? "unknown";
       bundleCheck = { status: "na", notes: `Could not fetch bundle from ${appUrl}: ${reason}` };
