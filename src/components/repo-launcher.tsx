@@ -264,25 +264,53 @@ export function RepoLauncher({
             <p className="text-sm text-muted-foreground">Pick a saved repo to scan:</p>
             <ul className="space-y-1.5">
               {savedRepos.map((r) => (
-                <li key={r.id}>
+                <li
+                  key={r.id}
+                  className="w-full flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 hover:border-navy/50 hover:bg-muted/40 transition-colors"
+                >
                   <button
                     type="button"
                     disabled={pending}
                     onClick={() => runSaved(r)}
-                    className="w-full flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-left hover:border-navy/50 hover:bg-muted/40 transition-colors disabled:opacity-50"
+                    className="flex-1 min-w-0 text-left disabled:opacity-50"
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="font-medium text-sm truncate">{r.label}</span>
-                        {!r.github_token && <span className="text-[10px] uppercase tracking-wide text-status-fail">no PAT</span>}
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate">{r.repo_url}</div>
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="font-medium text-sm truncate">{r.label}</span>
+                      {!r.github_token && <span className="text-[10px] uppercase tracking-wide text-status-fail">no PAT</span>}
                     </div>
-                    {runningRepoId === r.id ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <span className="text-xs text-navy shrink-0">Scan →</span>}
+                    <div className="text-xs text-muted-foreground truncate">{r.repo_url}</div>
                   </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {r.github_token && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={pending}
+                        title="Forget saved token for this repo"
+                        onClick={async () => {
+                          const { error } = await supabase.from("client_repos").update({ github_token: null }).eq("id", r.id);
+                          if (error) { toast.error(`Could not clear token: ${error.message}`); return; }
+                          if (clientId) qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
+                          onSaved?.();
+                          toast.success("Token forgotten");
+                        }}
+                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                      >
+                        <KeyRound className="h-3.5 w-3.5 mr-1" />
+                        <span className="text-xs">Forget</span>
+                      </Button>
+                    )}
+                    {runningRepoId === r.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <span className="text-xs text-navy">Scan →</span>
+                    )}
+                  </div>
                 </li>
               ))}
+
             </ul>
             {pending && <Progress value={progress} className="mt-3" />}
             <DialogFooter className="pt-2">
