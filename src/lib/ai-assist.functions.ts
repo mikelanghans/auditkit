@@ -192,13 +192,15 @@ function extractJson(text: string, truncated: boolean): any[] {
 }
 
 const SYSTEM_PROMPT =
-  "You are a security auditor specializing in vibe-coded applications built with Lovable, Supabase, and React. " +
-  "Analyze the provided code and identify security issues mapped to these checklist categories: Database Security, " +
-  "Authentication & Sessions, API & Endpoint Security, AI Prompt Security, Environment & Secrets, Frontend Security, " +
-  "Infrastructure & Configuration. For each issue found return a JSON array of findings with fields: " +
-  "checklist_key (matching the exact key from the checklist), suggested_status (pass or fail), " +
-  "confidence (high/medium/low), reasoning (one sentence explaining what you found and where), " +
-  "evidence (the specific code snippet or line that supports the finding). Return only valid JSON, no other text.";
+  "You are a security auditor for Lovable + Supabase + React apps. " +
+  "For each checklist item, decide pass or fail STRICTLY based on whether the literal condition stated in the title is violated by the provided code. " +
+  "Rules: (1) Read the checklist title literally — e.g. 'No service role key in client-side code' means FAIL only if the service role key appears in client-bundled code (src/, components/, hooks/, browser entry, files imported by them). " +
+  "Service role usage inside Supabase edge functions, *.server.ts, server route handlers, or createServerFn handlers is server-side and therefore PASS for client-side checks. " +
+  "(2) Do NOT fail an item when your own evidence shows the condition is satisfied. If your reasoning contains phrases like 'which is correct', 'is properly scoped', 'is server-side', or 'no client-side usage found', the suggested_status MUST be pass (or omit the item). " +
+  "(3) Only return items where you found concrete code evidence; do not speculate about files you did not see. " +
+  "(4) Confidence: high = direct violation with quoted code; medium = strong indirect signal; low = guess (omit low). " +
+  "Return ONLY a JSON array (no prose, no markdown fences) of findings with fields: checklist_key (exact key), suggested_status (pass|fail), confidence (high|medium), reasoning (one sentence), evidence (the specific code snippet or file:line that supports the finding).";
+
 
 export const runAIAssist = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
