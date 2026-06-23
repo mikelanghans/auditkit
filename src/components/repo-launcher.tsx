@@ -86,12 +86,7 @@ export function RepoLauncher({
 
   const handleTriggerClick = async () => {
     if (savedRepos.length === 1) {
-      const r = savedRepos[0];
-      if (!r.github_token) {
-        promptToken(r);
-        return;
-      }
-      await runWith(r.repo_url, r.github_token);
+      promptToken(savedRepos[0]);
       return;
     }
     if (savedRepos.length >= 2) {
@@ -108,24 +103,15 @@ export function RepoLauncher({
 
   const promptToken = (r: SavedRepo) => {
     setNeedTokenFor(r);
-    setPendingToken("");
+    setPendingToken(r.github_token ?? "");
     setSavePendingToken(true);
     setOpen(true);
   };
 
   const runSaved = async (r: SavedRepo) => {
-    if (!r.github_token) {
-      promptToken(r);
-      return;
-    }
-    setRunningRepoId(r.id);
-    try {
-      const ok = await runWith(r.repo_url, r.github_token);
-      if (ok) setOpen(false);
-    } finally {
-      setRunningRepoId(null);
-    }
+    promptToken(r);
   };
+
 
   const submitPendingToken = async (e: React.FormEvent) => {
     e.preventDefault();
