@@ -13,27 +13,43 @@ type CachedPrompts = {
   claude: string | null;
 };
 
+const EMPTY_CACHE: CachedPrompts = { lovable: null, cursor: null, claude: null };
+
 const TARGETS: { id: FixTarget; label: string; openUrl?: string; openLabel?: string }[] = [
   { id: "lovable", label: "Lovable", openUrl: "https://lovable.dev", openLabel: "Open Lovable" },
   { id: "cursor", label: "Cursor", openUrl: "https://cursor.com", openLabel: "Open Cursor" },
   { id: "claude", label: "Claude Code", openUrl: "https://claude.com/product/claude-code", openLabel: "Open Claude Code" },
 ];
 
+type AdhocContext = {
+  title: string;
+  category?: string;
+  description?: string;
+  what_to_look_for?: string;
+  notes?: string;
+};
+
 export function FixPromptButton({
   auditId,
   checklistItemId,
   cached,
   onCached,
+  adhoc,
+  buttonLabel,
+  buttonClassName,
 }: {
-  auditId: string;
-  checklistItemId: string;
-  cached: CachedPrompts;
-  onCached: (target: FixTarget, prompt: string) => void;
+  auditId?: string;
+  checklistItemId?: string;
+  cached?: CachedPrompts;
+  onCached?: (target: FixTarget, prompt: string) => void;
+  adhoc?: AdhocContext;
+  buttonLabel?: string;
+  buttonClassName?: string;
 }) {
   const gen = useServerFn(generateFixPrompt);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<FixTarget>("lovable");
-  const [prompts, setPrompts] = useState<CachedPrompts>(cached);
+  const [prompts, setPrompts] = useState<CachedPrompts>(cached ?? EMPTY_CACHE);
   const [loading, setLoading] = useState<FixTarget | null>(null);
   const [copied, setCopied] = useState<FixTarget | null>(null);
 
@@ -41,10 +57,13 @@ export function FixPromptButton({
     if (prompts[target]) return;
     setLoading(target);
     try {
-      const res = await gen({ data: { auditId, checklistItemId, target } });
+      const payload = adhoc
+        ? { target, adhoc }
+        : { auditId, checklistItemId, target };
+      const res = await gen({ data: payload as any });
       if (!res.ok) { toast.error(res.error); return; }
       setPrompts((p) => ({ ...p, [target]: res.prompt }));
-      onCached(target, res.prompt);
+      onCached?.(target, res.prompt);
     } catch (e: any) {
       toast.error(e?.message ?? "Could not generate prompt");
     } finally {
@@ -57,6 +76,7 @@ export function FixPromptButton({
     setCopied(null);
     void loadIfNeeded(active);
   };
+
 
   const switchTab = (val: string) => {
     const t = val as FixTarget;
