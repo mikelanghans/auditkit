@@ -108,14 +108,15 @@ export function FixPromptButton({
           size="sm"
           variant="outline"
           onClick={openDialog}
-          className="border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
+          className={buttonClassName ?? "border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"}
         >
-          <Wand2 className="h-3.5 w-3.5 mr-1.5" /> Generate Fix
+          <Wand2 className="h-3.5 w-3.5 mr-1.5" /> {buttonLabel ?? "Generate Fix"}
         </Button>
         <span className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
           <Sparkles className="h-2.5 w-2.5" /> AI Generated · Lovable · Cursor · Claude
         </span>
       </div>
+
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-xl">
