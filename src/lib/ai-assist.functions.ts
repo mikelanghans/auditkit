@@ -14,7 +14,15 @@ const PRIORITY_KEYWORDS = [
 ];
 const PRIORITY_DIRS = ["src/lib/", "src/api/", "src/server/", "supabase/functions/"];
 
-export type AIAssistInput = { auditId: string; repoUrl: string; token: string };
+export type AIAssistDepth = "quick" | "standard" | "deep" | "full";
+export type AIAssistInput = { auditId: string; repoUrl: string; token: string; depth?: AIAssistDepth };
+
+const DEPTH_CAPS: Record<AIAssistDepth, { maxFiles: number; maxBatches: number }> = {
+  quick:    { maxFiles: 12,  maxBatches: 1  },
+  standard: { maxFiles: 60,  maxBatches: 2  },
+  deep:     { maxFiles: 200, maxBatches: 6  },
+  full:     { maxFiles: 400, maxBatches: 12 },
+};
 
 export type AIAssistFinding = {
   checklist_item_id: string;
