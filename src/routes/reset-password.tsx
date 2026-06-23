@@ -193,6 +193,7 @@ function ResetPasswordPage() {
       }
       setReady(true);
       let { error } = await supabase.auth.updateUser({ password });
+      let updateErrorMessage = error?.message;
       const recoveryAccessToken = getRecoveryAccessToken();
       if (error && recoveryAccessToken) {
         const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
@@ -208,11 +209,11 @@ function ResetPasswordPage() {
           error = null;
         } else {
           const body = await response.json().catch(() => null);
-          error = new Error(body?.msg || body?.message || error.message);
+          updateErrorMessage = body?.msg || body?.message || error.message;
         }
       }
       setLoading(false);
-      if (error) return toast.error(error.message);
+      if (error) return toast.error(updateErrorMessage || error.message);
       clearRecoveryAccessToken();
       toast.success("Password updated. You're signed in.");
       navigate({ to: "/dashboard", replace: true });
