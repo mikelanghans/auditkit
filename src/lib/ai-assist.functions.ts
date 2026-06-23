@@ -14,7 +14,15 @@ const PRIORITY_KEYWORDS = [
 ];
 const PRIORITY_DIRS = ["src/lib/", "src/api/", "src/server/", "supabase/functions/"];
 
-export type AIAssistInput = { auditId: string; repoUrl: string; token: string };
+export type AIAssistDepth = "quick" | "standard" | "deep" | "full";
+export type AIAssistInput = { auditId: string; repoUrl: string; token: string; depth?: AIAssistDepth };
+
+const DEPTH_CAPS: Record<AIAssistDepth, { maxFiles: number; maxBatches: number }> = {
+  quick:    { maxFiles: 12,  maxBatches: 1  },
+  standard: { maxFiles: 60,  maxBatches: 2  },
+  deep:     { maxFiles: 200, maxBatches: 6  },
+  full:     { maxFiles: 400, maxBatches: 12 },
+};
 
 export type AIAssistFinding = {
   checklist_item_id: string;
@@ -64,7 +72,7 @@ function scoreFile(path: string): number {
   return s;
 }
 
-async function fetchRepoFiles(owner: string, repo: string, token: string) {
+async function fetchRepoFiles(owner: string, repo: string, token: string, maxFiles: number) {
   const repoMeta = await gh<{ default_branch: string }>(
     `https://api.github.com/repos/${owner}/${repo}`, token,
   );
@@ -77,7 +85,7 @@ async function fetchRepoFiles(owner: string, repo: string, token: string) {
     .map((n) => ({ ...n, score: scoreFile(n.path) }))
     .filter((n) => n.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_TOTAL_FILES);
+    .slice(0, maxFiles);
 
   const picked: { path: string; content: string }[] = [];
   let total = 0;
@@ -100,7 +108,7 @@ async function fetchRepoFiles(owner: string, repo: string, token: string) {
   return { branch, files: picked, totalChars: total, scanned: candidates.length, truncatedTree: tree.truncated === true };
 }
 
-function chunkFiles(files: { path: string; content: string }[]) {
+function chunkFiles(files: { path: string; content: string }[], maxBatches: number) {
   const batches: { path: string; content: string }[][] = [];
   let cur: { path: string; content: string }[] = [];
   let curChars = 0;
@@ -108,12 +116,12 @@ function chunkFiles(files: { path: string; content: string }[]) {
     if (cur.length >= BATCH_MAX_FILES || curChars + f.content.length > BATCH_MAX_CHARS) {
       if (cur.length) batches.push(cur);
       cur = []; curChars = 0;
-      if (batches.length >= MAX_BATCHES) break;
+      if (batches.length >= maxBatches) break;
     }
     cur.push(f);
     curChars += f.content.length;
   }
-  if (cur.length && batches.length < MAX_BATCHES) batches.push(cur);
+  if (cur.length && batches.length < maxBatches) batches.push(cur);
   return batches;
 }
 
@@ -214,9 +222,12 @@ export const runAIAssist = createServerFn({ method: "POST" })
     if (cerr) throw new Error(cerr.message);
     const items = checklist ?? [];
 
+    const depth: AIAssistDepth = data.depth ?? "standard";
+    const caps = DEPTH_CAPS[depth];
+
     let repoData;
     try {
-      repoData = await fetchRepoFiles(parsed.owner, parsed.repo, data.token.trim());
+      repoData = await fetchRepoFiles(parsed.owner, parsed.repo, data.token.trim(), caps.maxFiles);
     } catch (e: any) {
       return { ok: false as const, error: e?.message ?? "Failed to read repository." };
     }
@@ -235,7 +246,7 @@ export const runAIAssist = createServerFn({ method: "POST" })
       itemByKey.set(it.title.toLowerCase(), it);
     }
 
-    const batches = chunkFiles(repoData.files);
+    const batches = chunkFiles(repoData.files, caps.maxBatches);
     const stamp = new Date().toISOString();
     // dedupe findings across batches: keep highest confidence per checklist item
     const confRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
