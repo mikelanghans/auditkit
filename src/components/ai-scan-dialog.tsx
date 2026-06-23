@@ -12,6 +12,7 @@ import { runAIScan, type AIPayloadResult } from "@/lib/ai-scan.functions";
 import { detectAIEndpoints, type DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import type { SavedRepo } from "@/components/repo-launcher";
 import { supabase } from "@/integrations/supabase/client";
+import { getCachedRepoToken, setCachedRepoToken, clearCachedRepoToken } from "@/lib/repo-token-cache";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
@@ -93,7 +94,7 @@ export function AIScanDialog({
   };
 
   const runDetect = async (repo: SavedRepo, overrideToken?: string) => {
-    const token = overrideToken ?? repo.github_token;
+    const token = overrideToken ?? getCachedRepoToken(repo.id);
     if (!token) {
       setNeedTokenFor(repo);
       setPendingToken("");
@@ -212,11 +213,8 @@ export function AIScanDialog({
               const r = needTokenFor;
               const tok = pendingToken.trim();
               if (!tok) return;
-              if (savePendingToken) {
-                const { error } = await supabase.from("client_repos").update({ github_token: tok }).eq("id", r.id);
-                if (error) toast.error(`Could not save token: ${error.message}`);
-                else qc.invalidateQueries({ queryKey: ["client-repos"] });
-              }
+              if (savePendingToken) setCachedRepoToken(r.id, tok);
+              else clearCachedRepoToken(r.id);
               setNeedTokenFor(null);
               setPendingToken("");
               await runDetect(r, tok);
@@ -277,7 +275,7 @@ export function AIScanDialog({
                       <div className="flex items-center gap-2">
                         <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className="font-medium text-sm truncate">{r.label}</span>
-                        {!r.github_token && <span className="text-[10px] uppercase tracking-wide text-status-fail">no PAT</span>}
+                        {getCachedRepoToken(r.id) && <span className="text-[10px] uppercase tracking-wide text-status-pass">session PAT</span>}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">{r.repo_url}</div>
                     </div>
