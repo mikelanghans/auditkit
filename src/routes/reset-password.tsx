@@ -38,7 +38,11 @@ function ResetPasswordPage() {
     };
 
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") markReady();
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+        supabase.auth.getSession().then(({ data }) => {
+          if (data.session) markReady();
+        });
+      }
     });
 
     async function validateResetLink() {
@@ -51,10 +55,27 @@ function ResetPasswordPage() {
         return;
       }
 
+      // If a session already exists (StrictMode re-run, or already exchanged), done.
+      const existing = await supabase.auth.getSession();
+      if (existing.data.session) {
+        markReady();
+        if (window.location.search || window.location.hash) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        return;
+      }
+
       const code = query.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
+          // Code may have been consumed by a prior run — re-check session.
+          const after = await supabase.auth.getSession();
+          if (after.data.session) {
+            markReady();
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return;
+          }
           markError(error.message);
           return;
         }
@@ -71,6 +92,12 @@ function ResetPasswordPage() {
           refresh_token: refreshToken,
         });
         if (error) {
+          const after = await supabase.auth.getSession();
+          if (after.data.session) {
+            markReady();
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return;
+          }
           markError(error.message);
           return;
         }
@@ -79,15 +106,6 @@ function ResetPasswordPage() {
         return;
       }
 
-      const { data, error } = await supabase.auth.getSession();
-      if (error) {
-        markError(error.message);
-        return;
-      }
-      if (data.session) {
-        markReady();
-        return;
-      }
       markError("This reset link is invalid or expired. Request a new password reset email.");
     }
 
