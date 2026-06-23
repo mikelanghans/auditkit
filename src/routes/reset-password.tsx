@@ -1,8 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
+import { createClient, type Session } from "@supabase/supabase-js";
 import { ShieldCheck } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,11 +13,24 @@ export const Route = createFileRoute("/reset-password")({
   component: ResetPasswordPage,
 });
 
+const resetSupabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth: {
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      persistSession: true,
+      storage: typeof window !== "undefined" ? window.localStorage : undefined,
+    },
+  },
+);
+
 function ResetPasswordPage() {
   const navigate = useNavigate();
   const invalidLinkMessage =
     "This reset link is invalid or expired. Request a new password reset email.";
-  const [statusMessage, setStatusMessage] = useState("Enter and confirm your new password below.");
+  const [statusMessage, setStatusMessage] = useState("Preparing secure password reset…");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
@@ -46,7 +58,7 @@ function ResetPasswordPage() {
     const refreshToken = params.get("refresh_token");
 
     if (tokenHash) {
-      const { data, error } = await supabase.auth.verifyOtp({
+      const { data, error } = await resetSupabase.auth.verifyOtp({
         token_hash: tokenHash,
         type: "recovery",
       });
@@ -55,13 +67,13 @@ function ResetPasswordPage() {
     }
 
     if (code) {
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      const { data, error } = await resetSupabase.auth.exchangeCodeForSession(code);
       if (error) throw error;
       return data.session;
     }
 
     if (accessToken && refreshToken) {
-      const { data, error } = await supabase.auth.setSession({
+      const { data, error } = await resetSupabase.auth.setSession({
         access_token: accessToken,
         refresh_token: refreshToken,
       });
@@ -69,7 +81,7 @@ function ResetPasswordPage() {
       return data.session;
     }
 
-    const { data } = await supabase.auth.getSession();
+    const { data } = await resetSupabase.auth.getSession();
     return data.session;
   }, [readAuthParams]);
 
@@ -105,7 +117,7 @@ function ResetPasswordPage() {
         setStatusMessage(invalidLinkMessage);
       });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: sub } = resetSupabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
       if (
         session &&
@@ -140,7 +152,7 @@ function ResetPasswordPage() {
       }
       setReady(true);
       await new Promise((r) => setTimeout(r, 500));
-      const { error } = await supabase.auth.updateUser({ password });
+      const { error } = await resetSupabase.auth.updateUser({ password });
       setLoading(false);
       if (error) return toast.error(error.message);
       toast.success("Password updated. You're signed in.");
