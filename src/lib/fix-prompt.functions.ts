@@ -32,10 +32,18 @@ const COLUMN: Record<FixTarget, "lovable_prompt" | "cursor_prompt" | "claude_pro
 };
 
 export type GenerateFixPromptInput = {
-  auditId: string;
-  checklistItemId: string;
+  auditId?: string;
+  checklistItemId?: string;
   target: FixTarget;
   force?: boolean;
+  // Ad-hoc mode (e.g. AI Assist suggestions not yet applied):
+  adhoc?: {
+    title: string;
+    category?: string;
+    description?: string;
+    what_to_look_for?: string;
+    notes?: string;
+  };
 };
 
 export const generateFixPrompt = createServerFn({ method: "POST" })
@@ -46,6 +54,22 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
     const target: FixTarget = data.target;
     const column = COLUMN[target];
     if (!column) return { ok: false as const, error: "Invalid target." };
+
+    // Ad-hoc mode: skip audit/finding lookups, don't cache.
+    if (data.adhoc) {
+      const item = data.adhoc;
+      const userMessage =
+        `Finding title: ${item.title}\n` +
+        (item.category ? `Category: ${item.category}\n` : "") +
+        (item.description ? `Description: ${item.description}\n` : "") +
+        (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
+        `\nAuditor notes & evidence:\n${(item.notes ?? "").trim() || "(no notes provided)"}`;
+      return await callClaude(target, userMessage);
+    }
+
+    if (!data.auditId || !data.checklistItemId) {
+      return { ok: false as const, error: "Missing auditId/checklistItemId." };
+    }
 
     const { data: auditRow, error: aerr } = await supabase
       .from("audits").select("id, created_by").eq("id", data.auditId).single();
@@ -74,8 +98,6 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       .eq("id", data.checklistItemId).single();
     if (ierr || !item) return { ok: false as const, error: "Checklist item not found." };
 
-    const key = process.env.ANTHROPIC_API_KEY;
-    if (!key) return { ok: false as const, error: "ANTHROPIC_API_KEY is not configured." };
 
     const userMessage =
       `Finding title: ${item.title}\n` +
@@ -84,45 +106,55 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
       `\nAuditor notes & evidence:\n${(finding.notes ?? "").trim() || "(no notes provided)"}`;
 
-    let res: Response;
-    try {
-      res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5",
-          max_tokens: 1024,
-          system: SYSTEM_PROMPTS[target],
-          messages: [{ role: "user", content: userMessage }],
-        }),
-      });
-    } catch (e: any) {
-      return { ok: false as const, error: e?.message ?? "Claude request failed." };
-    }
-    const text = await res.text();
-    if (!res.ok) return { ok: false as const, error: `Claude ${res.status}: ${text.slice(0, 300)}` };
-
-    let prompt = "";
-    try {
-      const body = JSON.parse(text);
-      prompt = Array.isArray(body.content)
-        ? body.content.map((c: any) => c?.text ?? "").join("\n").trim()
-        : "";
-    } catch {
-      return { ok: false as const, error: "Could not parse Claude response." };
-    }
-    if (!prompt) return { ok: false as const, error: "Claude returned an empty response." };
+    const result = await callClaude(target, userMessage);
+    if (!result.ok) return result;
 
     const { error: uerr } = await supabase
       .from("audit_findings")
-      .update({ [column]: prompt } as any)
+      .update({ [column]: result.prompt } as any)
       .eq("audit_id", data.auditId)
       .eq("checklist_item_id", data.checklistItemId);
-    if (uerr) return { ok: true as const, prompt, target, cached: false, warning: uerr.message };
+    if (uerr) return { ok: true as const, prompt: result.prompt, target, cached: false, warning: uerr.message };
 
-    return { ok: true as const, prompt, target, cached: false };
+    return { ok: true as const, prompt: result.prompt, target, cached: false };
   });
+
+async function callClaude(target: FixTarget, userMessage: string) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return { ok: false as const, error: "ANTHROPIC_API_KEY is not configured." };
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPTS[target],
+        messages: [{ role: "user", content: userMessage }],
+      }),
+    });
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? "Claude request failed." };
+  }
+  const text = await res.text();
+  if (!res.ok) return { ok: false as const, error: `Claude ${res.status}: ${text.slice(0, 300)}` };
+
+  let prompt = "";
+  try {
+    const body = JSON.parse(text);
+    prompt = Array.isArray(body.content)
+      ? body.content.map((c: any) => c?.text ?? "").join("\n").trim()
+      : "";
+  } catch {
+    return { ok: false as const, error: "Could not parse Claude response." };
+  }
+  if (!prompt) return { ok: false as const, error: "Claude returned an empty response." };
+  return { ok: true as const, prompt, target, cached: false };
+}
+

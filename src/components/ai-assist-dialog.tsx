@@ -7,6 +7,7 @@ import { Brain, Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { RepoLauncher, type SavedRepo } from "@/components/repo-launcher";
 import { runAIAssist, applyAIAssistFinding, type AIAssistFinding } from "@/lib/ai-assist.functions";
+import { FixPromptButton } from "@/components/fix-prompt-dialog";
 
 export type AIAssistSummary = {
   repo: string;
@@ -146,6 +147,15 @@ export function AIAssistReviewPanel({
                     <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-[11px] bg-muted/60 rounded p-2 max-h-32 overflow-auto">
 {f.evidence}
                     </pre>
+                  )}
+                  {f.suggested_status === "fail" && (
+                    <FixPromptButton
+                      adhoc={{
+                        title: f.checklist_title,
+                        category: f.category,
+                        notes: [f.reasoning, f.evidence].filter(Boolean).join("\n\n"),
+                      }}
+                    />
                   )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
