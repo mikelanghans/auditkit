@@ -108,7 +108,7 @@ async function fetchRepoFiles(owner: string, repo: string, token: string, maxFil
   return { branch, files: picked, totalChars: total, scanned: candidates.length, truncatedTree: tree.truncated === true };
 }
 
-function chunkFiles(files: { path: string; content: string }[]) {
+function chunkFiles(files: { path: string; content: string }[], maxBatches: number) {
   const batches: { path: string; content: string }[][] = [];
   let cur: { path: string; content: string }[] = [];
   let curChars = 0;
@@ -116,12 +116,12 @@ function chunkFiles(files: { path: string; content: string }[]) {
     if (cur.length >= BATCH_MAX_FILES || curChars + f.content.length > BATCH_MAX_CHARS) {
       if (cur.length) batches.push(cur);
       cur = []; curChars = 0;
-      if (batches.length >= MAX_BATCHES) break;
+      if (batches.length >= maxBatches) break;
     }
     cur.push(f);
     curChars += f.content.length;
   }
-  if (cur.length && batches.length < MAX_BATCHES) batches.push(cur);
+  if (cur.length && batches.length < maxBatches) batches.push(cur);
   return batches;
 }
 
