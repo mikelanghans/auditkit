@@ -30,6 +30,7 @@ export function RepoLauncher({
   onRun,
   onSaved,
   buttonClassName,
+  extraControls,
 }: {
   trigger: { label: string; icon: ReactNode; variant?: "outline" | "default" | "ghost"; className?: string };
   clientId: string | null;
@@ -44,6 +45,8 @@ export function RepoLauncher({
   /** Called after creds are saved to client_repos so caller can invalidate audit/client queries. */
   onSaved?: () => void;
   buttonClassName?: string;
+  /** Optional controls (e.g. scan depth selector) rendered above the picker / form. */
+  extraControls?: ReactNode;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
