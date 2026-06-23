@@ -206,7 +206,7 @@ function ConnectedAccountsSection({ client }: { client: any }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("client_repos")
-        .select("id, label, repo_url, github_token, website_url, updated_at")
+        .select("id, label, repo_url, website_url, updated_at")
         .eq("client_id", client.id)
         .order("created_at", { ascending: true });
       if (error) throw error;
@@ -328,7 +328,7 @@ function ConnectedAccountsSection({ client }: { client: any }) {
                         ) : (
                           <span className="text-[10px] uppercase tracking-wide text-status-na">unassigned</span>
                         )}
-                        {!r.github_token && <span className="text-[10px] uppercase text-status-fail">no PAT</span>}
+                        
                       </div>
                       <a href={r.repo_url} target="_blank" rel="noreferrer" className="text-xs text-navy hover:underline break-all">
                         {r.repo_url}

@@ -275,7 +275,7 @@ export function AIScanDialog({
                       <div className="flex items-center gap-2">
                         <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className="font-medium text-sm truncate">{r.label}</span>
-                        {!r.github_token && <span className="text-[10px] uppercase tracking-wide text-status-fail">no PAT</span>}
+                        {getCachedRepoToken(r.id) && <span className="text-[10px] uppercase tracking-wide text-status-pass">session PAT</span>}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">{r.repo_url}</div>
                     </div>
