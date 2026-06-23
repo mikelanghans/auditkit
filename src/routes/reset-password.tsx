@@ -169,13 +169,29 @@ function ResetPasswordPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="pw">New password</Label>
-              <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <Input
+                id="pw"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pw2">Confirm new password</Label>
-              <Input id="pw2" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+              <Input
+                id="pw2"
+                type="password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                required
+              />
             </div>
-            <Button type="submit" disabled={loading || !ready} className="w-full bg-navy text-navy-foreground hover:bg-navy/90">
+            <Button
+              type="submit"
+              disabled={loading || !ready}
+              className="w-full bg-navy text-navy-foreground hover:bg-navy/90"
+            >
               {loading ? "Updating…" : "Update password"}
             </Button>
           </form>
