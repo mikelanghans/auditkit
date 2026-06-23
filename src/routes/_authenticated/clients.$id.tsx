@@ -121,7 +121,9 @@ function EditClientDialog({ client }: { client: any }) {
   const [name, setName] = useState(client.name ?? "");
   const [contactName, setContactName] = useState(client.contact_name ?? "");
   const [contactEmail, setContactEmail] = useState(client.contact_email ?? "");
-  const [appUrl, setAppUrl] = useState(client.app_url ?? "");
+  const [websites, setWebsites] = useState<string[]>(
+    client.websites && client.websites.length > 0 ? client.websites : [""],
+  );
   const [notes, setNotes] = useState(client.notes ?? "");
   const qc = useQueryClient();
 
@@ -130,19 +132,20 @@ function EditClientDialog({ client }: { client: any }) {
     setName(client.name ?? "");
     setContactName(client.contact_name ?? "");
     setContactEmail(client.contact_email ?? "");
-    setAppUrl(client.app_url ?? "");
+    setWebsites(client.websites && client.websites.length > 0 ? client.websites : [""]);
     setNotes(client.notes ?? "");
   }, [open, client]);
 
   const save = useMutation({
     mutationFn: async () => {
+      const cleaned = websites.map((w) => w.trim()).filter(Boolean);
       const { error } = await supabase
         .from("clients")
         .update({
           name,
           contact_name: contactName || null,
           contact_email: contactEmail || null,
-          app_url: appUrl || null,
+          websites: cleaned,
           notes: notes || null,
         })
         .eq("id", client.id);
@@ -170,7 +173,7 @@ function EditClientDialog({ client }: { client: any }) {
           <Field label="Name" value={name} onChange={setName} required />
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
-          <Field label="App URL" value={appUrl} onChange={setAppUrl} type="url" />
+          <WebsitesField websites={websites} setWebsites={setWebsites} />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
