@@ -8,6 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
+const resetAccessTokenStorageKey = "auditkit-reset-access-token";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabasePublishableKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+
 export const Route = createFileRoute("/reset-password")({
   ssr: false,
   head: () => ({ meta: [{ title: "Reset password — AuditKit" }] }),
@@ -24,6 +29,22 @@ function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const sessionSetupPromiseRef = useRef<Promise<Session | null> | null>(null);
+  const recoveryAccessTokenRef = useRef<string | null>(null);
+
+  const rememberRecoveryAccessToken = useCallback((token?: string | null) => {
+    if (!token) return;
+    recoveryAccessTokenRef.current = token;
+    window.sessionStorage.setItem(resetAccessTokenStorageKey, token);
+  }, []);
+
+  const getRecoveryAccessToken = useCallback(() => {
+    return recoveryAccessTokenRef.current || window.sessionStorage.getItem(resetAccessTokenStorageKey);
+  }, []);
+
+  const clearRecoveryAccessToken = useCallback(() => {
+    recoveryAccessTokenRef.current = null;
+    window.sessionStorage.removeItem(resetAccessTokenStorageKey);
+  }, []);
 
   const cleanUrl = useCallback(() => {
     if (window.location.search || window.location.hash) {
@@ -43,12 +64,15 @@ function ResetPasswordPage() {
 
     while (Date.now() - startedAt < timeoutMs) {
       const { data } = await supabase.auth.getSession();
-      if (data.session) return data.session;
+      if (data.session) {
+        rememberRecoveryAccessToken(data.session.access_token);
+        return data.session;
+      }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
     return null;
-  }, []);
+  }, [rememberRecoveryAccessToken]);
 
   const resolveRecoverySession = useCallback(async () => {
     const params = readAuthParams();
@@ -66,26 +90,30 @@ function ResetPasswordPage() {
         type: "recovery",
       });
       if (error) throw error;
+      rememberRecoveryAccessToken(data.session?.access_token);
       return data.session;
     }
 
     if (code) {
       const { data, error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) throw error;
+      rememberRecoveryAccessToken(data.session?.access_token);
       return data.session;
     }
 
     if (accessToken && refreshToken) {
+      rememberRecoveryAccessToken(accessToken);
       const { data, error } = await supabase.auth.setSession({
         access_token: accessToken,
         refresh_token: refreshToken,
       });
       if (error) throw error;
+      rememberRecoveryAccessToken(data.session?.access_token);
       return data.session;
     }
 
     return waitForStoredSession();
-  }, [readAuthParams, waitForStoredSession]);
+  }, [readAuthParams, rememberRecoveryAccessToken, waitForStoredSession]);
 
   const ensureRecoverySession = useCallback(async () => {
     if (!sessionSetupPromiseRef.current) {
