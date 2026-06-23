@@ -228,31 +228,6 @@ export const runAIAssist = createServerFn({ method: "POST" })
       .map((it: any) => `- key="${it.checklist_key || slugify(it.title)}" | title="${it.title}" | category=${it.category}`)
       .join("\n");
 
-    const codeBlob = repoData.files
-      .map((f) => `=== FILE: ${f.path} ===\n${f.content}`).join("\n\n");
-
-    const userPrompt =
-      `Repository: ${parsed.owner}/${parsed.repo}@${repoData.branch}\n` +
-      `Files reviewed: ${repoData.files.length} (${repoData.totalChars} chars)\n\n` +
-      `CHECKLIST ITEMS (use these exact checklist_key values):\n${checklistList}\n\n` +
-      `SOURCE FILES:\n${codeBlob}`;
-
-    let raw: string;
-    let truncated = false;
-    try {
-      const result = await callClaude(SYSTEM_PROMPT, userPrompt);
-      raw = result.text;
-      truncated = result.truncated;
-    }
-    catch (e: any) { return { ok: false as const, error: e?.message ?? "Claude request failed." }; }
-
-    let arr: any[];
-    try { arr = extractJson(raw, truncated); }
-    catch (e: any) {
-      console.error("[ai-assist] parse failure", { truncated, rawHead: raw.slice(0, 500), rawTail: raw.slice(-500), len: raw.length });
-      return { ok: false as const, error: `Could not parse Claude output: ${e?.message}${truncated ? " (response was truncated)" : ""}` };
-    }
-
     const itemByKey = new Map<string, any>();
     for (const it of items) {
       const key = (it.checklist_key || slugify(it.title)).toLowerCase();
@@ -260,28 +235,74 @@ export const runAIAssist = createServerFn({ method: "POST" })
       itemByKey.set(it.title.toLowerCase(), it);
     }
 
+    const batches = chunkFiles(repoData.files);
     const stamp = new Date().toISOString();
+    // dedupe findings across batches: keep highest confidence per checklist item
+    const confRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
+    const bestByItem = new Map<string, AIAssistFinding>();
+    let totalRaw = 0;
+    const batchErrors: string[] = [];
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      const codeBlob = batch.map((f) => `=== FILE: ${f.path} ===\n${f.content}`).join("\n\n");
+      const userPrompt =
+        `Repository: ${parsed.owner}/${parsed.repo}@${repoData.branch}\n` +
+        `Batch ${i + 1}/${batches.length} — files in this batch: ${batch.length}\n\n` +
+        `CHECKLIST ITEMS (use these exact checklist_key values):\n${checklistList}\n\n` +
+        `SOURCE FILES:\n${codeBlob}`;
+
+      let raw: string;
+      let truncated = false;
+      try {
+        const result = await callClaude(SYSTEM_PROMPT, userPrompt);
+        raw = result.text;
+        truncated = result.truncated;
+      } catch (e: any) {
+        batchErrors.push(`batch ${i + 1}: ${e?.message ?? "Claude request failed"}`);
+        continue;
+      }
+
+      let arr: any[];
+      try { arr = extractJson(raw, truncated); }
+      catch (e: any) {
+        console.error("[ai-assist] parse failure", { batch: i + 1, truncated, rawHead: raw.slice(0, 500), rawTail: raw.slice(-500), len: raw.length });
+        batchErrors.push(`batch ${i + 1}: parse error${truncated ? " (truncated)" : ""}`);
+        continue;
+      }
+
+      totalRaw += arr.length;
+      for (const f of arr) {
+        const key = String(f?.checklist_key ?? "").toLowerCase().trim();
+        const item = itemByKey.get(key);
+        if (!item) continue;
+        const status = f?.suggested_status === "fail" ? "fail" : f?.suggested_status === "pass" ? "pass" : null;
+        const confidence = f?.confidence === "high" ? "high" : f?.confidence === "medium" ? "medium" : f?.confidence === "low" ? "low" : null;
+        if (!status || !confidence) continue;
+        const finding: AIAssistFinding = {
+          checklist_item_id: item.id,
+          checklist_title: item.title,
+          category: item.category,
+          suggested_status: status,
+          confidence,
+          reasoning: String(f?.reasoning ?? "").slice(0, 1000),
+          evidence: String(f?.evidence ?? "").slice(0, 2000),
+        };
+        const prev = bestByItem.get(item.id);
+        // prefer fail over pass; then higher confidence
+        const prevScore = prev ? (prev.suggested_status === "fail" ? 10 : 0) + confRank[prev.confidence] : -1;
+        const newScore = (status === "fail" ? 10 : 0) + confRank[confidence];
+        if (newScore > prevScore) bestByItem.set(item.id, finding);
+      }
+    }
+
     const high: AIAssistFinding[] = [];
     const medium: AIAssistFinding[] = [];
-    for (const f of arr) {
-      const key = String(f?.checklist_key ?? "").toLowerCase().trim();
-      const item = itemByKey.get(key);
-      if (!item) continue;
-      const status = f?.suggested_status === "fail" ? "fail" : f?.suggested_status === "pass" ? "pass" : null;
-      const confidence = f?.confidence === "high" ? "high" : f?.confidence === "medium" ? "medium" : f?.confidence === "low" ? "low" : null;
-      if (!status || !confidence) continue;
-      const finding: AIAssistFinding = {
-        checklist_item_id: item.id,
-        checklist_title: item.title,
-        category: item.category,
-        suggested_status: status,
-        confidence,
-        reasoning: String(f?.reasoning ?? "").slice(0, 1000),
-        evidence: String(f?.evidence ?? "").slice(0, 2000),
-      };
-      if (confidence === "high") high.push(finding);
-      else if (confidence === "medium") medium.push(finding);
+    for (const f of bestByItem.values()) {
+      if (f.confidence === "high") high.push(f);
+      else if (f.confidence === "medium") medium.push(f);
     }
+
 
     // Auto-apply high
     let applied = 0;
