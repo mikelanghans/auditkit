@@ -1,12 +1,13 @@
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { Brain, Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { RepoLauncher, type SavedRepo } from "@/components/repo-launcher";
-import { runAIAssist, applyAIAssistFinding, type AIAssistFinding } from "@/lib/ai-assist.functions";
+import { runAIAssist, applyAIAssistFinding, type AIAssistFinding, type AIAssistDepth } from "@/lib/ai-assist.functions";
 import { FixPromptButton } from "@/components/fix-prompt-dialog";
 
 export type AIAssistSummary = {
@@ -16,6 +17,13 @@ export type AIAssistSummary = {
   mediumPending: AIAssistFinding[];
   at: string;
 };
+
+const DEPTH_OPTIONS: { value: AIAssistDepth; label: string; hint: string }[] = [
+  { value: "quick",    label: "Quick",    hint: "~12 files · 1 call · cheapest" },
+  { value: "standard", label: "Standard", hint: "~60 files · up to 2 calls" },
+  { value: "deep",     label: "Deep",     hint: "~200 files · up to 6 calls" },
+  { value: "full",     label: "Full",     hint: "entire repo · up to 12 calls" },
+];
 
 export function AIAssistDialog({
   auditId,
@@ -33,6 +41,10 @@ export function AIAssistDialog({
   onSaved?: () => void;
 }) {
   const scan = useServerFn(runAIAssist);
+  const [depth, setDepth] = useState<AIAssistDepth>("standard");
+  // keep latest depth visible to async onRun closure
+  const depthRef = useRef<AIAssistDepth>("standard");
+  depthRef.current = depth;
 
   return (
     <RepoLauncher
@@ -44,14 +56,42 @@ export function AIAssistDialog({
       clientId={clientId ?? null}
       savedRepos={savedRepos}
       title="AI Assist code review"
-      description="Sends the most security-relevant files from the repo to Claude. High-confidence findings auto-apply; medium-confidence ones await your review."
+      description="Sends security-relevant files from the repo to Claude. High-confidence findings auto-apply; medium-confidence ones await your review."
       submitLabel="Run AI Assist"
       runningLabel="Analyzing…"
       loadingToast="AI Assist analyzing repository…"
       onSaved={onSaved}
+      extraControls={
+        <div className="space-y-1.5 rounded-md border border-border bg-muted/30 p-3">
+          <Label className="text-xs uppercase tracking-wide text-muted-foreground">Scan depth</Label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            {DEPTH_OPTIONS.map((o) => {
+              const active = depth === o.value;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => setDepth(o.value)}
+                  className={`text-left rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                    active
+                      ? "border-purple-500/60 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+                      : "border-border hover:border-navy/50 hover:bg-muted/40"
+                  }`}
+                >
+                  <div className="font-medium">{o.label}</div>
+                  <div className="text-[10px] text-muted-foreground leading-tight">{o.hint}</div>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Deeper scans cover more files but use more Claude credits and take longer.
+          </p>
+        </div>
+      }
       onRun={async ({ repoUrl, token, loadingToastId }) => {
         try {
-          const res = await scan({ data: { auditId, repoUrl, token } });
+          const res = await scan({ data: { auditId, repoUrl, token, depth: depthRef.current } });
           if (!res.ok) { toast.error(res.error, { id: loadingToastId }); return false; }
           toast.success(
             `AI Assist found ${res.highApplied} high-confidence finding${res.highApplied === 1 ? "" : "s"} (auto-applied) and ${res.mediumPending.length} suggestion${res.mediumPending.length === 1 ? "" : "s"} awaiting your review`,
