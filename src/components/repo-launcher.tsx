@@ -115,8 +115,13 @@ export function RepoLauncher({
       promptToken(r);
       return;
     }
-    const ok = await runWith(r.repo_url, r.github_token);
-    if (ok) setOpen(false);
+    setRunningRepoId(r.id);
+    try {
+      const ok = await runWith(r.repo_url, r.github_token);
+      if (ok) setOpen(false);
+    } finally {
+      setRunningRepoId(null);
+    }
   };
 
   const submitPendingToken = async (e: React.FormEvent) => {
