@@ -175,6 +175,7 @@ export type Database = {
           label: string
           repo_url: string
           updated_at: string
+          website_url: string | null
         }
         Insert: {
           client_id: string
@@ -184,6 +185,7 @@ export type Database = {
           label: string
           repo_url: string
           updated_at?: string
+          website_url?: string | null
         }
         Update: {
           client_id?: string
@@ -193,6 +195,7 @@ export type Database = {
           label?: string
           repo_url?: string
           updated_at?: string
+          website_url?: string | null
         }
         Relationships: [
           {

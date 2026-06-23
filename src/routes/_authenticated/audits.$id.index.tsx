@@ -70,14 +70,19 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("client_repos")
-        .select("id, label, repo_url, github_token")
+        .select("id, label, repo_url, github_token, website_url")
         .eq("client_id", clientId)
         .order("created_at", { ascending: true });
       if (error) throw error;
       return data ?? [];
     },
   });
-  const savedRepos = clientRepos.data ?? [];
+  const auditWebsite = (audit.data as any)?.website_url as string | null | undefined;
+  const allRepos = clientRepos.data ?? [];
+  // Repos linked to this audit's website + any unassigned repos (legacy / shared).
+  const savedRepos = auditWebsite
+    ? allRepos.filter((r: any) => !r.website_url || r.website_url === auditWebsite)
+    : allRepos;
 
 
 

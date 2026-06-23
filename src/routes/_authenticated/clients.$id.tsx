@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, ArrowRight, Pencil, Github, Unlink, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
@@ -205,7 +206,7 @@ function ConnectedAccountsSection({ client }: { client: any }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("client_repos")
-        .select("id, label, repo_url, github_token, updated_at")
+        .select("id, label, repo_url, github_token, website_url, updated_at")
         .eq("client_id", client.id)
         .order("created_at", { ascending: true });
       if (error) throw error;
@@ -213,18 +214,24 @@ function ConnectedAccountsSection({ client }: { client: any }) {
     },
   });
 
+  const websites: string[] = client.websites ?? [];
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [token, setToken] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState<string>("");
 
-  const reset = () => { setLabel(""); setRepoUrl(""); setToken(""); setAdding(false); setEditingId(null); };
+  const reset = () => { setLabel(""); setRepoUrl(""); setToken(""); setWebsiteUrl(""); setAdding(false); setEditingId(null); };
 
   const upsert = useMutation({
     mutationFn: async () => {
       if (editingId) {
-        const update: any = { label: label.trim() || "Repo", repo_url: repoUrl.trim() };
+        const update: any = {
+          label: label.trim() || "Repo",
+          repo_url: repoUrl.trim(),
+          website_url: websiteUrl || null,
+        };
         if (token.trim()) update.github_token = token.trim();
         const { error } = await supabase.from("client_repos").update(update).eq("id", editingId);
         if (error) throw error;
@@ -234,6 +241,7 @@ function ConnectedAccountsSection({ client }: { client: any }) {
           label: label.trim() || "Repo",
           repo_url: repoUrl.trim(),
           github_token: token.trim() || null,
+          website_url: websiteUrl || null,
         });
         if (error) throw error;
       }
@@ -264,6 +272,7 @@ function ConnectedAccountsSection({ client }: { client: any }) {
     setLabel(r.label);
     setRepoUrl(r.repo_url);
     setToken("");
+    setWebsiteUrl(r.website_url ?? "");
   };
 
   const list = repos.data ?? [];
@@ -306,6 +315,8 @@ function ConnectedAccountsSection({ client }: { client: any }) {
                     label={label} setLabel={setLabel}
                     repoUrl={repoUrl} setRepoUrl={setRepoUrl}
                     token={token} setToken={setToken}
+                    websiteUrl={websiteUrl} setWebsiteUrl={setWebsiteUrl}
+                    websites={websites}
                     tokenPlaceholder="•••••••• (leave blank to keep existing)"
                     onCancel={reset}
                     onSave={() => upsert.mutate()}
@@ -315,8 +326,15 @@ function ConnectedAccountsSection({ client }: { client: any }) {
                 ) : (
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm">{r.label}</span>
+                        {r.website_url ? (
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                            {r.website_url}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] uppercase tracking-wide text-status-na">unassigned</span>
+                        )}
                         {!r.github_token && <span className="text-[10px] uppercase text-status-fail">no PAT</span>}
                       </div>
                       <a href={r.repo_url} target="_blank" rel="noreferrer" className="text-xs text-navy hover:underline break-all">
@@ -350,6 +368,8 @@ function ConnectedAccountsSection({ client }: { client: any }) {
               label={label} setLabel={setLabel}
               repoUrl={repoUrl} setRepoUrl={setRepoUrl}
               token={token} setToken={setToken}
+              websiteUrl={websiteUrl} setWebsiteUrl={setWebsiteUrl}
+              websites={websites}
               tokenPlaceholder="ghp_… or github_pat_…"
               onCancel={reset}
               onSave={() => upsert.mutate()}
@@ -365,19 +385,42 @@ function ConnectedAccountsSection({ client }: { client: any }) {
 
 function RepoForm({
   label, setLabel, repoUrl, setRepoUrl, token, setToken, tokenPlaceholder,
+  websiteUrl, setWebsiteUrl, websites,
   onCancel, onSave, saving, canSave,
 }: {
   label: string; setLabel: (v: string) => void;
   repoUrl: string; setRepoUrl: (v: string) => void;
   token: string; setToken: (v: string) => void;
+  websiteUrl: string; setWebsiteUrl: (v: string) => void;
+  websites: string[];
   tokenPlaceholder: string;
   onCancel: () => void; onSave: () => void; saving: boolean; canSave: boolean;
 }) {
+  const UNASSIGNED = "__unassigned__";
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
         <Label>Label</Label>
         <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Frontend, API, Worker" />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Website</Label>
+        {websites.length > 0 ? (
+          <Select
+            value={websiteUrl || UNASSIGNED}
+            onValueChange={(v) => setWebsiteUrl(v === UNASSIGNED ? "" : v)}
+          >
+            <SelectTrigger><SelectValue placeholder="Select a website" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+              {websites.map((w) => (
+                <SelectItem key={w} value={w}>{w}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="text-xs text-muted-foreground">Add websites to this client to link a repo to a specific site.</p>
+        )}
       </div>
       <div className="space-y-1.5">
         <Label>Repository URL</Label>
