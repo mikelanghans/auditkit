@@ -89,6 +89,7 @@ export type Database = {
           summary: string | null
           title: string
           updated_at: string
+          website_url: string | null
         }
         Insert: {
           client_id: string
@@ -101,6 +102,7 @@ export type Database = {
           summary?: string | null
           title: string
           updated_at?: string
+          website_url?: string | null
         }
         Update: {
           client_id?: string
@@ -113,6 +115,7 @@ export type Database = {
           summary?: string | null
           title?: string
           updated_at?: string
+          website_url?: string | null
         }
         Relationships: [
           {
@@ -203,7 +206,6 @@ export type Database = {
       }
       clients: {
         Row: {
-          app_url: string | null
           contact_email: string | null
           contact_name: string | null
           created_at: string
@@ -212,9 +214,9 @@ export type Database = {
           name: string
           notes: string | null
           updated_at: string
+          websites: string[]
         }
         Insert: {
-          app_url?: string | null
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string
@@ -223,9 +225,9 @@ export type Database = {
           name: string
           notes?: string | null
           updated_at?: string
+          websites?: string[]
         }
         Update: {
-          app_url?: string | null
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string
@@ -234,6 +236,7 @@ export type Database = {
           name?: string
           notes?: string | null
           updated_at?: string
+          websites?: string[]
         }
         Relationships: []
       }
