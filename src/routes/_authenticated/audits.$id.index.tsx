@@ -29,6 +29,7 @@ import { FixPromptButton } from "@/components/fix-prompt-dialog";
 import { ExplainButton } from "@/components/explain-button";
 import type { DepFinding } from "@/lib/dep-scan-core";
 import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
+import { clearAllCachedRepoTokens } from "@/lib/repo-token-cache";
 
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
@@ -231,9 +232,10 @@ function AuditView() {
       if (error) throw error;
     },
     onSuccess: () => {
+      clearAllCachedRepoTokens();
       qc.invalidateQueries({ queryKey: ["audit", id] });
       qc.invalidateQueries({ queryKey: ["audits"] });
-      toast.success("Audit marked complete");
+      toast.success("Audit marked complete — session GitHub tokens cleared");
       navigate({ to: "/audits/$id/report", params: { id } });
     },
   });

@@ -32,3 +32,14 @@ export function clearCachedRepoToken(repoId: string | null | undefined): void {
   if (!s) return;
   s.removeItem(PREFIX + repoId);
 }
+
+export function clearAllCachedRepoTokens(): void {
+  const s = safeStorage();
+  if (!s) return;
+  const toRemove: string[] = [];
+  for (let i = 0; i < s.length; i++) {
+    const k = s.key(i);
+    if (k && k.startsWith(PREFIX)) toRemove.push(k);
+  }
+  toRemove.forEach((k) => s.removeItem(k));
+}
