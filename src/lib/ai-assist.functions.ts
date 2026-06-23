@@ -77,13 +77,11 @@ async function fetchRepoFiles(owner: string, repo: string, token: string) {
     .map((n) => ({ ...n, score: scoreFile(n.path) }))
     .filter((n) => n.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_FILES * 2);
+    .slice(0, MAX_TOTAL_FILES);
 
   const picked: { path: string; content: string }[] = [];
   let total = 0;
   for (const f of candidates) {
-    if (picked.length >= MAX_FILES) break;
-    if (total >= MAX_TOTAL_CHARS) break;
     try {
       const blob = await gh<{ content: string; encoding: string }>(
         `https://api.github.com/repos/${owner}/${repo}/git/blobs/${f.sha}`, token,
@@ -95,13 +93,28 @@ async function fetchRepoFiles(owner: string, repo: string, token: string) {
       } else { content = String(blob.content || ""); }
       if (!content) continue;
       if (content.length > MAX_FILE_CHARS) content = content.slice(0, MAX_FILE_CHARS) + "\n…[truncated]";
-      const remaining = MAX_TOTAL_CHARS - total;
-      if (content.length > remaining) content = content.slice(0, remaining) + "\n…[truncated]";
       picked.push({ path: f.path, content });
       total += content.length;
     } catch { /* skip */ }
   }
-  return { branch, files: picked, totalChars: total, scanned: candidates.length };
+  return { branch, files: picked, totalChars: total, scanned: candidates.length, truncatedTree: tree.truncated === true };
+}
+
+function chunkFiles(files: { path: string; content: string }[]) {
+  const batches: { path: string; content: string }[][] = [];
+  let cur: { path: string; content: string }[] = [];
+  let curChars = 0;
+  for (const f of files) {
+    if (cur.length >= BATCH_MAX_FILES || curChars + f.content.length > BATCH_MAX_CHARS) {
+      if (cur.length) batches.push(cur);
+      cur = []; curChars = 0;
+      if (batches.length >= MAX_BATCHES) break;
+    }
+    cur.push(f);
+    curChars += f.content.length;
+  }
+  if (cur.length && batches.length < MAX_BATCHES) batches.push(cur);
+  return batches;
 }
 
 async function callClaude(systemPrompt: string, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
