@@ -39,7 +39,7 @@ function ResetPasswordPage() {
     return params;
   }, []);
 
-  async function resolveRecoverySession() {
+  const resolveRecoverySession = useCallback(async () => {
     const params = readAuthParams();
     const tokenHash = params.get("token_hash");
     const code = params.get("code");
@@ -47,7 +47,10 @@ function ResetPasswordPage() {
     const refreshToken = params.get("refresh_token");
 
     if (tokenHash) {
-      const { data, error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: "recovery",
+      });
       if (error) throw error;
       return data.session;
     }
@@ -59,16 +62,19 @@ function ResetPasswordPage() {
     }
 
     if (accessToken && refreshToken) {
-      const { data, error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      const { data, error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
       if (error) throw error;
       return data.session;
     }
 
     const { data } = await supabase.auth.getSession();
     return data.session;
-  }
+  }, [readAuthParams]);
 
-  async function ensureRecoverySession() {
+  const ensureRecoverySession = useCallback(async () => {
     if (!sessionSetupPromiseRef.current) {
       sessionSetupPromiseRef.current = resolveRecoverySession();
     }
@@ -79,7 +85,7 @@ function ResetPasswordPage() {
       sessionSetupPromiseRef.current = null;
       throw error;
     }
-  }
+  }, [resolveRecoverySession]);
 
   useEffect(() => {
     let mounted = true;
