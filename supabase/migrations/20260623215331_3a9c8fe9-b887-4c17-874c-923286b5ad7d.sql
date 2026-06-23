@@ -1,0 +1,1 @@
+ALTER TABLE public.client_repos ADD COLUMN IF NOT EXISTS github_token TEXT;
