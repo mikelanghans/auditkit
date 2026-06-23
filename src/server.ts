@@ -27,7 +27,7 @@ const SUPABASE_HTTP = "https://*.supabase.co";
 const SUPABASE_WS = "wss://*.supabase.co";
 const CSP_HEADER = [
   "default-src 'self'",
-  "script-src 'self' https://cdn.jsdelivr.net https://js.stripe.com",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https:",
