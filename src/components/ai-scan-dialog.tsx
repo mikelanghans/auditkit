@@ -105,7 +105,7 @@ export function AIScanDialog({
     setMode("detecting");
     const tid = toast.loading(`Scanning ${repo.label} for AI endpoints…`);
     try {
-      const res = await detect({ data: { repoUrl: repo.repo_url, token: repo.github_token, appUrl } });
+      const res = await detect({ data: { repoUrl: repo.repo_url, token, appUrl } });
       if (!res.ok) {
         toast.error(res.error, { id: tid });
         setMode("manual");
