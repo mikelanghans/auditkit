@@ -115,7 +115,8 @@ export function AIScanDialog({
       setDetected(res.endpoints);
       setDetectMeta({ repo: res.repo, filesScanned: res.filesScanned, supabaseBaseDetected: res.supabaseBaseDetected, appBaseDetected: res.appBaseDetected });
       if (res.endpoints.length === 0) {
-        toast.message("No AI endpoints detected — enter one manually.", { id: tid });
+        toast.dismiss(tid);
+        toast.info("No AI endpoints detected — enter one manually.");
         setMode("manual");
       } else {
         toast.success(`Found ${res.endpoints.length} AI endpoint${res.endpoints.length === 1 ? "" : "s"} in ${res.repo}`, { id: tid });
