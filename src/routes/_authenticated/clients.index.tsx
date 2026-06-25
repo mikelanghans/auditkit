@@ -122,6 +122,7 @@ function NewClientDialog() {
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
           <WebsitesField websites={websites} setWebsites={setWebsites} />
           <EngagementField value={engagement} onChange={setEngagement} />
+          <AgenticFeaturesField value={hasAgentic} onChange={setHasAgentic} />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
