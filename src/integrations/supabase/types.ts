@@ -261,6 +261,7 @@ export type Database = {
           created_at: string
           created_by: string
           engagement_type: Database["public"]["Enums"]["engagement_type"]
+          has_agentic_features: boolean
           id: string
           name: string
           notes: string | null
@@ -273,6 +274,7 @@ export type Database = {
           created_at?: string
           created_by: string
           engagement_type?: Database["public"]["Enums"]["engagement_type"]
+          has_agentic_features?: boolean
           id?: string
           name: string
           notes?: string | null
@@ -285,6 +287,7 @@ export type Database = {
           created_at?: string
           created_by?: string
           engagement_type?: Database["public"]["Enums"]["engagement_type"]
+          has_agentic_features?: boolean
           id?: string
           name?: string
           notes?: string | null
