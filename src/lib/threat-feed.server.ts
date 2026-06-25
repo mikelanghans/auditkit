@@ -35,52 +35,43 @@ type RawAdvisory = {
 };
 
 async function fetchGithubAdvisories(sinceIso: string): Promise<RawAdvisory[]> {
+  // Public REST endpoint — no auth required. Optional GITHUB_TOKEN just raises the rate limit.
   const token = process.env.GITHUB_TOKEN;
-  if (!token) return [];
-  const query = `
-    query($q: String!) {
-      securityAdvisories(first: 50, orderBy: {field: PUBLISHED_AT, direction: DESC}, publishedSince: $q) {
-        nodes {
-          ghsaId
-          summary
-          description
-          permalink
-          severity
-          publishedAt
-          vulnerabilities(first: 20) {
-            nodes { package { name ecosystem } }
-          }
-        }
-      }
-    }`;
-  const res = await fetch("https://api.github.com/graphql", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      "user-agent": "AuditKit-ThreatFeed/1.0",
-    },
-    body: JSON.stringify({ query, variables: { q: sinceIso } }),
-  });
+  const headers: Record<string, string> = {
+    accept: "application/vnd.github+json",
+    "user-agent": "AuditKit-ThreatFeed/1.0",
+    "x-github-api-version": "2022-11-28",
+  };
+  if (token) headers.authorization = `Bearer ${token}`;
+
+  const url = new URL("https://api.github.com/advisories");
+  url.searchParams.set("type", "reviewed");
+  url.searchParams.set("sort", "published");
+  url.searchParams.set("direction", "desc");
+  url.searchParams.set("per_page", "100");
+  url.searchParams.set("published", `>=${sinceIso.slice(0, 10)}`);
+
+  const res = await fetch(url.toString(), { headers });
   if (!res.ok) {
     console.error("[threat-feed] github status", res.status, await res.text().catch(() => ""));
     return [];
   }
-  const body: any = await res.json();
-  const nodes: any[] = body?.data?.securityAdvisories?.nodes ?? [];
+  const nodes: any[] = await res.json();
   const tracked = new Set(TRACKED_PACKAGES.map((p) => p.toLowerCase()));
   const out: RawAdvisory[] = [];
-  for (const n of nodes) {
-    const pkgs: string[] = (n.vulnerabilities?.nodes ?? []).map((v: any) => v?.package?.name ?? "");
+  for (const n of Array.isArray(nodes) ? nodes : []) {
+    const pkgs: string[] = (n.vulnerabilities ?? []).map((v: any) => v?.package?.name ?? "");
     if (!pkgs.some((p) => tracked.has(String(p).toLowerCase()))) continue;
+
     out.push({
       source: "github",
-      external_id: n.ghsaId,
-      advisory_url: n.permalink ?? null,
-      raw_title: `[${n.severity}] ${n.summary}`.slice(0, 500),
+      external_id: n.ghsa_id ?? n.cve_id ?? n.id,
+      advisory_url: n.html_url ?? n.url ?? null,
+      raw_title: `[${n.severity ?? "unknown"}] ${n.summary ?? ""}`.slice(0, 500),
       raw_summary: String(n.description ?? "").slice(0, 4000) +
         `\n\nAffected packages: ${pkgs.join(", ")}`,
     });
+
   }
   return out;
 }
