@@ -62,6 +62,20 @@ function ReportPage() {
     },
   });
 
+  const archFindings = useQuery({
+    queryKey: ["architectural-findings", id, "report"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("architectural_findings")
+        .select("id, title, severity, affected_files, explanation, recommendation, include_in_report")
+        .eq("audit_id", id)
+        .eq("include_in_report", true)
+        .order("created_at", { ascending: true });
+      return data ?? [];
+    },
+  });
+
+
   const map = useMemo(() => {
     const m = new Map<string, { status: string | null; notes: string | null; explanation: string | null }>();
     findings.data?.forEach((f: any) => m.set(f.checklist_item_id, f));
