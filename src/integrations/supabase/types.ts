@@ -314,6 +314,77 @@ export type Database = {
         }
         Relationships: []
       }
+      threat_feed_items: {
+        Row: {
+          advisory_url: string | null
+          approved_checklist_item_id: string | null
+          created_at: string
+          external_id: string
+          id: string
+          is_relevant: boolean
+          raw_summary: string | null
+          raw_title: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source: string
+          status: string
+          suggested_category: string | null
+          suggested_fix: string | null
+          suggested_risk: string | null
+          suggested_severity: Database["public"]["Enums"]["severity"] | null
+          suggested_title: string | null
+          updated_at: string
+        }
+        Insert: {
+          advisory_url?: string | null
+          approved_checklist_item_id?: string | null
+          created_at?: string
+          external_id: string
+          id?: string
+          is_relevant?: boolean
+          raw_summary?: string | null
+          raw_title: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source: string
+          status?: string
+          suggested_category?: string | null
+          suggested_fix?: string | null
+          suggested_risk?: string | null
+          suggested_severity?: Database["public"]["Enums"]["severity"] | null
+          suggested_title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          advisory_url?: string | null
+          approved_checklist_item_id?: string | null
+          created_at?: string
+          external_id?: string
+          id?: string
+          is_relevant?: boolean
+          raw_summary?: string | null
+          raw_title?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source?: string
+          status?: string
+          suggested_category?: string | null
+          suggested_fix?: string | null
+          suggested_risk?: string | null
+          suggested_severity?: Database["public"]["Enums"]["severity"] | null
+          suggested_title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "threat_feed_items_approved_checklist_item_id_fkey"
+            columns: ["approved_checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
