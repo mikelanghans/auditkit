@@ -75,6 +75,7 @@ function NewClientDialog() {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [websites, setWebsites] = useState<string[]>([""]);
+  const [engagement, setEngagement] = useState<"prospect" | "one_time" | "retainer">("prospect");
   const [notes, setNotes] = useState("");
   const qc = useQueryClient();
 
@@ -88,6 +89,7 @@ function NewClientDialog() {
         contact_name: contactName || null,
         contact_email: contactEmail || null,
         websites: cleaned,
+        engagement_type: engagement,
         notes: notes || null,
         created_by: u.user.id,
       });
@@ -95,8 +97,9 @@ function NewClientDialog() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false);
-      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setNotes("");
+      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setEngagement("prospect"); setNotes("");
       toast.success("Client added");
     },
     onError: (e: any) => toast.error(e.message),
@@ -116,11 +119,13 @@ function NewClientDialog() {
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
           <WebsitesField websites={websites} setWebsites={setWebsites} />
+          <EngagementField value={engagement} onChange={setEngagement} />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
           </div>
         </div>
+
         <DialogFooter>
           <Button disabled={!name || create.isPending} onClick={() => create.mutate()} className="bg-navy text-navy-foreground hover:bg-navy/90">
             Save
