@@ -92,19 +92,6 @@ function NewClientDialog() {
         websites: cleaned,
         engagement_type: engagement,
         has_agentic_features: hasAgentic,
-  const qc = useQueryClient();
-
-  const create = useMutation({
-    mutationFn: async () => {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) throw new Error("Not signed in");
-      const cleaned = websites.map((w) => w.trim()).filter(Boolean);
-      const { error } = await supabase.from("clients").insert({
-        name,
-        contact_name: contactName || null,
-        contact_email: contactEmail || null,
-        websites: cleaned,
-        engagement_type: engagement,
         notes: notes || null,
         created_by: u.user.id,
       });
@@ -114,7 +101,7 @@ function NewClientDialog() {
       qc.invalidateQueries({ queryKey: ["clients"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false);
-      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setEngagement("prospect"); setNotes("");
+      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setEngagement("prospect"); setHasAgentic(false); setNotes("");
       toast.success("Client added");
     },
     onError: (e: any) => toast.error(e.message),
