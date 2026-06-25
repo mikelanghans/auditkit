@@ -201,6 +201,8 @@ function ReportPage() {
             </div>
           </section>
         ))}
+
+        <ArchitecturalRiskSection findings={archFindings.data ?? []} />
       </div>
 
       <style>{`
