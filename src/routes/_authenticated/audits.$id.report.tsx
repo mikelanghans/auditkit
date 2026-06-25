@@ -1,16 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain } from "lucide-react";
+import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { ExplainButton } from "@/components/explain-button";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { listResolvedFindings } from "@/lib/finding-resolution.functions";
 import {
   computeSecurityScore,
   gradeTone,
@@ -19,6 +21,7 @@ import {
   launchRecommendation,
   type RiskBreakdown,
 } from "@/lib/security-score";
+
 
 export const Route = createFileRoute("/_authenticated/audits/$id/report")({
   head: () => ({ meta: [{ title: "Report — AuditKit" }] }),
