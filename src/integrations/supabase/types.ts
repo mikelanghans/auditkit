@@ -70,10 +70,14 @@ export type Database = {
           claude_prompt: string | null
           created_at: string
           cursor_prompt: string | null
+          evidence_text: string | null
+          evidence_url: string | null
           explanation: string | null
           id: string
           lovable_prompt: string | null
           notes: string | null
+          resolved_at: string | null
+          resolved_via: string | null
           status: Database["public"]["Enums"]["finding_status"] | null
           updated_at: string
         }
@@ -85,10 +89,14 @@ export type Database = {
           claude_prompt?: string | null
           created_at?: string
           cursor_prompt?: string | null
+          evidence_text?: string | null
+          evidence_url?: string | null
           explanation?: string | null
           id?: string
           lovable_prompt?: string | null
           notes?: string | null
+          resolved_at?: string | null
+          resolved_via?: string | null
           status?: Database["public"]["Enums"]["finding_status"] | null
           updated_at?: string
         }
@@ -100,10 +108,14 @@ export type Database = {
           claude_prompt?: string | null
           created_at?: string
           cursor_prompt?: string | null
+          evidence_text?: string | null
+          evidence_url?: string | null
           explanation?: string | null
           id?: string
           lovable_prompt?: string | null
           notes?: string | null
+          resolved_at?: string | null
+          resolved_via?: string | null
           status?: Database["public"]["Enums"]["finding_status"] | null
           updated_at?: string
         }
@@ -296,6 +308,63 @@ export type Database = {
         }
         Relationships: []
       }
+      finding_audit_log: {
+        Row: {
+          after_status: string | null
+          audit_id: string
+          before_status: string | null
+          created_at: string
+          event_type: string
+          evidence_text: string | null
+          evidence_url: string | null
+          finding_id: string
+          id: string
+          performed_by: string | null
+          scan_result: Json | null
+        }
+        Insert: {
+          after_status?: string | null
+          audit_id: string
+          before_status?: string | null
+          created_at?: string
+          event_type: string
+          evidence_text?: string | null
+          evidence_url?: string | null
+          finding_id: string
+          id?: string
+          performed_by?: string | null
+          scan_result?: Json | null
+        }
+        Update: {
+          after_status?: string | null
+          audit_id?: string
+          before_status?: string | null
+          created_at?: string
+          event_type?: string
+          evidence_text?: string | null
+          evidence_url?: string | null
+          finding_id?: string
+          id?: string
+          performed_by?: string | null
+          scan_result?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finding_audit_log_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finding_audit_log_finding_id_fkey"
+            columns: ["finding_id"]
+            isOneToOne: false
+            referencedRelation: "audit_findings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -429,7 +498,7 @@ export type Database = {
       app_role: "admin" | "auditor"
       audit_status: "draft" | "in_progress" | "completed"
       engagement_type: "prospect" | "one_time" | "retainer"
-      finding_status: "pass" | "fail" | "na"
+      finding_status: "pass" | "fail" | "na" | "resolved"
       severity: "critical" | "high" | "medium" | "low"
     }
     CompositeTypes: {
@@ -561,7 +630,7 @@ export const Constants = {
       app_role: ["admin", "auditor"],
       audit_status: ["draft", "in_progress", "completed"],
       engagement_type: ["prospect", "one_time", "retainer"],
-      finding_status: ["pass", "fail", "na"],
+      finding_status: ["pass", "fail", "na", "resolved"],
       severity: ["critical", "high", "medium", "low"],
     },
   },
