@@ -160,6 +160,24 @@ export function WebsitesField({ websites, setWebsites }: { websites: string[]; s
   );
 }
 
+export type EngagementValue = "prospect" | "one_time" | "retainer";
+
+export function EngagementField({ value, onChange }: { value: EngagementValue; onChange: (v: EngagementValue) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>Engagement type</Label>
+      <Select value={value} onValueChange={(v) => onChange(v as EngagementValue)}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="prospect">Prospect</SelectItem>
+          <SelectItem value="one_time">One-time audit</SelectItem>
+          <SelectItem value="retainer">Retainer</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+
 function Field({ label, value, onChange, type = "text", required, placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string }) {
   return (
     <div className="space-y-1.5">
