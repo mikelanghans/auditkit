@@ -114,6 +114,10 @@ function AuditView() {
   });
 
   const hasAutoScanned = useMemo(() => (findings.data ?? []).some((f) => f.auto_scanned), [findings.data]);
+  const hasArchEligible = useMemo(
+    () => (findings.data ?? []).some((f) => f.auto_scanned || f.ai_assisted),
+    [findings.data],
+  );
 
   type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
   type RepoSummary = {
