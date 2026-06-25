@@ -178,6 +178,28 @@ export function EngagementField({ value, onChange }: { value: EngagementValue; o
   );
 }
 
+export function AgenticFeaturesField({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="space-y-1.5 rounded-md border p-3">
+      <div className="flex items-start justify-between gap-3">
+        <Label htmlFor="has-agentic" className="text-sm font-medium leading-snug">
+          Does this app give an AI system the ability to take actions on a user's behalf — calling APIs, executing code, accessing files, or operating autonomously across multiple steps without a human approving each one?
+        </Label>
+        <input
+          id="has-agentic"
+          type="checkbox"
+          checked={value}
+          onChange={(e) => onChange(e.target.checked)}
+          className="mt-1 h-4 w-4 shrink-0 accent-navy"
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        If your AI feature only generates text or answers a single prompt, leave this off.
+      </p>
+    </div>
+  );
+}
+
 
 
 
