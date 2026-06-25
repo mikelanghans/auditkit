@@ -767,12 +767,14 @@ function ItemRow({
     status === "pass" ? "border-l-status-pass" :
     status === "fail" ? "border-l-status-fail" :
     status === "na" ? "border-l-status-na" :
+    status === "resolved" ? "border-l-status-pass" :
     "border-l-transparent";
 
   const statusBg =
     status === "pass" ? "bg-status-pass/[0.04]" :
     status === "fail" ? "bg-status-fail/[0.04]" :
     status === "na" ? "bg-status-na/[0.04]" :
+    status === "resolved" ? "bg-status-pass/[0.06]" :
     "";
 
   return (
