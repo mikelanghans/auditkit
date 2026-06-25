@@ -1400,7 +1400,8 @@ function ResolveButton({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => { if (pending) return; setOpen(o); if (!o) { setScanState("idle"); setScanError(null); setScanSummary(null); } }}>
+
       <DialogTrigger asChild>
         <Button variant="default" size="sm" className="gap-1 h-8 bg-status-pass hover:bg-status-pass/90 text-white">
           <CheckCircle2 className="h-3.5 w-3.5" /> Mark resolved
