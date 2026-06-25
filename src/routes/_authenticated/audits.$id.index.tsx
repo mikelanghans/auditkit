@@ -912,6 +912,12 @@ function ItemRow({
               }}
             />
           </div>
+          <ResolveButton
+            auditId={auditId}
+            checklistItemId={item.id}
+            isAutomated={!!finding?.auto_scanned}
+            checklistKey={null}
+          />
         </div>
       )}
     </Card>
