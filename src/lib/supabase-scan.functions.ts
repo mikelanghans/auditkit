@@ -265,6 +265,7 @@ async function scanBundleForSecret(appUrl: string, secret: string): Promise<{ ok
     for (const u of resolved) {
       if (bytes > MAX_BUNDLE_BYTES) break;
       try {
+        await assertSafeOutboundUrl(u);
         const r = await timedFetch(u);
         if (!r.ok) continue;
         const body = await r.text();
@@ -272,7 +273,7 @@ async function scanBundleForSecret(appUrl: string, secret: string): Promise<{ ok
         checked.push(u);
         if (body.includes(secret)) matches.push(u);
       } catch {
-        // skip
+        // skip — SSRF-blocked or fetch error
       }
     }
 
