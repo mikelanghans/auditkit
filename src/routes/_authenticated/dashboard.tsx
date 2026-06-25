@@ -1,115 +1,318 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Plus, ClipboardList, Users, ArrowRight } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Plus, ClipboardList, Users, AlertOctagon, ArrowRight, ExternalLink, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
-import { DeleteAuditButton } from "@/components/delete-audit-button";
+import { computeSecurityScore, failuresBySeverity, gradeTone } from "@/lib/security-score";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — AuditKit" }] }),
   component: Dashboard,
 });
 
+type EngagementType = "prospect" | "one_time" | "retainer";
+
+const ENGAGEMENT_LABEL: Record<EngagementType, string> = {
+  prospect: "Prospect",
+  one_time: "One-time audit",
+  retainer: "Retainer",
+};
+
+type SortKey = "score_asc" | "last_scan_desc" | "name_asc";
+type Filter = "all" | "retainer" | "one_time";
+
 function Dashboard() {
+  const [sort, setSort] = useState<SortKey>("score_asc");
+  const [filter, setFilter] = useState<Filter>("all");
+
+  const clients = useQuery({
+    queryKey: ["dashboard", "clients"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("id, name, websites, engagement_type, created_at")
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const audits = useQuery({
-    queryKey: ["audits", "active"],
+    queryKey: ["dashboard", "audits"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, client:clients(id, name)")
-        .neq("status", "completed")
+        .select("id, client_id, status, started_at, completed_at, website_url")
         .order("started_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
     },
   });
 
-  const completed = useQuery({
-    queryKey: ["audits", "completed-count"],
+  const items = useQuery({
+    queryKey: ["dashboard", "checklist-items"],
     queryFn: async () => {
-      const { count } = await supabase
-        .from("audits")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "completed");
-      return count ?? 0;
+      const { data, error } = await supabase
+        .from("checklist_items")
+        .select("id, severity")
+        .eq("is_active", true);
+      if (error) throw error;
+      return data ?? [];
     },
   });
 
-  const clientsCount = useQuery({
-    queryKey: ["clients", "count"],
+  const findings = useQuery({
+    queryKey: ["dashboard", "findings"],
     queryFn: async () => {
-      const { count } = await supabase.from("clients").select("*", { count: "exact", head: true });
-      return count ?? 0;
+      const { data, error } = await supabase
+        .from("audit_findings")
+        .select("audit_id, checklist_item_id, status");
+      if (error) throw error;
+      return data ?? [];
     },
   });
+
+  // Latest audit per client (status priority gives in_progress preference of newest)
+  const latestAuditByClient = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const a of audits.data ?? []) {
+      const prev = m.get(a.client_id);
+      if (!prev) { m.set(a.client_id, a); continue; }
+      const prevTs = new Date(prev.started_at).getTime();
+      const curTs = new Date(a.started_at).getTime();
+      if (curTs > prevTs) m.set(a.client_id, a);
+    }
+    return m;
+  }, [audits.data]);
+
+  const findingsByAudit = useMemo(() => {
+    const m = new Map<string, Map<string, string>>();
+    for (const f of findings.data ?? []) {
+      let inner = m.get(f.audit_id);
+      if (!inner) { inner = new Map(); m.set(f.audit_id, inner); }
+      if (f.status) inner.set(f.checklist_item_id, f.status);
+    }
+    return m;
+  }, [findings.data]);
+
+  const rows = useMemo(() => {
+    const itemList = (items.data ?? []) as { id: string; severity: string | null }[];
+    return (clients.data ?? []).map((c: any) => {
+      const latest = latestAuditByClient.get(c.id);
+      const statusMap = latest ? findingsByAudit.get(latest.id) ?? new Map() : new Map();
+      const score = computeSecurityScore(itemList, statusMap as Map<string, any>);
+      const risk = latest ? failuresBySeverity(itemList, statusMap as Map<string, any>) : { critical: 0, high: 0, medium: 0, low: 0 };
+      const lastScanAt: string | null = latest?.completed_at ?? latest?.started_at ?? null;
+      return {
+        client: c,
+        latest,
+        score,
+        risk,
+        lastScanAt,
+      };
+    });
+  }, [clients.data, items.data, latestAuditByClient, findingsByAudit]);
+
+  const filtered = useMemo(() => {
+    const f = filter === "all" ? rows : rows.filter((r) => r.client.engagement_type === filter);
+    const sorted = [...f].sort((a, b) => {
+      if (sort === "name_asc") return a.client.name.localeCompare(b.client.name);
+      if (sort === "last_scan_desc") {
+        const at = a.lastScanAt ? new Date(a.lastScanAt).getTime() : 0;
+        const bt = b.lastScanAt ? new Date(b.lastScanAt).getTime() : 0;
+        return bt - at;
+      }
+      // score_asc: worst first; nulls last
+      const as = a.score.score ?? 101;
+      const bs = b.score.score ?? 101;
+      return as - bs;
+    });
+    return sorted;
+  }, [rows, filter, sort]);
+
+  const activeAuditCount = (audits.data ?? []).filter((a: any) => a.status !== "completed").length;
+  const totalCritical = rows.reduce((s, r) => s + r.risk.critical, 0);
 
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Active audits and recent activity.</p>
+          <p className="text-sm text-muted-foreground">Security posture across all clients.</p>
         </div>
         <NewAuditDialog />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Stat label="Active audits" value={audits.data?.length ?? 0} icon={<ClipboardList className="h-5 w-5" />} />
-        <Stat label="Completed" value={completed.data ?? 0} icon={<ClipboardList className="h-5 w-5" />} />
-        <Stat label="Clients" value={clientsCount.data ?? 0} icon={<Users className="h-5 w-5" />} />
+        <Stat label="Total clients" value={clients.data?.length ?? 0} icon={<Users className="h-5 w-5" />} />
+        <Stat label="Active audits" value={activeAuditCount} icon={<ClipboardList className="h-5 w-5" />} />
+        <Stat
+          label="Open critical findings"
+          value={totalCritical}
+          icon={<AlertOctagon className="h-5 w-5" />}
+          tone={totalCritical > 0 ? "danger" : "default"}
+        />
       </div>
 
-      <section>
-        <h2 className="text-lg font-semibold mb-3">Active audits</h2>
-        {audits.isLoading ? (
+      <section className="space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h2 className="text-lg font-semibold">Clients</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <ToggleGroup type="single" value={filter} onValueChange={(v) => v && setFilter(v as Filter)} className="flex-wrap">
+              <ToggleGroupItem value="all" className="text-xs">All</ToggleGroupItem>
+              <ToggleGroupItem value="retainer" className="text-xs">Retainer</ToggleGroupItem>
+              <ToggleGroupItem value="one_time" className="text-xs">One-time</ToggleGroupItem>
+            </ToggleGroup>
+            <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+              <SelectTrigger className="w-[200px] text-sm">
+                <ArrowUpDown className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="score_asc">Worst score first</SelectItem>
+                <SelectItem value="last_scan_desc">Most recent scan</SelectItem>
+                <SelectItem value="name_asc">Name (A–Z)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {clients.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : audits.data && audits.data.length > 0 ? (
+        ) : filtered.length === 0 ? (
+          <Card className="p-8 text-center text-sm text-muted-foreground">No clients match this filter.</Card>
+        ) : (
           <div className="grid gap-3">
-            {audits.data.map((a: any) => (
-              <Card key={a.id} className="p-4 flex items-center justify-between gap-3 hover:border-navy/40 transition-colors group">
-                <Link
-                  to="/audits/$id"
-                  params={{ id: a.id }}
-                  className="flex items-center justify-between gap-3 flex-1 min-w-0"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{a.title}</div>
-                    <div className="text-sm text-muted-foreground truncate">
-                      {a.client?.name} · started {formatDistanceToNow(new Date(a.started_at), { addSuffix: true })}
-                    </div>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-navy transition-colors shrink-0" />
-                </Link>
-                <DeleteAuditButton auditId={a.id} title={a.title} variant="icon" />
-              </Card>
+            {filtered.map((r) => (
+              <ClientRow key={r.client.id} row={r} />
             ))}
           </div>
-        ) : (
-          <Card className="p-8 text-center text-sm text-muted-foreground">
-            No active audits. <NewAuditDialog inline /> to begin.
-          </Card>
         )}
       </section>
     </div>
   );
 }
 
-function Stat({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+function ClientRow({ row }: { row: any }) {
+  const { client, latest, score, risk, lastScanAt } = row;
+  const tone = gradeTone(score.grade);
+  const primaryUrl = (client.websites && client.websites[0]) || latest?.website_url || null;
+  const engagement = (client.engagement_type ?? "prospect") as EngagementType;
   return (
-    <Card className="p-5">
+    <Card className="p-4">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+        <div className="md:col-span-4 min-w-0">
+          <Link to="/clients/$id" params={{ id: client.id }} className="font-medium hover:underline">
+            {client.name}
+          </Link>
+          <div className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
+            {primaryUrl ? (
+              <a href={primaryUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground truncate">
+                <span className="truncate">{primaryUrl}</span>
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            ) : <span>No website set</span>}
+          </div>
+          <EngagementBadge engagement={engagement} />
+        </div>
+
+        <div className="md:col-span-2 text-sm">
+          <div className="text-xs text-muted-foreground">Last scan</div>
+          <div>{lastScanAt ? formatDistanceToNow(new Date(lastScanAt), { addSuffix: true }) : <span className="text-muted-foreground">—</span>}</div>
+        </div>
+
+        <div className="md:col-span-2">
+          <div className="text-xs text-muted-foreground">Security score</div>
+          <div className="flex items-baseline gap-2">
+            <span className={cn(
+              "text-2xl font-semibold tabular-nums",
+              tone === "pass" && "text-status-pass",
+              tone === "warn" && "text-status-na",
+              tone === "fail" && "text-status-fail",
+              tone === "muted" && "text-muted-foreground",
+            )}>{score.score ?? "—"}</span>
+            <span className="text-xs text-muted-foreground">{score.grade}</span>
+          </div>
+        </div>
+
+        <div className="md:col-span-2">
+          <div className="text-xs text-muted-foreground mb-1">Open findings</div>
+          <div className="flex items-center gap-1.5">
+            <CountPill count={risk.critical} label="C" tone="fail" />
+            <CountPill count={risk.high} label="H" tone="warn" />
+          </div>
+        </div>
+
+        <div className="md:col-span-2 flex md:justify-end">
+          {latest ? (
+            <Link to="/audits/$id" params={{ id: latest.id }}>
+              <Button size="sm" variant="outline">
+                View Audit <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              </Button>
+            </Link>
+          ) : (
+            <Link to="/clients/$id" params={{ id: client.id }}>
+              <Button size="sm" variant="ghost">No audit yet</Button>
+            </Link>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function EngagementBadge({ engagement }: { engagement: EngagementType }) {
+  const colors: Record<EngagementType, string> = {
+    retainer: "bg-emerald-600 text-white hover:bg-emerald-600",
+    one_time: "bg-sky-600 text-white hover:bg-sky-600",
+    prospect: "bg-muted text-foreground",
+  };
+  return (
+    <Badge className={cn("mt-1.5 text-[10px]", colors[engagement])}>
+      {ENGAGEMENT_LABEL[engagement]}
+    </Badge>
+  );
+}
+
+function CountPill({ count, label, tone }: { count: number; label: string; tone: "fail" | "warn" }) {
+  if (count === 0) {
+    return <span className="text-xs text-muted-foreground">0 {label}</span>;
+  }
+  return (
+    <span className={cn(
+      "inline-flex items-center justify-center min-w-[36px] h-6 px-2 rounded-md text-xs font-semibold",
+      tone === "fail" && "bg-red-500/15 text-red-600 dark:text-red-400",
+      tone === "warn" && "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+    )}>
+      {count} {label}
+    </span>
+  );
+}
+
+function Stat({
+  label, value, icon, tone = "default",
+}: { label: string; value: number; icon: React.ReactNode; tone?: "default" | "danger" }) {
+  return (
+    <Card className={cn("p-5", tone === "danger" && value > 0 && "border-status-fail/40")}>
       <div className="flex items-center justify-between text-muted-foreground">
         <span className="text-sm">{label}</span>
         {icon}
       </div>
-      <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
+      <div className={cn(
+        "mt-2 text-3xl font-semibold tracking-tight tabular-nums",
+        tone === "danger" && value > 0 && "text-status-fail",
+      )}>{value}</div>
     </Card>
   );
 }
@@ -155,6 +358,7 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
     },
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ["audits"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false);
       setTitle("");
       setClientId("");
