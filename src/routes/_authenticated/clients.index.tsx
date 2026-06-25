@@ -76,7 +76,22 @@ function NewClientDialog() {
   const [contactEmail, setContactEmail] = useState("");
   const [websites, setWebsites] = useState<string[]>([""]);
   const [engagement, setEngagement] = useState<"prospect" | "one_time" | "retainer">("prospect");
+  const [hasAgentic, setHasAgentic] = useState(false);
   const [notes, setNotes] = useState("");
+  const qc = useQueryClient();
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) throw new Error("Not signed in");
+      const cleaned = websites.map((w) => w.trim()).filter(Boolean);
+      const { error } = await supabase.from("clients").insert({
+        name,
+        contact_name: contactName || null,
+        contact_email: contactEmail || null,
+        websites: cleaned,
+        engagement_type: engagement,
+        has_agentic_features: hasAgentic,
   const qc = useQueryClient();
 
   const create = useMutation({
