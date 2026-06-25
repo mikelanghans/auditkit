@@ -34,6 +34,7 @@ import type { DepFinding } from "@/lib/dep-scan-core";
 import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import { clearAllCachedRepoTokens } from "@/lib/repo-token-cache";
 import { resolveFinding, listFindingHistory } from "@/lib/finding-resolution.functions";
+import { ScanProgressPanel, defaultSurfaceScanSteps, type ScanProgressState } from "@/components/scan-progress-panel";
 import { format } from "date-fns";
 
 
