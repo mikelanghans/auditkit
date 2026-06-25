@@ -260,6 +260,7 @@ export type Database = {
           contact_name: string | null
           created_at: string
           created_by: string
+          engagement_type: Database["public"]["Enums"]["engagement_type"]
           id: string
           name: string
           notes: string | null
@@ -271,6 +272,7 @@ export type Database = {
           contact_name?: string | null
           created_at?: string
           created_by: string
+          engagement_type?: Database["public"]["Enums"]["engagement_type"]
           id?: string
           name: string
           notes?: string | null
@@ -282,6 +284,7 @@ export type Database = {
           contact_name?: string | null
           created_at?: string
           created_by?: string
+          engagement_type?: Database["public"]["Enums"]["engagement_type"]
           id?: string
           name?: string
           notes?: string | null
@@ -422,6 +425,7 @@ export type Database = {
     Enums: {
       app_role: "admin" | "auditor"
       audit_status: "draft" | "in_progress" | "completed"
+      engagement_type: "prospect" | "one_time" | "retainer"
       finding_status: "pass" | "fail" | "na"
       severity: "critical" | "high" | "medium" | "low"
     }
@@ -553,6 +557,7 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "auditor"],
       audit_status: ["draft", "in_progress", "completed"],
+      engagement_type: ["prospect", "one_time", "retainer"],
       finding_status: ["pass", "fail", "na"],
       severity: ["critical", "high", "medium", "low"],
     },
