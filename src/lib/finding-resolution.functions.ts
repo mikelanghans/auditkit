@@ -125,7 +125,7 @@ export type FindingHistoryEvent = {
   after_status: string | null;
   evidence_text: string | null;
   evidence_url: string | null;
-  scan_result: Record<string, unknown> | null;
+  scan_result: { passes?: number; fails?: number; warnings?: number; target?: string } | null;
   performed_by: string | null;
   performer_name: string | null;
   created_at: string;
