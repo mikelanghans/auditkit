@@ -9,7 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, ArrowRight, X } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+
 
 export const Route = createFileRoute("/_authenticated/clients/")({
   head: () => ({ meta: [{ title: "Clients — AuditKit" }] }),
@@ -73,6 +75,7 @@ function NewClientDialog() {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [websites, setWebsites] = useState<string[]>([""]);
+  const [engagement, setEngagement] = useState<"prospect" | "one_time" | "retainer">("prospect");
   const [notes, setNotes] = useState("");
   const qc = useQueryClient();
 
@@ -86,6 +89,7 @@ function NewClientDialog() {
         contact_name: contactName || null,
         contact_email: contactEmail || null,
         websites: cleaned,
+        engagement_type: engagement,
         notes: notes || null,
         created_by: u.user.id,
       });
@@ -93,8 +97,9 @@ function NewClientDialog() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false);
-      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setNotes("");
+      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setEngagement("prospect"); setNotes("");
       toast.success("Client added");
     },
     onError: (e: any) => toast.error(e.message),
@@ -114,11 +119,13 @@ function NewClientDialog() {
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
           <WebsitesField websites={websites} setWebsites={setWebsites} />
+          <EngagementField value={engagement} onChange={setEngagement} />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
           </div>
         </div>
+
         <DialogFooter>
           <Button disabled={!name || create.isPending} onClick={() => create.mutate()} className="bg-navy text-navy-foreground hover:bg-navy/90">
             Save
@@ -152,6 +159,27 @@ export function WebsitesField({ websites, setWebsites }: { websites: string[]; s
     </div>
   );
 }
+
+export type EngagementValue = "prospect" | "one_time" | "retainer";
+
+export function EngagementField({ value, onChange }: { value: EngagementValue; onChange: (v: EngagementValue) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>Engagement type</Label>
+      <Select value={value} onValueChange={(v) => onChange(v as EngagementValue)}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="prospect">Prospect</SelectItem>
+          <SelectItem value="one_time">One-time audit</SelectItem>
+          <SelectItem value="retainer">Retainer</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+
+
 
 function Field({ label, value, onChange, type = "text", required, placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string }) {
   return (

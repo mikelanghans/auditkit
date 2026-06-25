@@ -11,7 +11,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw, ChevronDown, ClipboardCheck } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
 import { Badge } from "@/components/ui/badge";
 import { SeverityBadge } from "@/components/severity-badge";
 import { cn } from "@/lib/utils";
@@ -358,153 +360,186 @@ function AuditView() {
         </aside>
 
         <div className="space-y-3">
-          <ShieldScanBanner
-            auditId={id}
-            appUrl={(audit.data as any)?.website_url ?? null}
-            clientId={clientId}
-            savedRepos={savedRepos}
-            hasScanned={hasAutoScanned}
-            onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
-            onSurfaceResult={setSurfaceSummary}
-            onRepoResult={setRepoSummary}
-            onSupabaseResult={setSupabaseSummary}
-            onAIResult={setAISummary}
-            onAIAssistResult={setAIAssistSummary}
-            aiScanPreset={aiScanPreset}
-            onAIScanPresetConsumed={() => setAIScanPreset(null)}
-          />
-
-          {aiAssistSummary && (
-            <AIAssistReviewPanel
-              auditId={id}
-              summary={aiAssistSummary}
-              onChange={setAIAssistSummary}
-              onRefresh={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
-            />
-          )}
-
-          <ArchitecturalReviewSection
-            auditId={id}
-            clientId={clientId}
-            savedRepos={savedRepos}
-            enabled={hasArchEligible}
-          />
-
-          {combinedSummary && (() => {
-            const failedItems = (items.data ?? []).filter((it) => {
-              const f = findingsMap.get(it.id);
-              return f?.auto_scanned && f.status === "fail";
-            });
-            const jumpTo = (it: Item) => {
-              setActiveCategory(it.category);
-              if (!selectedStatuses.includes("fail")) setSelectedStatuses((s) => [...s, "fail"]);
-              setTimeout(() => {
-                const el = document.getElementById(`item-${it.id}`);
-                el?.scrollIntoView({ behavior: "smooth", block: "center" });
-                el?.classList.add("ring-2", "ring-status-fail");
-                setTimeout(() => el?.classList.remove("ring-2", "ring-status-fail"), 1600);
-              }, 50);
-            };
-            return (
-              <Card className="p-4 border-l-4 border-l-primary/60 bg-primary/[0.02]">
-                <div className="flex items-center gap-2 mb-3">
-                  <CheckCircle2 className="h-4 w-4 text-status-pass shrink-0" />
-                  <div className="font-medium text-sm">Automated scan results</div>
-                  <div className="ml-auto text-xs text-muted-foreground">
-                    <span className="text-status-pass font-medium">{combinedSummary.passes}</span> passed ·{" "}
-                    <span className="text-status-fail font-medium">{combinedSummary.fails}</span> failed
-                    {combinedSummary.warnings > 0 && (
-                      <> · <span className="text-status-na font-medium">{combinedSummary.warnings}</span> warnings</>
-                    )}
-                  </div>
+          <Collapsible defaultOpen>
+            <Card className="overflow-hidden">
+              <CollapsibleTrigger className="group flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-muted/40 transition-colors">
+                <Radar className="h-4 w-4 text-primary shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold">Automated Scan Results</div>
+                  <div className="text-xs text-muted-foreground">SHIELD Surface, Repo, Supabase, AI Endpoints, AI Assist</div>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
-                  {surfaceSummary && (
-                    <div className="rounded-md border border-border bg-card p-2">
-                      <div className="font-medium text-foreground">Surface</div>
-                      <div className="text-muted-foreground truncate">{surfaceSummary.target}</div>
-                      <div className="mt-1">
-                        <span className="text-status-pass">{surfaceSummary.passes} pass</span> ·{" "}
-                        <span className="text-status-fail">{surfaceSummary.fails} fail</span>
-                      </div>
-                    </div>
-                  )}
-                  {repoSummary && (
-                    <div className="rounded-md border border-border bg-card p-2">
-                      <div className="font-medium text-foreground">Repo</div>
-                      <div className="text-muted-foreground truncate">{repoSummary.repo}</div>
-                      <div className="mt-1">
-                        <span className="text-status-pass">{repoSummary.passes} pass</span> ·{" "}
-                        <span className="text-status-fail">{repoSummary.fails} fail</span>
-                        {repoSummary.findings > 0 && <> · {repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"}</>}
-                        {repoSummary.dep?.ok && repoSummary.dep.packagesScanned !== undefined && (
-                          <> · {repoSummary.dep.packagesScanned} pkgs / {(repoSummary.dep.findings?.length ?? 0)} flagged</>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {supabaseSummary && (
-                    <div className="rounded-md border border-border bg-card p-2">
-                      <div className="font-medium text-foreground">Supabase</div>
-                      <div className="text-muted-foreground truncate">{supabaseSummary.project}</div>
-                      <div className="mt-1 space-x-1">
-                        <span className="text-status-pass">{supabaseSummary.passes} pass</span> ·{" "}
-                        <span className="text-status-fail">{supabaseSummary.fails} fail</span>
-                        {supabaseSummary.leaks > 0 && <span className="text-status-fail"> · {supabaseSummary.leaks} leak{supabaseSummary.leaks === 1 ? "" : "s"}</span>}
-                        {supabaseSummary.publicBuckets.length > 0 && <span className="text-status-na"> · {supabaseSummary.publicBuckets.length} public bucket{supabaseSummary.publicBuckets.length === 1 ? "" : "s"}</span>}
-                        {supabaseSummary.bundleMatches > 0 && <span className="text-status-fail"> · ⚠ key in bundle</span>}
-                      </div>
-                    </div>
-                  )}
-                  {aiSummary && (
-                    <div className="rounded-md border border-border bg-card p-2">
-                      <div className="font-medium text-foreground">AI Endpoint</div>
-                      <div className="text-muted-foreground truncate">{aiSummary.endpoint}</div>
-                      <div className="mt-1 space-x-1">
-                        <span className="text-status-pass">{aiSummary.passes} pass</span> ·{" "}
-                        <span className="text-status-fail">{aiSummary.fails} fail</span>
-                        {aiSummary.critical > 0 && <span className="text-status-fail"> · {aiSummary.critical} critical</span>}
-                        {aiSummary.high > 0 && <span className="text-status-fail"> · {aiSummary.high} high</span>}
-                        {aiSummary.medium > 0 && <span className="text-status-na"> · {aiSummary.medium} medium</span>}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {failedItems.length > 0 && (
-                  <div className="mt-4 pt-3 border-t border-border/60">
-                    <div className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
-                      Jump to failure ({failedItems.length} across all scans)
-                    </div>
-                    <ul className="space-y-1">
-                      {failedItems.map((it) => (
-                        <li key={it.id}>
-                          <button
-                            onClick={() => jumpTo(it)}
-                            className="w-full text-left text-sm flex items-start gap-2 px-2 py-1.5 rounded-md hover:bg-status-fail/5 group"
-                          >
-                            <X className="h-3.5 w-3.5 text-status-fail mt-0.5 shrink-0" />
-                            <span className="flex-1 min-w-0">
-                              <span className="font-medium group-hover:text-status-fail truncate block">{it.title}</span>
-                              <span className="text-xs text-muted-foreground">{it.category}</span>
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                {combinedSummary && (
+                  <div className="text-xs text-muted-foreground hidden sm:block">
+                    <span className="text-status-pass font-medium">{combinedSummary.passes}</span> pass ·{" "}
+                    <span className="text-status-fail font-medium">{combinedSummary.fails}</span> fail
                   </div>
                 )}
-              </Card>
-            );
-          })()}
-          {repoSummary?.dep && <RepoDepPanel dep={repoSummary.dep} />}
-          {repoSummary?.aiEndpoints && repoSummary.aiEndpoints.length > 0 && (
-            <AIEndpointsDiscoveredPanel
-              endpoints={repoSummary.aiEndpoints}
-              onTest={(ep) => setAIScanPreset({ url: ep.url, promptField: ep.promptField, source: ep.source })}
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="space-y-3 p-4 pt-0 border-t border-border/60">
+                  <ShieldScanBanner
+                    auditId={id}
+                    appUrl={(audit.data as any)?.website_url ?? null}
+                    clientId={clientId}
+                    savedRepos={savedRepos}
+                    hasScanned={hasAutoScanned}
+                    onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+                    onSurfaceResult={setSurfaceSummary}
+                    onRepoResult={setRepoSummary}
+                    onSupabaseResult={setSupabaseSummary}
+                    onAIResult={setAISummary}
+                    onAIAssistResult={setAIAssistSummary}
+                    aiScanPreset={aiScanPreset}
+                    onAIScanPresetConsumed={() => setAIScanPreset(null)}
+                  />
+
+                  {aiAssistSummary && (
+                    <AIAssistReviewPanel
+                      auditId={id}
+                      summary={aiAssistSummary}
+                      onChange={setAIAssistSummary}
+                      onRefresh={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+                    />
+                  )}
+
+
+                  {combinedSummary && (() => {
+                    const failedItems = (items.data ?? []).filter((it) => {
+                      const f = findingsMap.get(it.id);
+                      return f?.auto_scanned && f.status === "fail";
+                    });
+                    const jumpTo = (it: Item) => {
+                      setActiveCategory(it.category);
+                      if (!selectedStatuses.includes("fail")) setSelectedStatuses((s) => [...s, "fail"]);
+                      setTimeout(() => {
+                        const el = document.getElementById(`item-${it.id}`);
+                        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        el?.classList.add("ring-2", "ring-status-fail");
+                        setTimeout(() => el?.classList.remove("ring-2", "ring-status-fail"), 1600);
+                      }, 50);
+                    };
+                    return (
+                      <Card className="p-4 border-l-4 border-l-primary/60 bg-primary/[0.02]">
+                        <div className="flex items-center gap-2 mb-3">
+                          <CheckCircle2 className="h-4 w-4 text-status-pass shrink-0" />
+                          <div className="font-medium text-sm">Automated scan results</div>
+                          <div className="ml-auto text-xs text-muted-foreground">
+                            <span className="text-status-pass font-medium">{combinedSummary.passes}</span> passed ·{" "}
+                            <span className="text-status-fail font-medium">{combinedSummary.fails}</span> failed
+                            {combinedSummary.warnings > 0 && (
+                              <> · <span className="text-status-na font-medium">{combinedSummary.warnings}</span> warnings</>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                          {surfaceSummary && (
+                            <div className="rounded-md border border-border bg-card p-2">
+                              <div className="font-medium text-foreground">Surface</div>
+                              <div className="text-muted-foreground truncate">{surfaceSummary.target}</div>
+                              <div className="mt-1">
+                                <span className="text-status-pass">{surfaceSummary.passes} pass</span> ·{" "}
+                                <span className="text-status-fail">{surfaceSummary.fails} fail</span>
+                              </div>
+                            </div>
+                          )}
+                          {repoSummary && (
+                            <div className="rounded-md border border-border bg-card p-2">
+                              <div className="font-medium text-foreground">Repo</div>
+                              <div className="text-muted-foreground truncate">{repoSummary.repo}</div>
+                              <div className="mt-1">
+                                <span className="text-status-pass">{repoSummary.passes} pass</span> ·{" "}
+                                <span className="text-status-fail">{repoSummary.fails} fail</span>
+                                {repoSummary.findings > 0 && <> · {repoSummary.findings} hit{repoSummary.findings === 1 ? "" : "s"}</>}
+                                {repoSummary.dep?.ok && repoSummary.dep.packagesScanned !== undefined && (
+                                  <> · {repoSummary.dep.packagesScanned} pkgs / {(repoSummary.dep.findings?.length ?? 0)} flagged</>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          {supabaseSummary && (
+                            <div className="rounded-md border border-border bg-card p-2">
+                              <div className="font-medium text-foreground">Supabase</div>
+                              <div className="text-muted-foreground truncate">{supabaseSummary.project}</div>
+                              <div className="mt-1 space-x-1">
+                                <span className="text-status-pass">{supabaseSummary.passes} pass</span> ·{" "}
+                                <span className="text-status-fail">{supabaseSummary.fails} fail</span>
+                                {supabaseSummary.leaks > 0 && <span className="text-status-fail"> · {supabaseSummary.leaks} leak{supabaseSummary.leaks === 1 ? "" : "s"}</span>}
+                                {supabaseSummary.publicBuckets.length > 0 && <span className="text-status-na"> · {supabaseSummary.publicBuckets.length} public bucket{supabaseSummary.publicBuckets.length === 1 ? "" : "s"}</span>}
+                                {supabaseSummary.bundleMatches > 0 && <span className="text-status-fail"> · ⚠ key in bundle</span>}
+                              </div>
+                            </div>
+                          )}
+                          {aiSummary && (
+                            <div className="rounded-md border border-border bg-card p-2">
+                              <div className="font-medium text-foreground">AI Endpoint</div>
+                              <div className="text-muted-foreground truncate">{aiSummary.endpoint}</div>
+                              <div className="mt-1 space-x-1">
+                                <span className="text-status-pass">{aiSummary.passes} pass</span> ·{" "}
+                                <span className="text-status-fail">{aiSummary.fails} fail</span>
+                                {aiSummary.critical > 0 && <span className="text-status-fail"> · {aiSummary.critical} critical</span>}
+                                {aiSummary.high > 0 && <span className="text-status-fail"> · {aiSummary.high} high</span>}
+                                {aiSummary.medium > 0 && <span className="text-status-na"> · {aiSummary.medium} medium</span>}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {failedItems.length > 0 && (
+                          <div className="mt-4 pt-3 border-t border-border/60">
+                            <div className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
+                              Jump to failure ({failedItems.length} across all scans)
+                            </div>
+                            <ul className="space-y-1">
+                              {failedItems.map((it) => (
+                                <li key={it.id}>
+                                  <button
+                                    onClick={() => jumpTo(it)}
+                                    className="w-full text-left text-sm flex items-start gap-2 px-2 py-1.5 rounded-md hover:bg-status-fail/5 group"
+                                  >
+                                    <X className="h-3.5 w-3.5 text-status-fail mt-0.5 shrink-0" />
+                                    <span className="flex-1 min-w-0">
+                                      <span className="font-medium group-hover:text-status-fail truncate block">{it.title}</span>
+                                      <span className="text-xs text-muted-foreground">{it.category}</span>
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })()}
+                  {repoSummary?.dep && <RepoDepPanel dep={repoSummary.dep} />}
+                  {repoSummary?.aiEndpoints && repoSummary.aiEndpoints.length > 0 && (
+                    <AIEndpointsDiscoveredPanel
+                      endpoints={repoSummary.aiEndpoints}
+                      onTest={(ep) => setAIScanPreset({ url: ep.url, promptField: ep.promptField, source: ep.source })}
+                    />
+                  )}
+                </div>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
+
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 pt-2">
+              <ClipboardCheck className="h-4 w-4 text-primary shrink-0" />
+              <div>
+                <h2 className="text-sm font-semibold">Manual Review &amp; Auditor Workspace</h2>
+                <p className="text-xs text-muted-foreground">Architectural review and the 43-item checklist requiring auditor judgement.</p>
+              </div>
+            </div>
+
+            <ArchitecturalReviewSection
+              auditId={id}
+              clientId={clientId}
+              savedRepos={savedRepos}
+              enabled={hasArchEligible}
             />
-          )}
+
 
           <div className="flex items-center gap-3 flex-wrap">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -572,7 +607,9 @@ function AuditView() {
               />
             );
           })}
+          </section>
         </div>
+
       </div>
     </div>
   );
