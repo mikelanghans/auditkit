@@ -1343,9 +1343,17 @@ function ResolveButton({
   const [evidenceText, setEvidenceText] = useState("");
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [pending, setPending] = useState(false);
+  const [scanState, setScanState] = useState<ScanProgressState>("idle");
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSummary, setScanSummary] = useState<string | null>(null);
 
   const submit = async (mode: "automated" | "manual") => {
     setPending(true);
+    if (mode === "automated") {
+      setScanError(null);
+      setScanSummary(null);
+      setScanState("running");
+    }
     const tid = toast.loading(mode === "automated" ? "Re-running scanner…" : "Submitting evidence…");
     try {
       const res: any = await resolve({
@@ -1358,15 +1366,33 @@ function ResolveButton({
         },
       });
       await qc.invalidateQueries({ queryKey: ["findings", auditId] });
-      if (res?.ok === false && res?.reason === "rescan_still_failing") {
-        toast.error("Re-scan still failing — cannot mark resolved", { id: tid });
+      if (res?.ok === false) {
+        const msg = res?.reason === "rescan_still_failing"
+          ? "Re-scan still failing — cannot mark resolved"
+          : (res?.reason ?? "Re-scan did not verify the fix");
+        if (mode === "automated") {
+          setScanState("error");
+          setScanError(msg);
+        }
+        toast.error(msg, { id: tid });
       } else {
+        if (mode === "automated") {
+          setScanState("success");
+          setScanSummary("Scanner returned pass — finding marked resolved.");
+        }
         toast.success("Finding marked resolved", { id: tid });
-        setOpen(false);
+        // For manual path, close immediately. For automated, let user see the timeline.
+        if (mode === "manual") {
+          setOpen(false);
+        }
         setEvidenceText("");
         setEvidenceUrl("");
       }
     } catch (e: any) {
+      if (mode === "automated") {
+        setScanState("error");
+        setScanError(e?.message ?? "Could not resolve finding");
+      }
       toast.error(e?.message ?? "Could not resolve finding", { id: tid });
     } finally {
       setPending(false);
