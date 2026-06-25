@@ -18,6 +18,11 @@ export const approveThreatFeedItem = createServerFn({ method: "POST" })
   .inputValidator((input: { id: string }) => input)
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
+    const { data: isAdmin } = await supabase.rpc("has_role", {
+      _user_id: userId,
+      _role: "admin",
+    });
+    if (!isAdmin) return { ok: false as const, error: "Admin only." };
     const { data: item, error } = await supabase
       .from("threat_feed_items")
       .select("*")
