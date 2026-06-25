@@ -33,21 +33,24 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email)")
+        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
     },
   });
 
+  const hasAgentic = !!audit.data?.client?.has_agentic_features;
+
   const items = useQuery({
-    queryKey: ["checklist-items"],
+    queryKey: ["checklist-items", { hasAgentic }],
     queryFn: async () => {
       const { data } = await supabase
         .from("checklist_items")
         .select("id, category, title, description, severity, sort_order").eq("is_active", true)
         .order("sort_order");
-      return data ?? [];
+      const all = data ?? [];
+      return hasAgentic ? all : all.filter((it: any) => it.category !== "Agentic AI Security");
     },
   });
 
