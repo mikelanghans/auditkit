@@ -34,6 +34,7 @@ import type { DepFinding } from "@/lib/dep-scan-core";
 import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import { clearAllCachedRepoTokens } from "@/lib/repo-token-cache";
 import { resolveFinding, listFindingHistory } from "@/lib/finding-resolution.functions";
+import { ScanProgressPanel, defaultSurfaceScanSteps, type ScanProgressState } from "@/components/scan-progress-panel";
 import { format } from "date-fns";
 
 
@@ -930,37 +931,65 @@ function SurfaceRecheckButton({
   const qc = useQueryClient();
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [scanState, setScanState] = useState<ScanProgressState>("idle");
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSummary, setScanSummary] = useState<string | null>(null);
 
   const run = async () => {
     setPending(true);
-    const tid = toast.loading("Re-scanning this surface finding…");
+    setOpen(true);
+    setScanError(null);
+    setScanSummary(null);
+    setScanState("running");
     try {
       const res = await scan({ data: { auditId } });
       await qc.invalidateQueries({ queryKey: ["findings", auditId] });
       const updated = qc.getQueryData<Finding[]>(["findings", auditId])?.find((f) => f.checklist_item_id === checklistItemId);
-      toast.success(
-        updated?.status === "pass" ? "Re-scan cleared this finding" : "Surface re-scan complete",
-        { id: tid, description: `${res.passes} passed · ${res.fails} failed · ${res.warnings} warnings` },
+      setScanState("success");
+      setScanSummary(
+        `${updated?.status === "pass" ? "Re-scan cleared this finding. " : ""}${res.passes} passed · ${res.fails} failed · ${res.warnings} warnings`,
       );
     } catch (e: any) {
-      toast.error(e?.message ?? "Re-scan failed", { id: tid });
+      setScanState("error");
+      setScanError(e?.message ?? "Re-scan failed");
     } finally {
       setPending(false);
     }
   };
 
   return (
-    <Button
-      size="sm"
-      variant="ghost"
-      className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground hover:bg-muted"
-      onClick={run}
-      disabled={pending}
-      title="Re-run the surface scan and update this finding"
-    >
-      {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-      Re-scan
-    </Button>
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground hover:bg-muted"
+        onClick={run}
+        disabled={pending}
+        title="Re-run the surface scan and update this finding"
+      >
+        {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        Re-scan
+      </Button>
+      <Dialog open={open} onOpenChange={(o) => { if (pending) return; setOpen(o); if (!o) { setScanState("idle"); setScanError(null); setScanSummary(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Surface re-scan</DialogTitle>
+            <DialogDescription>Re-running the automated scanner against this audit's target.</DialogDescription>
+          </DialogHeader>
+          <ScanProgressPanel
+            state={scanState}
+            steps={defaultSurfaceScanSteps()}
+            title="Scan progress"
+            errorMessage={scanError}
+            finalSummary={scanSummary}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1342,9 +1371,17 @@ function ResolveButton({
   const [evidenceText, setEvidenceText] = useState("");
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [pending, setPending] = useState(false);
+  const [scanState, setScanState] = useState<ScanProgressState>("idle");
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSummary, setScanSummary] = useState<string | null>(null);
 
   const submit = async (mode: "automated" | "manual") => {
     setPending(true);
+    if (mode === "automated") {
+      setScanError(null);
+      setScanSummary(null);
+      setScanState("running");
+    }
     const tid = toast.loading(mode === "automated" ? "Re-running scanner…" : "Submitting evidence…");
     try {
       const res: any = await resolve({
@@ -1357,15 +1394,33 @@ function ResolveButton({
         },
       });
       await qc.invalidateQueries({ queryKey: ["findings", auditId] });
-      if (res?.ok === false && res?.reason === "rescan_still_failing") {
-        toast.error("Re-scan still failing — cannot mark resolved", { id: tid });
+      if (res?.ok === false) {
+        const msg = res?.reason === "rescan_still_failing"
+          ? "Re-scan still failing — cannot mark resolved"
+          : (res?.reason ?? "Re-scan did not verify the fix");
+        if (mode === "automated") {
+          setScanState("error");
+          setScanError(msg);
+        }
+        toast.error(msg, { id: tid });
       } else {
+        if (mode === "automated") {
+          setScanState("success");
+          setScanSummary("Scanner returned pass — finding marked resolved.");
+        }
         toast.success("Finding marked resolved", { id: tid });
-        setOpen(false);
+        // For manual path, close immediately. For automated, let user see the timeline.
+        if (mode === "manual") {
+          setOpen(false);
+        }
         setEvidenceText("");
         setEvidenceUrl("");
       }
     } catch (e: any) {
+      if (mode === "automated") {
+        setScanState("error");
+        setScanError(e?.message ?? "Could not resolve finding");
+      }
       toast.error(e?.message ?? "Could not resolve finding", { id: tid });
     } finally {
       setPending(false);
@@ -1373,7 +1428,8 @@ function ResolveButton({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => { if (pending) return; setOpen(o); if (!o) { setScanState("idle"); setScanError(null); setScanSummary(null); } }}>
+
       <DialogTrigger asChild>
         <Button variant="default" size="sm" className="gap-1 h-8 bg-status-pass hover:bg-status-pass/90 text-white">
           <CheckCircle2 className="h-3.5 w-3.5" /> Mark resolved
@@ -1390,9 +1446,18 @@ function ResolveButton({
         </DialogHeader>
 
         {isAutomated ? (
-          <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-            Clicking <span className="font-semibold text-foreground">Re-scan & verify</span> will re-run the relevant surface
-            scanner against this audit. A timeline entry will be written with the before/after result.
+          <div className="space-y-3">
+            <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+              Clicking <span className="font-semibold text-foreground">Re-scan & verify</span> will re-run the relevant surface
+              scanner against this audit. A timeline entry will be written with the before/after result.
+            </div>
+            <ScanProgressPanel
+              state={scanState}
+              steps={defaultSurfaceScanSteps()}
+              title="Re-scan progress"
+              errorMessage={scanError}
+              finalSummary={scanSummary}
+            />
           </div>
         ) : (
           <div className="space-y-3">
