@@ -382,6 +382,14 @@ function AuditView() {
               onRefresh={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
             />
           )}
+
+          <ArchitecturalReviewSection
+            auditId={id}
+            clientId={clientId}
+            savedRepos={savedRepos}
+            enabled={hasArchEligible}
+          />
+
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
               const f = findingsMap.get(it.id);
