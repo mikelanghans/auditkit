@@ -125,6 +125,7 @@ function EditClientDialog({ client }: { client: any }) {
   const [websites, setWebsites] = useState<string[]>(
     client.websites && client.websites.length > 0 ? client.websites : [""],
   );
+  const [engagement, setEngagement] = useState<EngagementValue>((client.engagement_type ?? "prospect") as EngagementValue);
   const [notes, setNotes] = useState(client.notes ?? "");
   const qc = useQueryClient();
 
@@ -134,6 +135,7 @@ function EditClientDialog({ client }: { client: any }) {
     setContactName(client.contact_name ?? "");
     setContactEmail(client.contact_email ?? "");
     setWebsites(client.websites && client.websites.length > 0 ? client.websites : [""]);
+    setEngagement((client.engagement_type ?? "prospect") as EngagementValue);
     setNotes(client.notes ?? "");
   }, [open, client]);
 
@@ -147,6 +149,7 @@ function EditClientDialog({ client }: { client: any }) {
           contact_name: contactName || null,
           contact_email: contactEmail || null,
           websites: cleaned,
+          engagement_type: engagement,
           notes: notes || null,
         })
         .eq("id", client.id);
@@ -155,6 +158,7 @@ function EditClientDialog({ client }: { client: any }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client", client.id] });
       qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false);
       toast.success("Client updated");
     },
@@ -175,6 +179,7 @@ function EditClientDialog({ client }: { client: any }) {
           <Field label="Contact name" value={contactName} onChange={setContactName} />
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
           <WebsitesField websites={websites} setWebsites={setWebsites} />
+          <EngagementField value={engagement} onChange={setEngagement} />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
@@ -189,6 +194,7 @@ function EditClientDialog({ client }: { client: any }) {
     </Dialog>
   );
 }
+
 
 function Field({ label, value, onChange, type = "text", required, placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string }) {
   return (
