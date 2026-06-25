@@ -360,37 +360,49 @@ function AuditView() {
         </aside>
 
         <div className="space-y-3">
-          <ShieldScanBanner
-            auditId={id}
-            appUrl={(audit.data as any)?.website_url ?? null}
-            clientId={clientId}
-            savedRepos={savedRepos}
-            hasScanned={hasAutoScanned}
-            onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
-            onSurfaceResult={setSurfaceSummary}
-            onRepoResult={setRepoSummary}
-            onSupabaseResult={setSupabaseSummary}
-            onAIResult={setAISummary}
-            onAIAssistResult={setAIAssistSummary}
-            aiScanPreset={aiScanPreset}
-            onAIScanPresetConsumed={() => setAIScanPreset(null)}
-          />
+          <Collapsible defaultOpen>
+            <Card className="overflow-hidden">
+              <CollapsibleTrigger className="group flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-muted/40 transition-colors">
+                <Radar className="h-4 w-4 text-primary shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold">Automated Scan Results</div>
+                  <div className="text-xs text-muted-foreground">SHIELD Surface, Repo, Supabase, AI Endpoints, AI Assist</div>
+                </div>
+                {combinedSummary && (
+                  <div className="text-xs text-muted-foreground hidden sm:block">
+                    <span className="text-status-pass font-medium">{combinedSummary.passes}</span> pass ·{" "}
+                    <span className="text-status-fail font-medium">{combinedSummary.fails}</span> fail
+                  </div>
+                )}
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="space-y-3 p-4 pt-0 border-t border-border/60">
+                  <ShieldScanBanner
+                    auditId={id}
+                    appUrl={(audit.data as any)?.website_url ?? null}
+                    clientId={clientId}
+                    savedRepos={savedRepos}
+                    hasScanned={hasAutoScanned}
+                    onDone={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+                    onSurfaceResult={setSurfaceSummary}
+                    onRepoResult={setRepoSummary}
+                    onSupabaseResult={setSupabaseSummary}
+                    onAIResult={setAISummary}
+                    onAIAssistResult={setAIAssistSummary}
+                    aiScanPreset={aiScanPreset}
+                    onAIScanPresetConsumed={() => setAIScanPreset(null)}
+                  />
 
-          {aiAssistSummary && (
-            <AIAssistReviewPanel
-              auditId={id}
-              summary={aiAssistSummary}
-              onChange={setAIAssistSummary}
-              onRefresh={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
-            />
-          )}
+                  {aiAssistSummary && (
+                    <AIAssistReviewPanel
+                      auditId={id}
+                      summary={aiAssistSummary}
+                      onChange={setAIAssistSummary}
+                      onRefresh={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
+                    />
+                  )}
 
-          <ArchitecturalReviewSection
-            auditId={id}
-            clientId={clientId}
-            savedRepos={savedRepos}
-            enabled={hasArchEligible}
-          />
 
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
