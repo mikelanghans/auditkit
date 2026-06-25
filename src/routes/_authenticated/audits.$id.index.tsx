@@ -1417,9 +1417,18 @@ function ResolveButton({
         </DialogHeader>
 
         {isAutomated ? (
-          <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-            Clicking <span className="font-semibold text-foreground">Re-scan & verify</span> will re-run the relevant surface
-            scanner against this audit. A timeline entry will be written with the before/after result.
+          <div className="space-y-3">
+            <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+              Clicking <span className="font-semibold text-foreground">Re-scan & verify</span> will re-run the relevant surface
+              scanner against this audit. A timeline entry will be written with the before/after result.
+            </div>
+            <ScanProgressPanel
+              state={scanState}
+              steps={defaultSurfaceScanSteps()}
+              title="Re-scan progress"
+              errorMessage={scanError}
+              finalSummary={scanSummary}
+            />
           </div>
         ) : (
           <div className="space-y-3">
