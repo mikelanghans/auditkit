@@ -126,6 +126,7 @@ function EditClientDialog({ client }: { client: any }) {
     client.websites && client.websites.length > 0 ? client.websites : [""],
   );
   const [engagement, setEngagement] = useState<EngagementValue>((client.engagement_type ?? "prospect") as EngagementValue);
+  const [hasAgentic, setHasAgentic] = useState<boolean>(!!client.has_agentic_features);
   const [notes, setNotes] = useState(client.notes ?? "");
   const qc = useQueryClient();
 
@@ -136,6 +137,7 @@ function EditClientDialog({ client }: { client: any }) {
     setContactEmail(client.contact_email ?? "");
     setWebsites(client.websites && client.websites.length > 0 ? client.websites : [""]);
     setEngagement((client.engagement_type ?? "prospect") as EngagementValue);
+    setHasAgentic(!!client.has_agentic_features);
     setNotes(client.notes ?? "");
   }, [open, client]);
 
