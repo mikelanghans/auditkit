@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      architectural_findings: {
+        Row: {
+          affected_files: Json
+          audit_id: string
+          created_at: string
+          explanation: string | null
+          id: string
+          include_in_report: boolean
+          recommendation: string | null
+          severity: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          affected_files?: Json
+          audit_id: string
+          created_at?: string
+          explanation?: string | null
+          id?: string
+          include_in_report?: boolean
+          recommendation?: string | null
+          severity?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          affected_files?: Json
+          audit_id?: string
+          created_at?: string
+          explanation?: string | null
+          id?: string
+          include_in_report?: boolean
+          recommendation?: string | null
+          severity?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "architectural_findings_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_findings: {
         Row: {
           ai_assisted: boolean
