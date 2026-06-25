@@ -2,13 +2,25 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ShieldCheck, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const path = useRouterState({ select: (s) => s.location.pathname });
+
+  const pendingCount = useQuery({
+    queryKey: ["threat-feed-pending-count"],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("threat_feed_items")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending_review");
+      return count ?? 0;
+    },
+    refetchInterval: 60_000,
+  });
 
   async function signOut() {
     await qc.cancelQueries();
@@ -20,6 +32,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const nav = [
     { to: "/dashboard", label: "Dashboard" },
     { to: "/clients", label: "Clients" },
+    { to: "/threat-feed", label: "Threat Feed" },
   ] as const;
 
   return (
@@ -36,13 +49,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 key={n.to}
                 to={n.to}
                 className={cn(
-                  "px-3 py-1.5 rounded-md text-sm transition-colors",
+                  "relative px-3 py-1.5 rounded-md text-sm transition-colors inline-flex items-center gap-1.5",
                   path.startsWith(n.to)
                     ? "bg-white/10 text-white"
                     : "text-white/70 hover:text-white hover:bg-white/5",
                 )}
               >
                 {n.label}
+                {n.to === "/threat-feed" && (pendingCount.data ?? 0) > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-semibold">
+                    {pendingCount.data}
+                  </span>
+                )}
               </Link>
             ))}
             <button
@@ -59,3 +77,4 @@ export function AppShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
