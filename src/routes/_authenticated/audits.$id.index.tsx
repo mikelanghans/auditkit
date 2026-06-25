@@ -33,6 +33,8 @@ import { ExplainButton } from "@/components/explain-button";
 import type { DepFinding } from "@/lib/dep-scan-core";
 import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import { clearAllCachedRepoTokens } from "@/lib/repo-token-cache";
+import { resolveFinding, listFindingHistory } from "@/lib/finding-resolution.functions";
+import { format } from "date-fns";
 
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
