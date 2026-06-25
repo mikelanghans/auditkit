@@ -17,6 +17,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedClientsIndexRouteImport } from './routes/_authenticated/clients.index'
 import { Route as AuthenticatedClientsIdRouteImport } from './routes/_authenticated/clients.$id'
 import { Route as AuthenticatedAuditsIdIndexRouteImport } from './routes/_authenticated/audits.$id.index'
+import { Route as ApiPublicHooksThreatFeedRouteImport } from './routes/api/public/hooks/threat-feed'
 import { Route as AuthenticatedAuditsIdReportRouteImport } from './routes/_authenticated/audits.$id.report'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -60,6 +61,12 @@ const AuthenticatedAuditsIdIndexRoute =
     path: '/audits/$id/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ApiPublicHooksThreatFeedRoute =
+  ApiPublicHooksThreatFeedRouteImport.update({
+    id: '/api/public/hooks/threat-feed',
+    path: '/api/public/hooks/threat-feed',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedAuditsIdReportRoute =
   AuthenticatedAuditsIdReportRouteImport.update({
     id: '/audits/$id/report',
@@ -75,6 +82,7 @@ export interface FileRoutesByFullPath {
   '/clients/$id': typeof AuthenticatedClientsIdRoute
   '/clients/': typeof AuthenticatedClientsIndexRoute
   '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
+  '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/audits/$id/': typeof AuthenticatedAuditsIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -85,6 +93,7 @@ export interface FileRoutesByTo {
   '/clients/$id': typeof AuthenticatedClientsIdRoute
   '/clients': typeof AuthenticatedClientsIndexRoute
   '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
+  '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/audits/$id': typeof AuthenticatedAuditsIdIndexRoute
 }
 export interface FileRoutesById {
@@ -97,6 +106,7 @@ export interface FileRoutesById {
   '/_authenticated/clients/$id': typeof AuthenticatedClientsIdRoute
   '/_authenticated/clients/': typeof AuthenticatedClientsIndexRoute
   '/_authenticated/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
+  '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/_authenticated/audits/$id/': typeof AuthenticatedAuditsIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/clients/$id'
     | '/clients/'
     | '/audits/$id/report'
+    | '/api/public/hooks/threat-feed'
     | '/audits/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/clients/$id'
     | '/clients'
     | '/audits/$id/report'
+    | '/api/public/hooks/threat-feed'
     | '/audits/$id'
   id:
     | '__root__'
@@ -130,6 +142,7 @@ export interface FileRouteTypes {
     | '/_authenticated/clients/$id'
     | '/_authenticated/clients/'
     | '/_authenticated/audits/$id/report'
+    | '/api/public/hooks/threat-feed'
     | '/_authenticated/audits/$id/'
   fileRoutesById: FileRoutesById
 }
@@ -138,6 +151,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ApiPublicHooksThreatFeedRoute: typeof ApiPublicHooksThreatFeedRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -198,6 +212,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAuditsIdIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/hooks/threat-feed': {
+      id: '/api/public/hooks/threat-feed'
+      path: '/api/public/hooks/threat-feed'
+      fullPath: '/api/public/hooks/threat-feed'
+      preLoaderRoute: typeof ApiPublicHooksThreatFeedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/audits/$id/report': {
       id: '/_authenticated/audits/$id/report'
       path: '/audits/$id/report'
@@ -232,6 +253,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ApiPublicHooksThreatFeedRoute: ApiPublicHooksThreatFeedRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
