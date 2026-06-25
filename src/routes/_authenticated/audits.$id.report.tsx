@@ -206,7 +206,10 @@ function ReportPage() {
         ))}
 
         <ArchitecturalRiskSection findings={archFindings.data ?? []} />
+
+        <ResolvedFindingsAppendix auditId={id} />
       </div>
+
 
       <style>{`
         @media print {
