@@ -931,37 +931,65 @@ function SurfaceRecheckButton({
   const qc = useQueryClient();
   const scan = useServerFn(runAutoScan);
   const [pending, setPending] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [scanState, setScanState] = useState<ScanProgressState>("idle");
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSummary, setScanSummary] = useState<string | null>(null);
 
   const run = async () => {
     setPending(true);
-    const tid = toast.loading("Re-scanning this surface finding…");
+    setOpen(true);
+    setScanError(null);
+    setScanSummary(null);
+    setScanState("running");
     try {
       const res = await scan({ data: { auditId } });
       await qc.invalidateQueries({ queryKey: ["findings", auditId] });
       const updated = qc.getQueryData<Finding[]>(["findings", auditId])?.find((f) => f.checklist_item_id === checklistItemId);
-      toast.success(
-        updated?.status === "pass" ? "Re-scan cleared this finding" : "Surface re-scan complete",
-        { id: tid, description: `${res.passes} passed · ${res.fails} failed · ${res.warnings} warnings` },
+      setScanState("success");
+      setScanSummary(
+        `${updated?.status === "pass" ? "Re-scan cleared this finding. " : ""}${res.passes} passed · ${res.fails} failed · ${res.warnings} warnings`,
       );
     } catch (e: any) {
-      toast.error(e?.message ?? "Re-scan failed", { id: tid });
+      setScanState("error");
+      setScanError(e?.message ?? "Re-scan failed");
     } finally {
       setPending(false);
     }
   };
 
   return (
-    <Button
-      size="sm"
-      variant="ghost"
-      className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground hover:bg-muted"
-      onClick={run}
-      disabled={pending}
-      title="Re-run the surface scan and update this finding"
-    >
-      {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-      Re-scan
-    </Button>
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground hover:bg-muted"
+        onClick={run}
+        disabled={pending}
+        title="Re-run the surface scan and update this finding"
+      >
+        {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        Re-scan
+      </Button>
+      <Dialog open={open} onOpenChange={(o) => { if (pending) return; setOpen(o); if (!o) { setScanState("idle"); setScanError(null); setScanSummary(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Surface re-scan</DialogTitle>
+            <DialogDescription>Re-running the automated scanner against this audit's target.</DialogDescription>
+          </DialogHeader>
+          <ScanProgressPanel
+            state={scanState}
+            steps={defaultSurfaceScanSteps()}
+            title="Scan progress"
+            errorMessage={scanError}
+            finalSummary={scanSummary}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
