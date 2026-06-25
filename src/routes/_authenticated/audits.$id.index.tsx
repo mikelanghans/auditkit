@@ -25,6 +25,7 @@ import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
 import { AIScanDialog, type AIScanPreset } from "@/components/ai-scan-dialog";
 import { AIAssistDialog, AIAssistReviewPanel, type AIAssistSummary } from "@/components/ai-assist-dialog";
 import { RepoLauncher, type SavedRepo } from "@/components/repo-launcher";
+import { ArchitecturalReviewSection } from "@/components/architectural-review-panel";
 import { FixPromptButton } from "@/components/fix-prompt-dialog";
 import { ExplainButton } from "@/components/explain-button";
 import type { DepFinding } from "@/lib/dep-scan-core";
@@ -113,6 +114,10 @@ function AuditView() {
   });
 
   const hasAutoScanned = useMemo(() => (findings.data ?? []).some((f) => f.auto_scanned), [findings.data]);
+  const hasArchEligible = useMemo(
+    () => (findings.data ?? []).some((f) => f.auto_scanned || f.ai_assisted),
+    [findings.data],
+  );
 
   type SurfaceSummary = { passes: number; fails: number; warnings: number; target: string; at: string };
   type RepoSummary = {
@@ -377,6 +382,14 @@ function AuditView() {
               onRefresh={() => qc.invalidateQueries({ queryKey: ["findings", id] })}
             />
           )}
+
+          <ArchitecturalReviewSection
+            auditId={id}
+            clientId={clientId}
+            savedRepos={savedRepos}
+            enabled={hasArchEligible}
+          />
+
           {combinedSummary && (() => {
             const failedItems = (items.data ?? []).filter((it) => {
               const f = findingsMap.get(it.id);

@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus } from "lucide-react";
+import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { ExplainButton } from "@/components/explain-button";
@@ -61,6 +61,20 @@ function ReportPage() {
       return data ?? [];
     },
   });
+
+  const archFindings = useQuery({
+    queryKey: ["architectural-findings", id, "report"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("architectural_findings")
+        .select("id, title, severity, affected_files, explanation, recommendation, include_in_report")
+        .eq("audit_id", id)
+        .eq("include_in_report", true)
+        .order("created_at", { ascending: true });
+      return data ?? [];
+    },
+  });
+
 
   const map = useMemo(() => {
     const m = new Map<string, { status: string | null; notes: string | null; explanation: string | null }>();
@@ -187,6 +201,8 @@ function ReportPage() {
             </div>
           </section>
         ))}
+
+        <ArchitecturalRiskSection findings={archFindings.data ?? []} />
       </div>
 
       <style>{`
@@ -555,3 +571,84 @@ function PassFindingCard({
     </Card>
   );
 }
+
+type ArchFinding = {
+  id: string;
+  title: string;
+  severity: string;
+  affected_files: string[] | any;
+  explanation: string | null;
+  recommendation: string | null;
+};
+
+const ARCH_SEV_BANNER: Record<string, string> = {
+  critical: "bg-status-fail/15 text-status-fail border-status-fail/40",
+  high: "bg-orange-500/15 text-orange-600 dark:text-orange-300 border-orange-500/40",
+  medium: "bg-status-na/15 text-status-na border-status-na/40",
+  low: "bg-status-pass/15 text-status-pass border-status-pass/40",
+};
+
+function ArchitecturalRiskSection({ findings }: { findings: ArchFinding[] }) {
+  if (!findings || findings.length === 0) return null;
+  return (
+    <section className="mb-6 break-inside-avoid">
+      <h2 className="text-lg font-semibold border-b pb-2 mb-3 flex items-center gap-2">
+        <Brain className="h-5 w-5 text-cyan-600" />
+        Architectural Risk Assessment
+      </h2>
+      <p className="text-sm text-muted-foreground mb-3">
+        Cross-cutting structural observations that span multiple files — duplicated systems,
+        inconsistent enforcement, and privilege concentration that line-level scans cannot see.
+      </p>
+      <div className="space-y-3">
+        {findings.map((f) => {
+          const sev = (f.severity ?? "medium").toLowerCase();
+          const bannerCls = ARCH_SEV_BANNER[sev] ?? ARCH_SEV_BANNER.medium;
+          const files: string[] = Array.isArray(f.affected_files) ? f.affected_files : [];
+          return (
+            <Card key={f.id} className="border-l-4 border-l-slate-700 overflow-hidden">
+              <div className={cn("px-4 py-3 flex items-center gap-3 border-b", bannerCls)}>
+                <Brain className="h-5 w-5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold uppercase tracking-widest">
+                    {sev} · Architectural
+                  </div>
+                  <div className="font-semibold text-foreground mt-0.5">{f.title}</div>
+                </div>
+              </div>
+              <div className="p-4 space-y-3">
+                {f.explanation && (
+                  <p className="text-sm text-foreground/90 leading-relaxed">{f.explanation}</p>
+                )}
+                {f.recommendation && (
+                  <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    <span className="font-semibold">Recommendation: </span>
+                    {f.recommendation}
+                  </div>
+                )}
+                {files.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">
+                      Affected files
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {files.map((p) => (
+                        <code
+                          key={p}
+                          className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono"
+                        >
+                          {p}
+                        </code>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
