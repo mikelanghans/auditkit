@@ -20,7 +20,7 @@ import { ArrowLeft, ArrowRight, Pencil, Github, Unlink, Plus } from "lucide-reac
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { NewAuditDialog } from "./dashboard";
-import { WebsitesField } from "./clients.index";
+import { WebsitesField, EngagementField, type EngagementValue } from "./clients.index";
 
 export const Route = createFileRoute("/_authenticated/clients/$id")({
   head: () => ({ meta: [{ title: "Client — AuditKit" }] }),
