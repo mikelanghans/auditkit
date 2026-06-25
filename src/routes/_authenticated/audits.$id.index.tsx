@@ -61,7 +61,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, website_url, client:clients(id, name, websites)")
+        .select("id, title, status, started_at, completed_at, summary, website_url, client:clients(id, name, websites, has_agentic_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data;
@@ -91,15 +91,18 @@ function AuditView() {
 
 
 
+  const hasAgentic = !!(audit.data as any)?.client?.has_agentic_features;
+
   const items = useQuery({
-    queryKey: ["checklist-items"],
+    queryKey: ["checklist-items", { hasAgentic }],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("checklist_items")
         .select("id, category, title, description, severity, sort_order, what_to_look_for").eq("is_active", true)
         .order("sort_order");
       if (error) throw error;
-      return (data ?? []) as Item[];
+      const all = (data ?? []) as Item[];
+      return hasAgentic ? all : all.filter((it) => it.category !== "Agentic AI Security");
     },
   });
 
