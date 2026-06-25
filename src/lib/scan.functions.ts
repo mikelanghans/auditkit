@@ -158,12 +158,13 @@ async function checkViteExposure(base: string, html: string): Promise<CheckResul
   const sources: { url: string; body: string }[] = [{ url: base, body: html }];
   for (const url of scriptUrls) {
     try {
+      await assertSafeOutboundUrl(url);
       const r = await timedFetch(url, { headers: { "user-agent": "AuditKit-Scanner/1.0" } });
       if (!r.ok) continue;
       const text = (await r.text()).slice(0, MAX_BUNDLE_BYTES);
       sources.push({ url, body: text });
     } catch {
-      /* skip */
+      /* skip — SSRF-blocked or fetch error */
     }
   }
 
