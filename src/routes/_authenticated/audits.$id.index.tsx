@@ -576,6 +576,9 @@ function AuditView() {
               <ToggleGroupItem value="na" aria-label="N/A" className="text-xs">
                 <Minus className="h-3.5 w-3.5 mr-1 text-status-na" /> N/A
               </ToggleGroupItem>
+              <ToggleGroupItem value="resolved" aria-label="Resolved" className="text-xs">
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1 text-status-pass" /> Resolved
+              </ToggleGroupItem>
               <ToggleGroupItem value="unrated" aria-label="Unrated" className="text-xs">
                 <Circle className="h-3.5 w-3.5 mr-1 text-muted-foreground" /> Unrated
               </ToggleGroupItem>
