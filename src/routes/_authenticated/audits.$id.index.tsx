@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw, ChevronDown, ClipboardCheck } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw, ChevronDown, ClipboardCheck, History, RotateCcw } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +33,8 @@ import { ExplainButton } from "@/components/explain-button";
 import type { DepFinding } from "@/lib/dep-scan-core";
 import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import { clearAllCachedRepoTokens } from "@/lib/repo-token-cache";
+import { resolveFinding, listFindingHistory } from "@/lib/finding-resolution.functions";
+import { format } from "date-fns";
 
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
@@ -49,7 +51,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { checklist_item_id: string; status: "pass" | "fail" | "na" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null; cursor_prompt?: string | null; claude_prompt?: string | null; explanation?: string | null };
+type Finding = { id?: string; checklist_item_id: string; status: "pass" | "fail" | "na" | "resolved" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null; cursor_prompt?: string | null; claude_prompt?: string | null; explanation?: string | null; resolved_at?: string | null; resolved_via?: "automated_rescan" | "manual_evidence" | null; evidence_text?: string | null; evidence_url?: string | null };
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -111,7 +113,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt, cursor_prompt, claude_prompt, explanation")
+        .select("id, checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt, cursor_prompt, claude_prompt, explanation, resolved_at, resolved_via, evidence_text, evidence_url")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
@@ -576,6 +578,9 @@ function AuditView() {
               <ToggleGroupItem value="na" aria-label="N/A" className="text-xs">
                 <Minus className="h-3.5 w-3.5 mr-1 text-status-na" /> N/A
               </ToggleGroupItem>
+              <ToggleGroupItem value="resolved" aria-label="Resolved" className="text-xs">
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1 text-status-pass" /> Resolved
+              </ToggleGroupItem>
               <ToggleGroupItem value="unrated" aria-label="Unrated" className="text-xs">
                 <Circle className="h-3.5 w-3.5 mr-1 text-muted-foreground" /> Unrated
               </ToggleGroupItem>
@@ -762,12 +767,14 @@ function ItemRow({
     status === "pass" ? "border-l-status-pass" :
     status === "fail" ? "border-l-status-fail" :
     status === "na" ? "border-l-status-na" :
+    status === "resolved" ? "border-l-status-pass" :
     "border-l-transparent";
 
   const statusBg =
     status === "pass" ? "bg-status-pass/[0.04]" :
     status === "fail" ? "bg-status-fail/[0.04]" :
     status === "na" ? "bg-status-na/[0.04]" :
+    status === "resolved" ? "bg-status-pass/[0.06]" :
     "";
 
   return (
@@ -799,6 +806,7 @@ function ItemRow({
               <RecheckItemButton auditId={auditId} checklistItemId={item.id} savedRepos={savedRepos} />
             </>
           )}
+          {finding?.id && <HistoryButton findingId={finding.id} itemTitle={item.title} />}
           <div className="flex items-center gap-1">
             <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
             <StatusBtn label="Fail" icon={<X className="h-4 w-4" />} active={status === "fail"} color="fail" onClick={() => onSet("fail", notes || null)} />
@@ -806,6 +814,36 @@ function ItemRow({
           </div>
         </div>
       </div>
+
+      {status === "resolved" && (
+        <div className="mt-3 rounded-md border border-status-pass/40 bg-status-pass/[0.06] p-3 flex items-start justify-between gap-3 flex-wrap">
+          <div className="text-sm">
+            <div className="flex items-center gap-2 font-medium text-status-pass">
+              <CheckCircle2 className="h-4 w-4" /> Resolved
+              <span className="text-xs text-muted-foreground font-normal">
+                {finding?.resolved_at ? `· ${format(new Date(finding.resolved_at), "MMM d, yyyy")}` : ""}
+                {finding?.resolved_via === "automated_rescan" ? " · Auto re-scan" : finding?.resolved_via === "manual_evidence" ? " · Manual evidence" : ""}
+              </span>
+            </div>
+            {finding?.evidence_text && (
+              <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">{finding.evidence_text}</p>
+            )}
+            {finding?.evidence_url && (
+              <a href={finding.evidence_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-1">
+                <ExternalLink className="h-3 w-3" /> Evidence link
+              </a>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => onSet("fail", notes || finding?.evidence_text || null)}
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> Reopen
+          </Button>
+        </div>
+      )}
 
       {item.what_to_look_for && (
         <div className="mt-3 rounded-md border border-border bg-muted/40 p-3">
@@ -874,6 +912,12 @@ function ItemRow({
               }}
             />
           </div>
+          <ResolveButton
+            auditId={auditId}
+            checklistItemId={item.id}
+            isAutomated={!!finding?.auto_scanned}
+            checklistKey={null}
+          />
         </div>
       )}
     </Card>
@@ -1219,3 +1263,176 @@ function AIEndpointsDiscoveredPanel({
   );
 }
 
+
+const EVENT_LABEL: Record<string, string> = {
+  flagged: "Flagged",
+  fix_submitted: "Fix submitted",
+  rescanned: "Re-scanned",
+  resolved: "Resolved",
+  reopened: "Reopened",
+};
+
+function HistoryButton({ findingId, itemTitle }: { findingId: string; itemTitle: string }) {
+  const [open, setOpen] = useState(false);
+  const fetchHistory = useServerFn(listFindingHistory);
+  const { data, isLoading } = useQuery({
+    queryKey: ["finding-history", findingId],
+    queryFn: () => fetchHistory({ data: { findingId } }),
+    enabled: open,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1 h-8">
+          <History className="h-3.5 w-3.5" /> History
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><History className="h-4 w-4" /> Finding history</DialogTitle>
+          <DialogDescription className="line-clamp-2">{itemTitle}</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-y-auto">
+          {isLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading timeline…
+            </div>
+          )}
+          {!isLoading && (!data || data.length === 0) && (
+            <p className="text-sm text-muted-foreground py-6 text-center">No history yet.</p>
+          )}
+          {!isLoading && data && data.length > 0 && (
+            <ol className="relative border-l border-border ml-3 space-y-4 py-2">
+              {data.map((row: any) => (
+                <li key={row.id} className="ml-4">
+                  <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-primary border-2 border-background" />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs uppercase tracking-wide font-semibold text-foreground">
+                      {EVENT_LABEL[row.event_type] ?? row.event_type}
+                    </span>
+                    <time className="text-xs text-muted-foreground">
+                      {format(new Date(row.created_at), "MMM d, yyyy · h:mm a")}
+                    </time>
+                  </div>
+                  {row.evidence_text && (
+                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">{row.evidence_text}</p>
+                  )}
+                  {row.evidence_url && (
+                    <a href={row.evidence_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-1">
+                      <ExternalLink className="h-3 w-3" /> {row.evidence_url}
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResolveButton({
+  auditId, checklistItemId, isAutomated,
+}: { auditId: string; checklistItemId: string; isAutomated: boolean; checklistKey: string | null }) {
+  const qc = useQueryClient();
+  const resolve = useServerFn(resolveFinding);
+  const [open, setOpen] = useState(false);
+  const [evidenceText, setEvidenceText] = useState("");
+  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [pending, setPending] = useState(false);
+
+  const submit = async (mode: "automated" | "manual") => {
+    setPending(true);
+    const tid = toast.loading(mode === "automated" ? "Re-running scanner…" : "Submitting evidence…");
+    try {
+      const res: any = await resolve({
+        data: {
+          auditId,
+          checklistItemId,
+          mode,
+          evidenceText: mode === "manual" ? evidenceText.trim() : null,
+          evidenceUrl: mode === "manual" && evidenceUrl.trim() ? evidenceUrl.trim() : null,
+        },
+      });
+      await qc.invalidateQueries({ queryKey: ["findings", auditId] });
+      if (res?.ok === false && res?.reason === "rescan_still_failing") {
+        toast.error("Re-scan still failing — cannot mark resolved", { id: tid });
+      } else {
+        toast.success("Finding marked resolved", { id: tid });
+        setOpen(false);
+        setEvidenceText("");
+        setEvidenceUrl("");
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not resolve finding", { id: tid });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="default" size="sm" className="gap-1 h-8 bg-status-pass hover:bg-status-pass/90 text-white">
+          <CheckCircle2 className="h-3.5 w-3.5" /> Mark resolved
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Mark finding as resolved</DialogTitle>
+          <DialogDescription>
+            {isAutomated
+              ? "This finding came from an automated scanner. Re-run the scan to verify the fix — the status will only flip to resolved if the scanner returns pass."
+              : "Describe the fix you applied. A short evidence note is required; an optional link can be a PR, screenshot, or ticket."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {isAutomated ? (
+          <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+            Clicking <span className="font-semibold text-foreground">Re-scan & verify</span> will re-run the relevant surface
+            scanner against this audit. A timeline entry will be written with the before/after result.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="evidence-text">Evidence / description of the fix <span className="text-status-fail">*</span></Label>
+              <Textarea
+                id="evidence-text"
+                value={evidenceText}
+                onChange={(e) => setEvidenceText(e.target.value)}
+                placeholder="What did you change, where, and how was it verified?"
+                rows={4}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="evidence-url">Evidence link (optional)</Label>
+              <Input
+                id="evidence-url"
+                value={evidenceUrl}
+                onChange={(e) => setEvidenceUrl(e.target.value)}
+                placeholder="https://github.com/org/repo/pull/123 or screenshot URL"
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={pending}>Cancel</Button>
+          {isAutomated ? (
+            <Button onClick={() => submit("automated")} disabled={pending} className="gap-1">
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Re-scan & verify
+            </Button>
+          ) : (
+            <Button onClick={() => submit("manual")} disabled={pending || !evidenceText.trim()} className="gap-1">
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Submit & resolve
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

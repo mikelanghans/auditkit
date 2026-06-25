@@ -1,16 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain } from "lucide-react";
+import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { ExplainButton } from "@/components/explain-button";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { listResolvedFindings } from "@/lib/finding-resolution.functions";
 import {
   computeSecurityScore,
   gradeTone,
@@ -19,6 +21,7 @@ import {
   launchRecommendation,
   type RiskBreakdown,
 } from "@/lib/security-score";
+
 
 export const Route = createFileRoute("/_authenticated/audits/$id/report")({
   head: () => ({ meta: [{ title: "Report — AuditKit" }] }),
@@ -206,7 +209,10 @@ function ReportPage() {
         ))}
 
         <ArchitecturalRiskSection findings={archFindings.data ?? []} />
+
+        <ResolvedFindingsAppendix auditId={id} />
       </div>
+
 
       <style>{`
         @media print {
@@ -655,3 +661,80 @@ function ArchitecturalRiskSection({ findings }: { findings: ArchFinding[] }) {
   );
 }
 
+
+function ResolvedFindingsAppendix({ auditId }: { auditId: string }) {
+  const fetchResolved = useServerFn(listResolvedFindings);
+  const { data, isLoading } = useQuery({
+    queryKey: ["resolved-findings", auditId],
+    queryFn: () => fetchResolved({ data: { auditId } }),
+  });
+
+  if (isLoading) return null;
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="mt-10 pt-6 border-t-2 border-dashed border-border break-inside-avoid">
+      <h2 className="text-lg font-semibold flex items-center gap-2 mb-1">
+        <CheckCircle2 className="h-5 w-5 text-status-pass" />
+        Appendix · Resolved Findings
+      </h2>
+      <p className="text-xs text-muted-foreground mb-4">
+        Findings that were verified as fixed during this audit. Each entry shows the date verified and
+        whether verification came from an automated re-scan or manually submitted evidence.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border border-border rounded-md">
+          <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="text-left p-2 font-medium">Finding</th>
+              <th className="text-left p-2 font-medium">Category</th>
+              <th className="text-left p-2 font-medium">Verified</th>
+              <th className="text-left p-2 font-medium">Method</th>
+              <th className="text-left p-2 font-medium">Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.finding_id} className="border-t border-border align-top">
+                <td className="p-2 font-medium">{r.title}</td>
+                <td className="p-2 text-muted-foreground">{r.category}</td>
+                <td className="p-2 whitespace-nowrap text-muted-foreground">
+                  {r.resolved_at ? format(new Date(r.resolved_at), "MMM d, yyyy") : "—"}
+                </td>
+                <td className="p-2">
+                  <span className={cn(
+                    "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    r.resolved_via === "automated_rescan"
+                      ? "bg-status-pass/15 text-status-pass"
+                      : "bg-primary/10 text-primary",
+                  )}>
+                    {r.resolved_via === "automated_rescan" ? (
+                      <><RefreshCw className="h-3 w-3" /> Auto re-scan</>
+                    ) : (
+                      <><Check className="h-3 w-3" /> Manual evidence</>
+                    )}
+                  </span>
+                </td>
+                <td className="p-2 text-xs text-muted-foreground max-w-[28ch]">
+                  {r.evidence_text ? (
+                    <span title={r.evidence_text}>{r.evidence_text.length > 80 ? r.evidence_text.slice(0, 80) + "…" : r.evidence_text}</span>
+                  ) : r.resolved_via === "automated_rescan" ? (
+                    <span className="italic">Re-scan returned pass</span>
+                  ) : (
+                    <span>—</span>
+                  )}
+                  {r.evidence_url && (
+                    <a href={r.evidence_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 ml-1 text-primary hover:underline">
+                      <ExternalLink className="h-3 w-3" /> link
+                    </a>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
