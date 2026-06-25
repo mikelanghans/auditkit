@@ -607,7 +607,9 @@ function AuditView() {
               />
             );
           })}
+          </section>
         </div>
+
       </div>
     </div>
   );
