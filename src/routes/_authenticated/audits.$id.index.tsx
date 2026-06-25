@@ -806,6 +806,7 @@ function ItemRow({
               <RecheckItemButton auditId={auditId} checklistItemId={item.id} savedRepos={savedRepos} />
             </>
           )}
+          {finding?.id && <HistoryButton findingId={finding.id} itemTitle={item.title} />}
           <div className="flex items-center gap-1">
             <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
             <StatusBtn label="Fail" icon={<X className="h-4 w-4" />} active={status === "fail"} color="fail" onClick={() => onSet("fail", notes || null)} />
@@ -813,6 +814,36 @@ function ItemRow({
           </div>
         </div>
       </div>
+
+      {status === "resolved" && (
+        <div className="mt-3 rounded-md border border-status-pass/40 bg-status-pass/[0.06] p-3 flex items-start justify-between gap-3 flex-wrap">
+          <div className="text-sm">
+            <div className="flex items-center gap-2 font-medium text-status-pass">
+              <CheckCircle2 className="h-4 w-4" /> Resolved
+              <span className="text-xs text-muted-foreground font-normal">
+                {finding?.resolved_at ? `· ${format(new Date(finding.resolved_at), "MMM d, yyyy")}` : ""}
+                {finding?.resolved_via === "automated_rescan" ? " · Auto re-scan" : finding?.resolved_via === "manual_evidence" ? " · Manual evidence" : ""}
+              </span>
+            </div>
+            {finding?.evidence_text && (
+              <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">{finding.evidence_text}</p>
+            )}
+            {finding?.evidence_url && (
+              <a href={finding.evidence_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-1">
+                <ExternalLink className="h-3 w-3" /> Evidence link
+              </a>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => onSet("fail", notes || finding?.evidence_text || null)}
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> Reopen
+          </Button>
+        </div>
+      )}
 
       {item.what_to_look_for && (
         <div className="mt-3 rounded-md border border-border bg-muted/40 p-3">
