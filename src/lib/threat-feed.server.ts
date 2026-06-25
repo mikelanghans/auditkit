@@ -65,12 +65,13 @@ async function fetchGithubAdvisories(sinceIso: string): Promise<RawAdvisory[]> {
 
     out.push({
       source: "github",
-      external_id: n.ghsaId,
-      advisory_url: n.permalink ?? null,
-      raw_title: `[${n.severity}] ${n.summary}`.slice(0, 500),
+      external_id: n.ghsa_id ?? n.cve_id ?? n.id,
+      advisory_url: n.html_url ?? n.url ?? null,
+      raw_title: `[${n.severity ?? "unknown"}] ${n.summary ?? ""}`.slice(0, 500),
       raw_summary: String(n.description ?? "").slice(0, 4000) +
         `\n\nAffected packages: ${pkgs.join(", ")}`,
     });
+
   }
   return out;
 }
