@@ -1263,3 +1263,176 @@ function AIEndpointsDiscoveredPanel({
   );
 }
 
+
+const EVENT_LABEL: Record<string, string> = {
+  flagged: "Flagged",
+  fix_submitted: "Fix submitted",
+  rescanned: "Re-scanned",
+  resolved: "Resolved",
+  reopened: "Reopened",
+};
+
+function HistoryButton({ findingId, itemTitle }: { findingId: string; itemTitle: string }) {
+  const [open, setOpen] = useState(false);
+  const fetchHistory = useServerFn(listFindingHistory);
+  const { data, isLoading } = useQuery({
+    queryKey: ["finding-history", findingId],
+    queryFn: () => fetchHistory({ data: { findingId } }),
+    enabled: open,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1 h-8">
+          <History className="h-3.5 w-3.5" /> History
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><History className="h-4 w-4" /> Finding history</DialogTitle>
+          <DialogDescription className="line-clamp-2">{itemTitle}</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-y-auto">
+          {isLoading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading timeline…
+            </div>
+          )}
+          {!isLoading && (!data || data.length === 0) && (
+            <p className="text-sm text-muted-foreground py-6 text-center">No history yet.</p>
+          )}
+          {!isLoading && data && data.length > 0 && (
+            <ol className="relative border-l border-border ml-3 space-y-4 py-2">
+              {data.map((row: any) => (
+                <li key={row.id} className="ml-4">
+                  <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-primary border-2 border-background" />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs uppercase tracking-wide font-semibold text-foreground">
+                      {EVENT_LABEL[row.event_type] ?? row.event_type}
+                    </span>
+                    <time className="text-xs text-muted-foreground">
+                      {format(new Date(row.created_at), "MMM d, yyyy · h:mm a")}
+                    </time>
+                  </div>
+                  {row.evidence_text && (
+                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">{row.evidence_text}</p>
+                  )}
+                  {row.evidence_url && (
+                    <a href={row.evidence_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-1">
+                      <ExternalLink className="h-3 w-3" /> {row.evidence_url}
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResolveButton({
+  auditId, checklistItemId, isAutomated,
+}: { auditId: string; checklistItemId: string; isAutomated: boolean; checklistKey: string | null }) {
+  const qc = useQueryClient();
+  const resolve = useServerFn(resolveFinding);
+  const [open, setOpen] = useState(false);
+  const [evidenceText, setEvidenceText] = useState("");
+  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [pending, setPending] = useState(false);
+
+  const submit = async (mode: "automated" | "manual") => {
+    setPending(true);
+    const tid = toast.loading(mode === "automated" ? "Re-running scanner…" : "Submitting evidence…");
+    try {
+      const res: any = await resolve({
+        data: {
+          auditId,
+          checklistItemId,
+          mode,
+          evidenceText: mode === "manual" ? evidenceText.trim() : null,
+          evidenceUrl: mode === "manual" && evidenceUrl.trim() ? evidenceUrl.trim() : null,
+        },
+      });
+      await qc.invalidateQueries({ queryKey: ["findings", auditId] });
+      if (res?.ok === false && res?.reason === "rescan_still_failing") {
+        toast.error("Re-scan still failing — cannot mark resolved", { id: tid });
+      } else {
+        toast.success("Finding marked resolved", { id: tid });
+        setOpen(false);
+        setEvidenceText("");
+        setEvidenceUrl("");
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not resolve finding", { id: tid });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="default" size="sm" className="gap-1 h-8 bg-status-pass hover:bg-status-pass/90 text-white">
+          <CheckCircle2 className="h-3.5 w-3.5" /> Mark resolved
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Mark finding as resolved</DialogTitle>
+          <DialogDescription>
+            {isAutomated
+              ? "This finding came from an automated scanner. Re-run the scan to verify the fix — the status will only flip to resolved if the scanner returns pass."
+              : "Describe the fix you applied. A short evidence note is required; an optional link can be a PR, screenshot, or ticket."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {isAutomated ? (
+          <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+            Clicking <span className="font-semibold text-foreground">Re-scan & verify</span> will re-run the relevant surface
+            scanner against this audit. A timeline entry will be written with the before/after result.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="evidence-text">Evidence / description of the fix <span className="text-status-fail">*</span></Label>
+              <Textarea
+                id="evidence-text"
+                value={evidenceText}
+                onChange={(e) => setEvidenceText(e.target.value)}
+                placeholder="What did you change, where, and how was it verified?"
+                rows={4}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="evidence-url">Evidence link (optional)</Label>
+              <Input
+                id="evidence-url"
+                value={evidenceUrl}
+                onChange={(e) => setEvidenceUrl(e.target.value)}
+                placeholder="https://github.com/org/repo/pull/123 or screenshot URL"
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={pending}>Cancel</Button>
+          {isAutomated ? (
+            <Button onClick={() => submit("automated")} disabled={pending} className="gap-1">
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Re-scan & verify
+            </Button>
+          ) : (
+            <Button onClick={() => submit("manual")} disabled={pending || !evidenceText.trim()} className="gap-1">
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Submit & resolve
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
