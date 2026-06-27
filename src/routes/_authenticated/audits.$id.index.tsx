@@ -95,9 +95,10 @@ function AuditView() {
 
 
   const hasAgentic = !!(audit.data as any)?.client?.has_agentic_features;
+  const usesAi = !!(audit.data as any)?.client?.uses_ai_features;
 
   const items = useQuery({
-    queryKey: ["checklist-items", { hasAgentic }],
+    queryKey: ["checklist-items", { hasAgentic, usesAi }],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("checklist_items")
@@ -105,9 +106,14 @@ function AuditView() {
         .order("sort_order");
       if (error) throw error;
       const all = (data ?? []) as Item[];
-      return hasAgentic ? all : all.filter((it) => it.category !== "Agentic AI Security");
+      return all.filter((it) => {
+        if (it.category === "Agentic AI Security" && !hasAgentic) return false;
+        if (it.category === "AI Service Continuity" && !usesAi) return false;
+        return true;
+      });
     },
   });
+
 
   const findings = useQuery({
     queryKey: ["findings", id],
