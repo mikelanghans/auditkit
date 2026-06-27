@@ -156,7 +156,9 @@ function EditClientDialog({ client }: { client: any }) {
           contact_email: contactEmail || null,
           websites: cleaned,
           engagement_type: engagement,
-          has_agentic_features: hasAgentic,
+          uses_ai_features: usesAi,
+          has_agentic_features: usesAi && hasAgentic,
+
           notes: notes || null,
         })
         .eq("id", client.id);
