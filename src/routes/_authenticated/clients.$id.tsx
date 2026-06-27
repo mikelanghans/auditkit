@@ -139,7 +139,9 @@ function EditClientDialog({ client }: { client: any }) {
     setContactEmail(client.contact_email ?? "");
     setWebsites(client.websites && client.websites.length > 0 ? client.websites : [""]);
     setEngagement((client.engagement_type ?? "prospect") as EngagementValue);
+    setUsesAi(!!client.uses_ai_features);
     setHasAgentic(!!client.has_agentic_features);
+
     setNotes(client.notes ?? "");
   }, [open, client]);
 
