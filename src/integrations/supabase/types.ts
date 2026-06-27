@@ -278,6 +278,7 @@ export type Database = {
           name: string
           notes: string | null
           updated_at: string
+          uses_ai_features: boolean
           websites: string[]
         }
         Insert: {
@@ -291,6 +292,7 @@ export type Database = {
           name: string
           notes?: string | null
           updated_at?: string
+          uses_ai_features?: boolean
           websites?: string[]
         }
         Update: {
@@ -304,6 +306,7 @@ export type Database = {
           name?: string
           notes?: string | null
           updated_at?: string
+          uses_ai_features?: boolean
           websites?: string[]
         }
         Relationships: []
