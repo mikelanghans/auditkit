@@ -104,7 +104,7 @@ function NewClientDialog() {
       qc.invalidateQueries({ queryKey: ["clients"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false);
-      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setEngagement("prospect"); setHasAgentic(false); setNotes("");
+      setName(""); setContactName(""); setContactEmail(""); setWebsites([""]); setEngagement("prospect"); setUsesAi(false); setHasAgentic(false); setNotes("");
       toast.success("Client added");
     },
     onError: (e: any) => toast.error(e.message),
