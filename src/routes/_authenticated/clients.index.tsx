@@ -184,9 +184,9 @@ export function EngagementField({ value, onChange }: { value: EngagementValue; o
   );
 }
 
-export function AgenticFeaturesField({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+export function AgenticFeaturesField({ value, onChange, nested = false }: { value: boolean; onChange: (v: boolean) => void; nested?: boolean }) {
   return (
-    <div className="space-y-1.5 rounded-md border p-3">
+    <div className={nested ? "space-y-1.5" : "space-y-1.5 rounded-md border p-3"}>
       <div className="flex items-start justify-between gap-3">
         <Label htmlFor="has-agentic" className="text-sm font-medium leading-snug">
           Does this app give an AI system the ability to take actions on a user's behalf — calling APIs, executing code, accessing files, or operating autonomously across multiple steps without a human approving each one?
@@ -205,6 +205,45 @@ export function AgenticFeaturesField({ value, onChange }: { value: boolean; onCh
     </div>
   );
 }
+
+export function AiFeaturesField({
+  usesAi,
+  setUsesAi,
+  hasAgentic,
+  setHasAgentic,
+}: {
+  usesAi: boolean;
+  setUsesAi: (v: boolean) => void;
+  hasAgentic: boolean;
+  setHasAgentic: (v: boolean) => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <div className="flex items-start justify-between gap-3">
+        <Label htmlFor="uses-ai" className="text-sm font-medium leading-snug">
+          Does this app rely on a third-party AI provider like Claude or OpenAI for any core feature?
+        </Label>
+        <input
+          id="uses-ai"
+          type="checkbox"
+          checked={usesAi}
+          onChange={(e) => {
+            const v = e.target.checked;
+            setUsesAi(v);
+            if (!v) setHasAgentic(false);
+          }}
+          className="mt-1 h-4 w-4 shrink-0 accent-navy"
+        />
+      </div>
+      {usesAi && (
+        <div className="pl-4 border-l-2 border-muted">
+          <AgenticFeaturesField value={hasAgentic} onChange={setHasAgentic} nested />
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 
 
