@@ -76,6 +76,7 @@ function NewClientDialog() {
   const [contactEmail, setContactEmail] = useState("");
   const [websites, setWebsites] = useState<string[]>([""]);
   const [engagement, setEngagement] = useState<"prospect" | "one_time" | "retainer">("prospect");
+  const [usesAi, setUsesAi] = useState(false);
   const [hasAgentic, setHasAgentic] = useState(false);
   const [notes, setNotes] = useState("");
   const qc = useQueryClient();
@@ -91,7 +92,9 @@ function NewClientDialog() {
         contact_email: contactEmail || null,
         websites: cleaned,
         engagement_type: engagement,
-        has_agentic_features: hasAgentic,
+        uses_ai_features: usesAi,
+        has_agentic_features: usesAi && hasAgentic,
+
         notes: notes || null,
         created_by: u.user.id,
       });
