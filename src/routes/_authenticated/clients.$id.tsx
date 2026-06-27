@@ -20,7 +20,7 @@ import { ArrowLeft, ArrowRight, Pencil, Github, Unlink, Plus } from "lucide-reac
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { NewAuditDialog } from "./dashboard";
-import { WebsitesField, EngagementField, AgenticFeaturesField, type EngagementValue } from "./clients.index";
+import { WebsitesField, EngagementField, AiFeaturesField, type EngagementValue } from "./clients.index";
 
 export const Route = createFileRoute("/_authenticated/clients/$id")({
   head: () => ({ meta: [{ title: "Client — AuditKit" }] }),
@@ -126,7 +126,9 @@ function EditClientDialog({ client }: { client: any }) {
     client.websites && client.websites.length > 0 ? client.websites : [""],
   );
   const [engagement, setEngagement] = useState<EngagementValue>((client.engagement_type ?? "prospect") as EngagementValue);
+  const [usesAi, setUsesAi] = useState<boolean>(!!client.uses_ai_features);
   const [hasAgentic, setHasAgentic] = useState<boolean>(!!client.has_agentic_features);
+
   const [notes, setNotes] = useState(client.notes ?? "");
   const qc = useQueryClient();
 
@@ -137,7 +139,9 @@ function EditClientDialog({ client }: { client: any }) {
     setContactEmail(client.contact_email ?? "");
     setWebsites(client.websites && client.websites.length > 0 ? client.websites : [""]);
     setEngagement((client.engagement_type ?? "prospect") as EngagementValue);
+    setUsesAi(!!client.uses_ai_features);
     setHasAgentic(!!client.has_agentic_features);
+
     setNotes(client.notes ?? "");
   }, [open, client]);
 
@@ -152,7 +156,9 @@ function EditClientDialog({ client }: { client: any }) {
           contact_email: contactEmail || null,
           websites: cleaned,
           engagement_type: engagement,
-          has_agentic_features: hasAgentic,
+          uses_ai_features: usesAi,
+          has_agentic_features: usesAi && hasAgentic,
+
           notes: notes || null,
         })
         .eq("id", client.id);
@@ -183,7 +189,7 @@ function EditClientDialog({ client }: { client: any }) {
           <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" />
           <WebsitesField websites={websites} setWebsites={setWebsites} />
           <EngagementField value={engagement} onChange={setEngagement} />
-          <AgenticFeaturesField value={hasAgentic} onChange={setHasAgentic} />
+          <AiFeaturesField usesAi={usesAi} setUsesAi={setUsesAi} hasAgentic={hasAgentic} setHasAgentic={setHasAgentic} />
           <div className="space-y-1.5">
             <Label>Notes</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />

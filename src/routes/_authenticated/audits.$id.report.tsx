@@ -36,7 +36,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features)")
+        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
@@ -44,18 +44,24 @@ function ReportPage() {
   });
 
   const hasAgentic = !!audit.data?.client?.has_agentic_features;
+  const usesAi = !!audit.data?.client?.uses_ai_features;
 
   const items = useQuery({
-    queryKey: ["checklist-items", { hasAgentic }],
+    queryKey: ["checklist-items", { hasAgentic, usesAi }],
     queryFn: async () => {
       const { data } = await supabase
         .from("checklist_items")
         .select("id, category, title, description, severity, sort_order").eq("is_active", true)
         .order("sort_order");
       const all = data ?? [];
-      return hasAgentic ? all : all.filter((it: any) => it.category !== "Agentic AI Security");
+      return all.filter((it: any) => {
+        if (it.category === "Agentic AI Security" && !hasAgentic) return false;
+        if (it.category === "AI Service Continuity" && !usesAi) return false;
+        return true;
+      });
     },
   });
+
 
   const findings = useQuery({
     queryKey: ["findings", id],
