@@ -14,25 +14,40 @@ type Block = { label?: string; body: string };
 //   HTTP/2 200
 //   ...
 // Returns evidence blocks + a verified timestamp if present.
-function parseNotes(raw: string): { blocks: Block[]; verifiedAt: string | null } {
+function prettySource(raw: string): string {
+  const s = raw.trim();
+  const map: Record<string, string> = {
+    "auto-scan": "Surface scan",
+    "auto-scanned": "Surface scan",
+    "surface scan": "Surface scan",
+    "repo scan": "Repository scan",
+    "supabase scan": "Backend scan",
+    "ai assist": "AI Assist scan",
+    "architectural": "Architectural review",
+    "threat feed": "Threat feed",
+  };
+  return map[s.toLowerCase()] ?? s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function parseNotes(raw: string): { blocks: Block[]; verifiedAt: string | null; source: string | null } {
   const text = raw.replace(/\r\n/g, "\n").trim();
-  if (!text) return { blocks: [], verifiedAt: null };
+  if (!text) return { blocks: [], verifiedAt: null, source: null };
 
   let verifiedAt: string | null = null;
+  let source: string | null = null;
   let body = text;
 
-  // Leading provenance line: [Auto-scan ISO], [AI Assist ISO], [Auto-scanned ISO]
-  const m = body.match(/^\[(?:[^\]]*?)\s(\d{4}-\d{2}-\d{2}T[\d:.\-+Z]+)\][^\n]*\n?/);
-  if (m && m[1]) {
-    verifiedAt = m[1];
+  // Leading provenance line: [Auto-scan ISO], [AI Assist ISO], [Repo scan ISO], [Supabase scan ISO]
+  const m = body.match(/^\[([^\]\d][^\]]*?)\s(\d{4}-\d{2}-\d{2}T[\d:.\-+Z]+)\][^\n]*\n?/);
+  if (m) {
+    if (m[1]) source = prettySource(m[1]);
+    if (m[2]) verifiedAt = m[2];
     body = body.slice(m[0].length).trim();
   }
 
   // Split on blank lines (2+ newlines) → separate evidence blocks.
   const chunks = body.split(/\n{2,}/).map((c) => c.trim()).filter(Boolean);
   const blocks: Block[] = chunks.map((chunk) => {
-    // If first line looks like a label (short, ends with no period, OR is a known header),
-    // promote it to the block label.
     const lines = chunk.split("\n");
     const first = lines[0];
     const knownLabel =
@@ -45,7 +60,7 @@ function parseNotes(raw: string): { blocks: Block[]; verifiedAt: string | null }
     return { body: chunk };
   });
 
-  return { blocks, verifiedAt };
+  return { blocks, verifiedAt, source };
 }
 
 function formatVerified(iso: string): string {
