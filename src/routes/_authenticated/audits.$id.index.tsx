@@ -1105,7 +1105,7 @@ function StatusBtn({
   );
 }
 
-function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoResult }: {
+function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoResult, hasRun }: {
   auditId: string;
   appUrl: string | null;
   clientId: string | null;
@@ -1117,6 +1117,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
     aiEndpoints?: DetectedEndpoint[];
     aiDetectError?: string | null;
   }) => void;
+  hasRun?: boolean;
 }) {
 
   const scan = useServerFn(runRepoScan);
@@ -1124,7 +1125,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
 
   return (
     <RepoLauncher
-      trigger={{ label: "Scan Repo", icon: <GitBranch className="h-4 w-4 mr-1" /> }}
+      trigger={{ label: hasRun ? "Re-scan Repo" : "Scan Repo", icon: <GitBranch className="h-4 w-4 mr-1" /> }}
       clientId={clientId}
       savedRepos={savedRepos}
       title="Scan GitHub repo"
