@@ -196,3 +196,57 @@ export function ArchitecturalReviewSection({
     </Card>
   );
 }
+
+function ArchitecturalReviewLauncher({
+  auditId,
+  clientId,
+  savedRepos,
+  hasFindings,
+  onCompleted,
+  run,
+}: {
+  auditId: string;
+  clientId: string | null;
+  savedRepos: SavedRepo[];
+  hasFindings: boolean;
+  onCompleted: () => void;
+  run: ReturnType<typeof useServerFn<typeof runArchitecturalReview>>;
+}) {
+  const lr = useLastRun(`arch:${auditId}`);
+  const ran = hasFindings || lr.hasRun;
+  return (
+    <div className="inline-flex flex-col items-end gap-1">
+      <RepoLauncher
+        trigger={{
+          label: ran ? "Re-run Architectural Review" : "Run Architectural Review",
+          icon: <Sparkles className="h-4 w-4 mr-1" />,
+          className: "bg-cyan-500/15 border-cyan-400/40 text-cyan-100 hover:bg-cyan-500/25 hover:text-white",
+        }}
+        clientId={clientId}
+        savedRepos={savedRepos}
+        title="Run Architectural Review"
+        description="Sends the repo's most security-relevant files plus your existing audit findings to Claude for a cross-cutting structural review."
+        submitLabel="Run review"
+        runningLabel="Reviewing…"
+        loadingToast="Architectural review running…"
+        onRun={async ({ repoUrl, token, loadingToastId }) => {
+          try {
+            const res = await run({ data: { auditId, repoUrl, token } });
+            if (!res.ok) { toast.error(res.error, { id: loadingToastId }); return false; }
+            toast.success(
+              `Architectural review complete — ${res.findings.length} finding${res.findings.length === 1 ? "" : "s"}`,
+              { id: loadingToastId, description: `${res.repo} · ${res.filesScanned} files reviewed` },
+            );
+            lr.mark();
+            onCompleted();
+            return true;
+          } catch (err: any) {
+            toast.error(err?.message ?? "Architectural review failed", { id: loadingToastId });
+            return false;
+          }
+        }}
+      />
+      <LastRunBadge ts={lr.lastRunAt} className="text-cyan-100/80" />
+    </div>
+  );
+}
