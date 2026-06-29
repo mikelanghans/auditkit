@@ -97,6 +97,22 @@ function ActivityLogPage() {
             </h1>
             <p className="text-sm text-muted-foreground">Chronological record of every finding status change in this audit.</p>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={filtered.length === 0}>
+                <Download className="h-4 w-4 mr-1.5" /> Export
+                <Badge variant="secondary" className="ml-2 h-4 px-1.5 text-[10px]">{filtered.length}</Badge>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportCsv(filtered, id)}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" /> Download CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportPdf(filtered, id, { query, eventFilter })}>
+                <FileText className="h-4 w-4 mr-2" /> Download PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
