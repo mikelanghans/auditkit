@@ -79,7 +79,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("architectural_findings")
-        .select("id, title, severity, affected_files, explanation, recommendation, include_in_report")
+        .select("id, title, severity, affected_files, explanation, recommendation, fix_steps, include_in_report")
         .eq("audit_id", id)
         .eq("include_in_report", true)
         .order("created_at", { ascending: true });
