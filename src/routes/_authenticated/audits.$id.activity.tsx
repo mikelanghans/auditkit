@@ -2,12 +2,18 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
-import { ArrowLeft, History, Loader2, ExternalLink, Filter } from "lucide-react";
+import { ArrowLeft, History, Loader2, ExternalLink, Filter, Download, FileText, FileSpreadsheet } from "lucide-react";
 import { format } from "date-fns";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { listAuditActivity, type AuditActivityEvent } from "@/lib/finding-resolution.functions";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/activity")({
@@ -91,6 +97,22 @@ function ActivityLogPage() {
             </h1>
             <p className="text-sm text-muted-foreground">Chronological record of every finding status change in this audit.</p>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={filtered.length === 0}>
+                <Download className="h-4 w-4 mr-1.5" /> Export
+                <Badge variant="secondary" className="ml-2 h-4 px-1.5 text-[10px]">{filtered.length}</Badge>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportCsv(filtered, id)}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" /> Download CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportPdf(filtered, id, { query, eventFilter })}>
+                <FileText className="h-4 w-4 mr-2" /> Download PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -193,4 +215,107 @@ function ActivityLogPage() {
       )}
     </div>
   );
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function csvEscape(value: unknown): string {
+  const s = value == null ? "" : String(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function exportCsv(rows: AuditActivityEvent[], auditId: string) {
+  const headers = [
+    "Timestamp",
+    "Event",
+    "Category",
+    "Finding",
+    "Before",
+    "After",
+    "Performed by",
+    "Evidence",
+    "Evidence URL",
+  ];
+  const lines = [headers.join(",")];
+  for (const r of rows) {
+    lines.push(
+      [
+        format(new Date(r.created_at), "yyyy-MM-dd HH:mm:ss"),
+        EVENT_LABEL[r.event_type] ?? r.event_type,
+        r.item_category,
+        r.item_title,
+        r.before_status ?? "",
+        r.after_status ?? "",
+        r.performer_name ?? "",
+        r.evidence_text ?? "",
+        r.evidence_url ?? "",
+      ]
+        .map(csvEscape)
+        .join(","),
+    );
+  }
+  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  downloadBlob(blob, `audit-${auditId}-activity-${format(new Date(), "yyyyMMdd-HHmm")}.csv`);
+}
+
+async function exportPdf(
+  rows: AuditActivityEvent[],
+  auditId: string,
+  filters: { query: string; eventFilter: string },
+) {
+  const [{ default: jsPDF }, autoTableMod] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
+  const autoTable = (autoTableMod as { default: (doc: unknown, opts: unknown) => void }).default;
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
+  doc.setFontSize(14);
+  doc.text("Audit Activity Log", 40, 40);
+  doc.setFontSize(9);
+  doc.setTextColor(120);
+  const filterBits: string[] = [`Audit: ${auditId}`, `Events: ${rows.length}`];
+  if (filters.eventFilter !== "all") filterBits.push(`Filter: ${EVENT_LABEL[filters.eventFilter] ?? filters.eventFilter}`);
+  if (filters.query.trim()) filterBits.push(`Search: "${filters.query.trim()}"`);
+  filterBits.push(`Generated: ${format(new Date(), "yyyy-MM-dd HH:mm")}`);
+  doc.text(filterBits.join("  ·  "), 40, 56);
+  autoTable(doc, {
+    startY: 72,
+    head: [["Timestamp", "Event", "Category", "Finding", "Status", "By", "Evidence"]],
+    body: rows.map((r) => [
+      format(new Date(r.created_at), "yyyy-MM-dd HH:mm"),
+      EVENT_LABEL[r.event_type] ?? r.event_type,
+      r.item_category,
+      r.item_title,
+      r.before_status && r.after_status
+        ? `${r.before_status} → ${r.after_status}`
+        : r.after_status
+          ? `→ ${r.after_status}`
+          : "",
+      r.performer_name ?? "",
+      [r.evidence_text ?? "", r.evidence_url ?? ""].filter(Boolean).join("\n"),
+    ]),
+    styles: { fontSize: 8, cellPadding: 4, overflow: "linebreak", valign: "top" },
+    headStyles: { fillColor: [30, 30, 30], textColor: 255 },
+    columnStyles: {
+      0: { cellWidth: 90 },
+      1: { cellWidth: 70 },
+      2: { cellWidth: 80 },
+      3: { cellWidth: 160 },
+      4: { cellWidth: 100 },
+      5: { cellWidth: 80 },
+      6: { cellWidth: "auto" },
+    },
+    margin: { left: 40, right: 40 },
+  });
+  doc.save(`audit-${auditId}-activity-${format(new Date(), "yyyyMMdd-HHmm")}.pdf`);
 }
