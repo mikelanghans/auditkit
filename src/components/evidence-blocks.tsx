@@ -100,10 +100,16 @@ function CopyButton({ value, className }: { value: string; className?: string })
 
 export function EvidenceBlocks({ notes, className }: { notes: string | null | undefined; className?: string }) {
   if (!notes || !notes.trim()) return null;
-  const { blocks, verifiedAt } = parseNotes(notes);
+  const { blocks, verifiedAt, source } = parseNotes(notes);
 
   return (
     <div className={cn("space-y-3", className)}>
+      {source && (
+        <div className="inline-flex items-center gap-2 rounded-md border border-border/60 bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+          <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Detected by</span>
+          <span className="text-foreground">{source}</span>
+        </div>
+      )}
       {blocks.map((b, i) => {
         const copyText = b.label ? `${b.label}\n${b.body}` : b.body;
         return (
