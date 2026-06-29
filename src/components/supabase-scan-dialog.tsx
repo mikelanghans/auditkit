@@ -14,11 +14,13 @@ export function SupabaseScanDialog({
   appUrl,
   onDone,
   onResult,
+  hasRun,
 }: {
   auditId: string;
   appUrl?: string | null;
   onDone: () => void;
   onResult: (s: { passes: number; fails: number; project: string; leaks: number; publicBuckets: string[]; bundleMatches: number; at: string }) => void;
+  hasRun?: boolean;
 }) {
   const scan = useServerFn(runSupabaseScan);
   const [open, setOpen] = useState(false);
@@ -95,7 +97,7 @@ export function SupabaseScanDialog({
       <Dialog open={open} onOpenChange={(o) => { if (!pending) { if (!o) reset(); setOpen(o); } }}>
         <DialogTrigger asChild>
           <Button variant="outline">
-            <Database className="h-4 w-4 mr-1" /> Scan Supabase
+            <Database className="h-4 w-4 mr-1" /> {hasRun ? "Re-scan Supabase" : "Scan Supabase"}
           </Button>
         </DialogTrigger>
         <DialogContent className="sm:max-w-lg">

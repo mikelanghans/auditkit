@@ -28,6 +28,7 @@ export function AIScanDialog({
   onResult,
   preset,
   onPresetConsumed,
+  hasRun,
 }: {
   auditId: string;
   appUrl: string | null;
@@ -36,6 +37,7 @@ export function AIScanDialog({
   onResult: (s: { passes: number; fails: number; endpoint: string; critical: number; high: number; medium: number; at: string }) => void;
   preset?: AIScanPreset | null;
   onPresetConsumed?: () => void;
+  hasRun?: boolean;
 }) {
   const scan = useServerFn(runAIScan);
   const detect = useServerFn(detectAIEndpoints);
@@ -189,7 +191,7 @@ export function AIScanDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!pending && !detecting) { if (!o) { reset(); setNeedTokenFor(null); setPendingToken(""); } setOpen(o); } }}>
       <Button variant="outline" onClick={openDialog}>
-        <Bot className="h-4 w-4 mr-1" /> Scan AI Endpoints
+        <Bot className="h-4 w-4 mr-1" /> {hasRun ? "Re-scan AI Endpoints" : "Scan AI Endpoints"}
         {hasRepos && (
           <span className="ml-1.5 inline-flex items-center" title={`${savedRepos.length} repo${savedRepos.length === 1 ? "" : "s"} available for auto-detect`}>
             <Sparkles className="h-3 w-3 text-status-pass" />

@@ -35,6 +35,8 @@ import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import { clearAllCachedRepoTokens } from "@/lib/repo-token-cache";
 import { resolveFinding, listFindingHistory } from "@/lib/finding-resolution.functions";
 import { ScanProgressPanel, defaultSurfaceScanSteps, type ScanProgressState } from "@/components/scan-progress-panel";
+import { useLastRun } from "@/hooks/use-last-run";
+import { LastRunBadge } from "@/components/last-run-badge";
 import { format } from "date-fns";
 
 
@@ -675,6 +677,12 @@ function ShieldScanBanner({
     return () => clearInterval(iv);
   }, [pending]);
 
+  const surfaceLR = useLastRun(`surface:${auditId}`);
+  const repoLR = useLastRun(`repo:${auditId}`);
+  const supabaseLR = useLastRun(`supabase:${auditId}`);
+  const aiLR = useLastRun(`ai:${auditId}`);
+  const aiAssistLR = useLastRun(`aiassist:${auditId}`);
+
   const run = async () => {
     setPending(true);
     const tid = toast.loading("Running SHIELD Surface Scan…");
@@ -685,7 +693,9 @@ function ShieldScanBanner({
         `Surface scan complete — ${res.passes} passed, ${res.fails} failed, ${res.warnings} warnings`,
         { id: tid, description: res.target },
       );
-      onSurfaceResult({ passes: res.passes, fails: res.fails, warnings: res.warnings, target: res.target, at: new Date().toISOString() });
+      const at = new Date().toISOString();
+      onSurfaceResult({ passes: res.passes, fails: res.fails, warnings: res.warnings, target: res.target, at });
+      surfaceLR.mark();
       onDone();
     } catch (e: any) {
       toast.error(e?.message ?? "Scan failed", { id: tid });
@@ -693,6 +703,8 @@ function ShieldScanBanner({
       setTimeout(() => setPending(false), 400);
     }
   };
+
+  const surfaceHasRun = hasScanned || surfaceLR.hasRun;
 
   return (
     <Card className="p-4 border-l-4 border-l-primary bg-primary/[0.03]">
@@ -708,27 +720,39 @@ function ShieldScanBanner({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <Button
-            onClick={run}
-            disabled={pending}
-            variant={hasScanned ? "outline" : "default"}
-          >
-            {pending ? (
-              <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Running SHIELD Surface Scan…</>
-            ) : hasScanned ? (
-              <><Radar className="h-4 w-4 mr-1" /> Re-scan</>
-            ) : (
-              <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
-            )}
-          </Button>
-          <RepoScanDialog auditId={auditId} appUrl={appUrl} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={onRepoResult} />
-          <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
-          <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={onAIResult} preset={aiScanPreset} onPresetConsumed={onAIScanPresetConsumed} />
-
-          <AIAssistDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onResult={onAIAssistResult} />
-          
-          
+        <div className="flex items-start gap-2 flex-wrap min-w-0">
+          <div className="inline-flex flex-col items-start gap-1">
+            <Button
+              onClick={run}
+              disabled={pending}
+              variant={surfaceHasRun ? "outline" : "default"}
+            >
+              {pending ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Running SHIELD Surface Scan…</>
+              ) : surfaceHasRun ? (
+                <><Radar className="h-4 w-4 mr-1" /> Re-scan Surface</>
+              ) : (
+                <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
+              )}
+            </Button>
+            <LastRunBadge ts={surfaceLR.lastRunAt} />
+          </div>
+          <div className="inline-flex flex-col items-start gap-1">
+            <RepoScanDialog auditId={auditId} appUrl={appUrl} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={(s) => { repoLR.mark(); onRepoResult(s); }} hasRun={repoLR.hasRun} />
+            <LastRunBadge ts={repoLR.lastRunAt} />
+          </div>
+          <div className="inline-flex flex-col items-start gap-1">
+            <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={(s) => { supabaseLR.mark(); onSupabaseResult(s); }} hasRun={supabaseLR.hasRun} />
+            <LastRunBadge ts={supabaseLR.lastRunAt} />
+          </div>
+          <div className="inline-flex flex-col items-start gap-1">
+            <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={(s) => { aiLR.mark(); onAIResult(s); }} preset={aiScanPreset} onPresetConsumed={onAIScanPresetConsumed} hasRun={aiLR.hasRun} />
+            <LastRunBadge ts={aiLR.lastRunAt} />
+          </div>
+          <div className="inline-flex flex-col items-start gap-1">
+            <AIAssistDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onResult={(s) => { aiAssistLR.mark(); onAIAssistResult(s); }} hasRun={aiAssistLR.hasRun} />
+            <LastRunBadge ts={aiAssistLR.lastRunAt} />
+          </div>
         </div>
       </div>
       {pending && (
@@ -1081,7 +1105,7 @@ function StatusBtn({
   );
 }
 
-function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoResult }: {
+function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoResult, hasRun }: {
   auditId: string;
   appUrl: string | null;
   clientId: string | null;
@@ -1093,6 +1117,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
     aiEndpoints?: DetectedEndpoint[];
     aiDetectError?: string | null;
   }) => void;
+  hasRun?: boolean;
 }) {
 
   const scan = useServerFn(runRepoScan);
@@ -1100,7 +1125,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
 
   return (
     <RepoLauncher
-      trigger={{ label: "Scan Repo", icon: <GitBranch className="h-4 w-4 mr-1" /> }}
+      trigger={{ label: hasRun ? "Re-scan Repo" : "Scan Repo", icon: <GitBranch className="h-4 w-4 mr-1" /> }}
       clientId={clientId}
       savedRepos={savedRepos}
       title="Scan GitHub repo"
