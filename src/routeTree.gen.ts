@@ -20,6 +20,7 @@ import { Route as AuthenticatedClientsIdRouteImport } from './routes/_authentica
 import { Route as AuthenticatedAuditsIdIndexRouteImport } from './routes/_authenticated/audits.$id.index'
 import { Route as ApiPublicHooksThreatFeedRouteImport } from './routes/api/public/hooks/threat-feed'
 import { Route as AuthenticatedAuditsIdReportRouteImport } from './routes/_authenticated/audits.$id.report'
+import { Route as AuthenticatedAuditsIdActivityRouteImport } from './routes/_authenticated/audits.$id.activity'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -79,6 +80,12 @@ const AuthenticatedAuditsIdReportRoute =
     path: '/audits/$id/report',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAuditsIdActivityRoute =
+  AuthenticatedAuditsIdActivityRouteImport.update({
+    id: '/audits/$id/activity',
+    path: '/audits/$id/activity',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -88,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/threat-feed': typeof AuthenticatedThreatFeedRoute
   '/clients/$id': typeof AuthenticatedClientsIdRoute
   '/clients/': typeof AuthenticatedClientsIndexRoute
+  '/audits/$id/activity': typeof AuthenticatedAuditsIdActivityRoute
   '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/audits/$id/': typeof AuthenticatedAuditsIdIndexRoute
@@ -100,6 +108,7 @@ export interface FileRoutesByTo {
   '/threat-feed': typeof AuthenticatedThreatFeedRoute
   '/clients/$id': typeof AuthenticatedClientsIdRoute
   '/clients': typeof AuthenticatedClientsIndexRoute
+  '/audits/$id/activity': typeof AuthenticatedAuditsIdActivityRoute
   '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/audits/$id': typeof AuthenticatedAuditsIdIndexRoute
@@ -114,6 +123,7 @@ export interface FileRoutesById {
   '/_authenticated/threat-feed': typeof AuthenticatedThreatFeedRoute
   '/_authenticated/clients/$id': typeof AuthenticatedClientsIdRoute
   '/_authenticated/clients/': typeof AuthenticatedClientsIndexRoute
+  '/_authenticated/audits/$id/activity': typeof AuthenticatedAuditsIdActivityRoute
   '/_authenticated/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/_authenticated/audits/$id/': typeof AuthenticatedAuditsIdIndexRoute
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/threat-feed'
     | '/clients/$id'
     | '/clients/'
+    | '/audits/$id/activity'
     | '/audits/$id/report'
     | '/api/public/hooks/threat-feed'
     | '/audits/$id/'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/threat-feed'
     | '/clients/$id'
     | '/clients'
+    | '/audits/$id/activity'
     | '/audits/$id/report'
     | '/api/public/hooks/threat-feed'
     | '/audits/$id'
@@ -153,6 +165,7 @@ export interface FileRouteTypes {
     | '/_authenticated/threat-feed'
     | '/_authenticated/clients/$id'
     | '/_authenticated/clients/'
+    | '/_authenticated/audits/$id/activity'
     | '/_authenticated/audits/$id/report'
     | '/api/public/hooks/threat-feed'
     | '/_authenticated/audits/$id/'
@@ -245,6 +258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAuditsIdReportRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/audits/$id/activity': {
+      id: '/_authenticated/audits/$id/activity'
+      path: '/audits/$id/activity'
+      fullPath: '/audits/$id/activity'
+      preLoaderRoute: typeof AuthenticatedAuditsIdActivityRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
@@ -253,6 +273,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedThreatFeedRoute: typeof AuthenticatedThreatFeedRoute
   AuthenticatedClientsIdRoute: typeof AuthenticatedClientsIdRoute
   AuthenticatedClientsIndexRoute: typeof AuthenticatedClientsIndexRoute
+  AuthenticatedAuditsIdActivityRoute: typeof AuthenticatedAuditsIdActivityRoute
   AuthenticatedAuditsIdReportRoute: typeof AuthenticatedAuditsIdReportRoute
   AuthenticatedAuditsIdIndexRoute: typeof AuthenticatedAuditsIdIndexRoute
 }
@@ -262,6 +283,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedThreatFeedRoute: AuthenticatedThreatFeedRoute,
   AuthenticatedClientsIdRoute: AuthenticatedClientsIdRoute,
   AuthenticatedClientsIndexRoute: AuthenticatedClientsIndexRoute,
+  AuthenticatedAuditsIdActivityRoute: AuthenticatedAuditsIdActivityRoute,
   AuthenticatedAuditsIdReportRoute: AuthenticatedAuditsIdReportRoute,
   AuthenticatedAuditsIdIndexRoute: AuthenticatedAuditsIdIndexRoute,
 }

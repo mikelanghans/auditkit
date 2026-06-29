@@ -308,6 +308,9 @@ function AuditView() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Link to="/audits/$id/activity" params={{ id }}>
+            <Button variant="outline"><History className="h-4 w-4 mr-1" /> Activity</Button>
+          </Link>
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>
           </Link>
