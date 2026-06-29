@@ -1,0 +1,1 @@
+ALTER TABLE public.architectural_findings ADD COLUMN IF NOT EXISTS fix_steps jsonb NOT NULL DEFAULT '[]'::jsonb;
