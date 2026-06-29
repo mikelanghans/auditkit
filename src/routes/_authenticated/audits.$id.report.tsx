@@ -594,6 +594,7 @@ type ArchFinding = {
   affected_files: string[] | any;
   explanation: string | null;
   recommendation: string | null;
+  fix_steps?: string[] | any;
 };
 
 const ARCH_SEV_BANNER: Record<string, string> = {
