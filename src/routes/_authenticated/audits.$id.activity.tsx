@@ -2,12 +2,18 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
-import { ArrowLeft, History, Loader2, ExternalLink, Filter } from "lucide-react";
+import { ArrowLeft, History, Loader2, ExternalLink, Filter, Download, FileText, FileSpreadsheet } from "lucide-react";
 import { format } from "date-fns";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { listAuditActivity, type AuditActivityEvent } from "@/lib/finding-resolution.functions";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/activity")({
