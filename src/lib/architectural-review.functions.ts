@@ -158,7 +158,15 @@ const ARCH_SYSTEM_PROMPT =
   "public.\" Be specific and cite the actual files or function names involved. Return a JSON array of " +
   "findings with fields: title (the one-sentence finding in that exact blunt style), severity " +
   "(critical/high/medium/low), affected_files (array of file paths or names), explanation (2-3 sentences " +
-  "of supporting detail), recommendation (what to consolidate, restrict, or fix). Return only valid JSON.";
+  "of supporting detail), recommendation (1-2 sentence high-level direction of what to consolidate, " +
+  "restrict, or fix), fix_steps (an ordered array of 3-7 concrete, project-specific remediation steps " +
+  "a developer can execute in THIS repo — each step must name the actual file path, function, table, " +
+  "policy, route, or symbol from the source provided, e.g. \"Delete the duplicate auth helper in " +
+  "src/lib/legacy-auth.ts and update its 4 importers to use requireSupabaseAuth from " +
+  "src/integrations/supabase/auth-middleware.ts\". Do NOT write generic advice like \"add input " +
+  "validation\" or \"use RLS\" — every step must reference something that actually exists in the files " +
+  "above). Return only valid JSON.";
+
 
 export const runArchitecturalReview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
