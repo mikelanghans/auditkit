@@ -47,12 +47,13 @@ export function ArchitecturalReviewSection({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("architectural_findings")
-        .select("id, audit_id, title, severity, affected_files, explanation, recommendation, include_in_report, created_at")
+        .select("id, audit_id, title, severity, affected_files, explanation, recommendation, fix_steps, include_in_report, created_at")
         .eq("audit_id", auditId)
         .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as ArchitecturalFindingRow[];
     },
+
   });
 
   const [busyId, setBusyId] = useState<string | null>(null);
