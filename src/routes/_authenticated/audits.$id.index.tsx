@@ -720,27 +720,39 @@ function ShieldScanBanner({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <Button
-            onClick={run}
-            disabled={pending}
-            variant={hasScanned ? "outline" : "default"}
-          >
-            {pending ? (
-              <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Running SHIELD Surface Scan…</>
-            ) : hasScanned ? (
-              <><Radar className="h-4 w-4 mr-1" /> Re-scan</>
-            ) : (
-              <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
-            )}
-          </Button>
-          <RepoScanDialog auditId={auditId} appUrl={appUrl} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={onRepoResult} />
-          <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={onSupabaseResult} />
-          <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={onAIResult} preset={aiScanPreset} onPresetConsumed={onAIScanPresetConsumed} />
-
-          <AIAssistDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onResult={onAIAssistResult} />
-          
-          
+        <div className="flex items-start gap-2 flex-wrap min-w-0">
+          <div className="inline-flex flex-col items-start gap-1">
+            <Button
+              onClick={run}
+              disabled={pending}
+              variant={surfaceHasRun ? "outline" : "default"}
+            >
+              {pending ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Running SHIELD Surface Scan…</>
+              ) : surfaceHasRun ? (
+                <><Radar className="h-4 w-4 mr-1" /> Re-scan Surface</>
+              ) : (
+                <><Sparkles className="h-4 w-4 mr-1" /> Run Surface Scan</>
+              )}
+            </Button>
+            <LastRunBadge ts={surfaceLR.lastRunAt} />
+          </div>
+          <div className="inline-flex flex-col items-start gap-1">
+            <RepoScanDialog auditId={auditId} appUrl={appUrl} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onRepoResult={(s) => { repoLR.mark(); onRepoResult(s); }} hasRun={repoLR.hasRun} />
+            <LastRunBadge ts={repoLR.lastRunAt} />
+          </div>
+          <div className="inline-flex flex-col items-start gap-1">
+            <SupabaseScanDialog auditId={auditId} appUrl={appUrl} onDone={onDone} onResult={(s) => { supabaseLR.mark(); onSupabaseResult(s); }} hasRun={supabaseLR.hasRun} />
+            <LastRunBadge ts={supabaseLR.lastRunAt} />
+          </div>
+          <div className="inline-flex flex-col items-start gap-1">
+            <AIScanDialog auditId={auditId} appUrl={appUrl} savedRepos={savedRepos} onDone={onDone} onResult={(s) => { aiLR.mark(); onAIResult(s); }} preset={aiScanPreset} onPresetConsumed={onAIScanPresetConsumed} hasRun={aiLR.hasRun} />
+            <LastRunBadge ts={aiLR.lastRunAt} />
+          </div>
+          <div className="inline-flex flex-col items-start gap-1">
+            <AIAssistDialog auditId={auditId} clientId={clientId} savedRepos={savedRepos} onDone={onDone} onResult={(s) => { aiAssistLR.mark(); onAIAssistResult(s); }} hasRun={aiAssistLR.hasRun} />
+            <LastRunBadge ts={aiAssistLR.lastRunAt} />
+          </div>
         </div>
       </div>
       {pending && (
