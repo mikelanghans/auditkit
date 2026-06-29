@@ -251,6 +251,9 @@ export const runArchitecturalReview = createServerFn({ method: "POST" })
           affected_files: affected,
           explanation: f?.explanation ? String(f.explanation).slice(0, 2000) : null,
           recommendation: f?.recommendation ? String(f.recommendation).slice(0, 2000) : null,
+          fix_steps: Array.isArray(f?.fix_steps)
+            ? f.fix_steps.map((s: any) => String(s).slice(0, 600)).filter(Boolean).slice(0, 10)
+            : [],
           include_in_report: true,
         };
       })
@@ -264,7 +267,8 @@ export const runArchitecturalReview = createServerFn({ method: "POST" })
       const { data: ins, error: ierr } = await supabase
         .from("architectural_findings")
         .insert(rows)
-        .select("id, audit_id, title, severity, affected_files, explanation, recommendation, include_in_report, created_at");
+        .select("id, audit_id, title, severity, affected_files, explanation, recommendation, fix_steps, include_in_report, created_at");
+
       if (ierr) return { ok: false as const, error: ierr.message };
       inserted = (ins ?? []) as any;
     }
