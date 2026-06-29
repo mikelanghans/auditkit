@@ -32,6 +32,7 @@ export function AIAssistDialog({
   onDone,
   onResult,
   onSaved,
+  hasRun,
 }: {
   auditId: string;
   clientId?: string | null;
@@ -39,6 +40,7 @@ export function AIAssistDialog({
   onDone: () => void;
   onResult: (s: AIAssistSummary) => void;
   onSaved?: () => void;
+  hasRun?: boolean;
 }) {
   const scan = useServerFn(runAIAssist);
   const [depth, setDepth] = useState<AIAssistDepth>("standard");
@@ -49,7 +51,7 @@ export function AIAssistDialog({
   return (
     <RepoLauncher
       trigger={{
-        label: "AI Assist",
+        label: hasRun ? "Re-run AI Assist" : "AI Assist",
         icon: <Brain className="h-4 w-4 mr-1" />,
         className: "border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300",
       }}
