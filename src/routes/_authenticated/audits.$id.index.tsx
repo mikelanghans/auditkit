@@ -35,6 +35,8 @@ import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import { clearAllCachedRepoTokens } from "@/lib/repo-token-cache";
 import { resolveFinding, listFindingHistory } from "@/lib/finding-resolution.functions";
 import { ScanProgressPanel, defaultSurfaceScanSteps, type ScanProgressState } from "@/components/scan-progress-panel";
+import { useLastRun } from "@/hooks/use-last-run";
+import { LastRunBadge } from "@/components/last-run-badge";
 import { format } from "date-fns";
 
 
@@ -675,6 +677,12 @@ function ShieldScanBanner({
     return () => clearInterval(iv);
   }, [pending]);
 
+  const surfaceLR = useLastRun(`surface:${auditId}`);
+  const repoLR = useLastRun(`repo:${auditId}`);
+  const supabaseLR = useLastRun(`supabase:${auditId}`);
+  const aiLR = useLastRun(`ai:${auditId}`);
+  const aiAssistLR = useLastRun(`aiassist:${auditId}`);
+
   const run = async () => {
     setPending(true);
     const tid = toast.loading("Running SHIELD Surface Scan…");
@@ -685,7 +693,9 @@ function ShieldScanBanner({
         `Surface scan complete — ${res.passes} passed, ${res.fails} failed, ${res.warnings} warnings`,
         { id: tid, description: res.target },
       );
-      onSurfaceResult({ passes: res.passes, fails: res.fails, warnings: res.warnings, target: res.target, at: new Date().toISOString() });
+      const at = new Date().toISOString();
+      onSurfaceResult({ passes: res.passes, fails: res.fails, warnings: res.warnings, target: res.target, at });
+      surfaceLR.mark();
       onDone();
     } catch (e: any) {
       toast.error(e?.message ?? "Scan failed", { id: tid });
@@ -693,6 +703,8 @@ function ShieldScanBanner({
       setTimeout(() => setPending(false), 400);
     }
   };
+
+  const surfaceHasRun = hasScanned || surfaceLR.hasRun;
 
   return (
     <Card className="p-4 border-l-4 border-l-primary bg-primary/[0.03]">
