@@ -25,9 +25,11 @@ export type ArchitecturalFindingRow = {
   affected_files: string[];
   explanation: string | null;
   recommendation: string | null;
+  fix_steps: string[];
   include_in_report: boolean;
   created_at: string;
 };
+
 
 function parseRepo(raw: string): { owner: string; repo: string } | null {
   try {
