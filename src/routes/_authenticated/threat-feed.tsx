@@ -15,6 +15,8 @@ import {
   approveThreatFeedItem,
   rejectThreatFeedItem,
 } from "@/lib/threat-feed.functions";
+import { useLastRun } from "@/hooks/use-last-run";
+import { LastRunBadge } from "@/components/last-run-badge";
 
 export const Route = createFileRoute("/_authenticated/threat-feed")({
   head: () => ({ meta: [{ title: "Threat Feed — AuditKit" }] }),
@@ -45,11 +47,15 @@ function ThreatFeed() {
   const approveFn = useServerFn(approveThreatFeedItem);
   const rejectFn = useServerFn(rejectThreatFeedItem);
 
+  const threatLR = useLastRun("threat-feed:global");
   const runCheck = useMutation({
     mutationFn: async () => runFn(),
     onSuccess: (r: any) => {
       if (r?.ok === false) toast.error(r.error ?? "Failed.");
-      else toast.success(`Fetched ${r.fetched}, added ${r.inserted}, skipped ${r.skipped}.`);
+      else {
+        toast.success(`Fetched ${r.fetched}, added ${r.inserted}, skipped ${r.skipped}.`);
+        threatLR.mark();
+      }
       qc.invalidateQueries({ queryKey: ["threat-feed"] });
       qc.invalidateQueries({ queryKey: ["threat-feed-pending-count"] });
     },
@@ -87,10 +93,13 @@ function ThreatFeed() {
             Daily-ingested security advisories from GitHub and NVD, drafted into checklist items by AI.
           </p>
         </div>
-        <Button onClick={() => runCheck.mutate()} disabled={runCheck.isPending}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${runCheck.isPending ? "animate-spin" : ""}`} />
-          Run check now
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button onClick={() => runCheck.mutate()} disabled={runCheck.isPending}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${runCheck.isPending ? "animate-spin" : ""}`} />
+            {threatLR.hasRun ? "Re-run check" : "Run check now"}
+          </Button>
+          <LastRunBadge ts={threatLR.lastRunAt} />
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as Status)}>
