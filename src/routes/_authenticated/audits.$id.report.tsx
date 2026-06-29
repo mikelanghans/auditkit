@@ -79,7 +79,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("architectural_findings")
-        .select("id, title, severity, affected_files, explanation, recommendation, include_in_report")
+        .select("id, title, severity, affected_files, explanation, recommendation, fix_steps, include_in_report")
         .eq("audit_id", id)
         .eq("include_in_report", true)
         .order("created_at", { ascending: true });
@@ -594,6 +594,7 @@ type ArchFinding = {
   affected_files: string[] | any;
   explanation: string | null;
   recommendation: string | null;
+  fix_steps?: string[] | any;
 };
 
 const ARCH_SEV_BANNER: Record<string, string> = {
@@ -639,6 +640,18 @@ function ArchitecturalRiskSection({ findings }: { findings: ArchFinding[] }) {
                   <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
                     <span className="font-semibold">Recommendation: </span>
                     {f.recommendation}
+                  </div>
+                )}
+                {Array.isArray(f.fix_steps) && f.fix_steps.length > 0 && (
+                  <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 px-3 py-2 text-sm">
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-cyan-700 dark:text-cyan-300 mb-1.5">
+                      Project-specific fix steps
+                    </div>
+                    <ol className="list-decimal pl-5 space-y-1 text-foreground/90 leading-relaxed">
+                      {(f.fix_steps as string[]).map((step, i) => (
+                        <li key={i}>{step}</li>
+                      ))}
+                    </ol>
                   </div>
                 )}
                 {files.length > 0 && (

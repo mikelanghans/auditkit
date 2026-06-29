@@ -25,9 +25,11 @@ export type ArchitecturalFindingRow = {
   affected_files: string[];
   explanation: string | null;
   recommendation: string | null;
+  fix_steps: string[];
   include_in_report: boolean;
   created_at: string;
 };
+
 
 function parseRepo(raw: string): { owner: string; repo: string } | null {
   try {
@@ -156,7 +158,15 @@ const ARCH_SYSTEM_PROMPT =
   "public.\" Be specific and cite the actual files or function names involved. Return a JSON array of " +
   "findings with fields: title (the one-sentence finding in that exact blunt style), severity " +
   "(critical/high/medium/low), affected_files (array of file paths or names), explanation (2-3 sentences " +
-  "of supporting detail), recommendation (what to consolidate, restrict, or fix). Return only valid JSON.";
+  "of supporting detail), recommendation (1-2 sentence high-level direction of what to consolidate, " +
+  "restrict, or fix), fix_steps (an ordered array of 3-7 concrete, project-specific remediation steps " +
+  "a developer can execute in THIS repo — each step must name the actual file path, function, table, " +
+  "policy, route, or symbol from the source provided, e.g. \"Delete the duplicate auth helper in " +
+  "src/lib/legacy-auth.ts and update its 4 importers to use requireSupabaseAuth from " +
+  "src/integrations/supabase/auth-middleware.ts\". Do NOT write generic advice like \"add input " +
+  "validation\" or \"use RLS\" — every step must reference something that actually exists in the files " +
+  "above). Return only valid JSON.";
+
 
 export const runArchitecturalReview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -241,6 +251,9 @@ export const runArchitecturalReview = createServerFn({ method: "POST" })
           affected_files: affected,
           explanation: f?.explanation ? String(f.explanation).slice(0, 2000) : null,
           recommendation: f?.recommendation ? String(f.recommendation).slice(0, 2000) : null,
+          fix_steps: Array.isArray(f?.fix_steps)
+            ? f.fix_steps.map((s: any) => String(s).slice(0, 600)).filter(Boolean).slice(0, 10)
+            : [],
           include_in_report: true,
         };
       })
@@ -254,7 +267,8 @@ export const runArchitecturalReview = createServerFn({ method: "POST" })
       const { data: ins, error: ierr } = await supabase
         .from("architectural_findings")
         .insert(rows)
-        .select("id, audit_id, title, severity, affected_files, explanation, recommendation, include_in_report, created_at");
+        .select("id, audit_id, title, severity, affected_files, explanation, recommendation, fix_steps, include_in_report, created_at");
+
       if (ierr) return { ok: false as const, error: ierr.message };
       inserted = (ins ?? []) as any;
     }

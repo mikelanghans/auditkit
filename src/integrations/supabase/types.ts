@@ -20,6 +20,7 @@ export type Database = {
           audit_id: string
           created_at: string
           explanation: string | null
+          fix_steps: Json
           id: string
           include_in_report: boolean
           recommendation: string | null
@@ -32,6 +33,7 @@ export type Database = {
           audit_id: string
           created_at?: string
           explanation?: string | null
+          fix_steps?: Json
           id?: string
           include_in_report?: boolean
           recommendation?: string | null
@@ -44,6 +46,7 @@ export type Database = {
           audit_id?: string
           created_at?: string
           explanation?: string | null
+          fix_steps?: Json
           id?: string
           include_in_report?: boolean
           recommendation?: string | null

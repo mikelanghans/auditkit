@@ -47,12 +47,13 @@ export function ArchitecturalReviewSection({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("architectural_findings")
-        .select("id, audit_id, title, severity, affected_files, explanation, recommendation, include_in_report, created_at")
+        .select("id, audit_id, title, severity, affected_files, explanation, recommendation, fix_steps, include_in_report, created_at")
         .eq("audit_id", auditId)
         .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as ArchitecturalFindingRow[];
     },
+
   });
 
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -136,6 +137,19 @@ export function ArchitecturalReviewSection({
                         <span className="font-semibold text-slate-100">Recommendation: </span>{f.recommendation}
                       </p>
                     )}
+                    {f.fix_steps && f.fix_steps.length > 0 && (
+                      <div className="mt-2 rounded border border-cyan-500/20 bg-cyan-500/5 p-2">
+                        <div className="text-[10px] uppercase tracking-wide text-cyan-200/90 font-semibold mb-1">
+                          Project-specific fix steps
+                        </div>
+                        <ol className="list-decimal pl-5 space-y-1 text-slate-200/90 leading-relaxed">
+                          {f.fix_steps.map((step, i) => (
+                            <li key={i}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+
                     {f.affected_files.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {f.affected_files.map((p) => (
