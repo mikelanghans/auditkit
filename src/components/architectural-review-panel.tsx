@@ -16,6 +16,8 @@ import {
   deleteArchitecturalFinding,
   type ArchitecturalFindingRow,
 } from "@/lib/architectural-review.functions";
+import { useLastRun } from "@/hooks/use-last-run";
+import { LastRunBadge } from "@/components/last-run-badge";
 
 const SEV_TONE: Record<string, string> = {
   critical: "border-status-fail/60 text-status-fail",
@@ -77,34 +79,13 @@ export function ArchitecturalReviewSection({
             </p>
           </div>
         </div>
-        <RepoLauncher
-          trigger={{
-            label: hasFindings ? "Re-run Architectural Review" : "Run Architectural Review",
-            icon: <Sparkles className="h-4 w-4 mr-1" />,
-            className: "bg-cyan-500/15 border-cyan-400/40 text-cyan-100 hover:bg-cyan-500/25 hover:text-white",
-          }}
+        <ArchitecturalReviewLauncher
+          auditId={auditId}
           clientId={clientId}
           savedRepos={savedRepos}
-          title="Run Architectural Review"
-          description="Sends the repo's most security-relevant files plus your existing audit findings to Claude for a cross-cutting structural review."
-          submitLabel="Run review"
-          runningLabel="Reviewing…"
-          loadingToast="Architectural review running…"
-          onRun={async ({ repoUrl, token, loadingToastId }) => {
-            try {
-              const res = await run({ data: { auditId, repoUrl, token } });
-              if (!res.ok) { toast.error(res.error, { id: loadingToastId }); return false; }
-              toast.success(
-                `Architectural review complete — ${res.findings.length} finding${res.findings.length === 1 ? "" : "s"}`,
-                { id: loadingToastId, description: `${res.repo} · ${res.filesScanned} files reviewed` },
-              );
-              qc.invalidateQueries({ queryKey: ["architectural-findings", auditId] });
-              return true;
-            } catch (err: any) {
-              toast.error(err?.message ?? "Architectural review failed", { id: loadingToastId });
-              return false;
-            }
-          }}
+          hasFindings={hasFindings}
+          onCompleted={() => qc.invalidateQueries({ queryKey: ["architectural-findings", auditId] })}
+          run={run}
         />
       </div>
 
