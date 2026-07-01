@@ -281,6 +281,17 @@ function ExecutiveSummary({
         </div>
       </div>
 
+      {exposure && (
+        <div className="rounded-lg border border-status-fail/40 bg-status-fail/[0.06] p-3 text-sm">
+          <span className="font-semibold text-status-fail">Risk context:</span>{" "}
+          As a {exposure.inputs.industry} company with {exposure.inputs.userMidpoint.toLocaleString()} est. users and ~{formatRange(exposure.inputs.revenueMidpoint, exposure.inputs.revenueMidpoint)} annual revenue, a single unmitigated breach could cost an estimated{" "}
+          <span className="font-semibold tabular-nums">{formatRange(exposure.totalLow, exposure.totalHigh)}</span>{" "}
+          (protection ratio {exposure.protectionRatio.toFixed(1)}x vs. a $5,000 audit investment).
+        </div>
+      )}
+
+
+
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_2fr] gap-4">
         <div className={cn("rounded-xl ring-1 p-5 flex items-center gap-4", ringCls)}>
           <div className="flex flex-col items-center">
