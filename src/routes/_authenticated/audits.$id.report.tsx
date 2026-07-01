@@ -21,7 +21,6 @@ import {
   launchRecommendation,
   type RiskBreakdown,
 } from "@/lib/security-score";
-import { calculateRiskExposure, formatRange, isCompleteRiskInput, type Industry, type RevenueRange, type UserCountRange } from "@/lib/risk-calculator";
 
 
 export const Route = createFileRoute("/_authenticated/audits/$id/report")({
@@ -37,7 +36,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features, industry, annual_revenue_range, user_count_range)")
+        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
@@ -135,17 +134,6 @@ function ReportPage() {
   const effort = useMemo(() => estimateRemediationHours(risk), [risk]);
   const verdict = useMemo(() => launchRecommendation(security.score, risk), [security.score, risk]);
 
-  const exposure = useMemo(() => {
-    const c = audit.data?.client;
-    if (!c) return null;
-    if (!isCompleteRiskInput(c.industry, c.annual_revenue_range, c.user_count_range)) return null;
-    return calculateRiskExposure(
-      c.industry as Industry,
-      c.annual_revenue_range as RevenueRange,
-      c.user_count_range as UserCountRange,
-    );
-  }, [audit.data]);
-
   const scopeSnapshot = useMemo(() => {
     return grouped.map(([cat, list]) => {
       let pass = 0, fail = 0, na = 0, unanswered = 0;
@@ -192,7 +180,6 @@ function ReportPage() {
           effort={effort}
           verdict={verdict}
           totals={totals}
-          exposure={exposure}
         />
 
         <ScopeSnapshot items={scopeSnapshot} score={security.score} />
@@ -244,7 +231,7 @@ function ReportPage() {
 }
 
 function ExecutiveSummary({
-  score, grade, risk, effort, verdict, totals, exposure,
+  score, grade, risk, effort, verdict, totals,
 }: {
   score: number | null;
   grade: "A" | "B" | "C" | "D" | "F" | "—";
@@ -252,7 +239,6 @@ function ExecutiveSummary({
   effort: { min: number; max: number };
   verdict: ReturnType<typeof launchRecommendation>;
   totals: { pass: number; fail: number; na: number; unanswered: number; total: number };
-  exposure: ReturnType<typeof calculateRiskExposure> | null;
 }) {
   const tone = gradeTone(grade);
   const scoreCls = {
@@ -280,17 +266,6 @@ function ExecutiveSummary({
           {totals.pass} pass · {totals.fail} fail · {totals.na} N/A · {totals.unanswered} unanswered
         </div>
       </div>
-
-      {exposure && (
-        <div className="rounded-lg border border-status-fail/40 bg-status-fail/[0.06] p-3 text-sm">
-          <span className="font-semibold text-status-fail">Risk context:</span>{" "}
-          As a {exposure.inputs.industry} company with {exposure.inputs.userMidpoint.toLocaleString()} est. users and ~{formatRange(exposure.inputs.revenueMidpoint, exposure.inputs.revenueMidpoint)} annual revenue, a single unmitigated breach could cost an estimated{" "}
-          <span className="font-semibold tabular-nums">{formatRange(exposure.totalLow, exposure.totalHigh)}</span>{" "}
-          (protection ratio {exposure.protectionRatio.toFixed(1)}x vs. a $5,000 audit investment).
-        </div>
-      )}
-
-
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_2fr] gap-4">
         <div className={cn("rounded-xl ring-1 p-5 flex items-center gap-4", ringCls)}>
