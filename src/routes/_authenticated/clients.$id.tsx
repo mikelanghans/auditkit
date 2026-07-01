@@ -21,6 +21,7 @@ import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { NewAuditDialog } from "./dashboard";
 import { WebsitesField, EngagementField, AiFeaturesField, type EngagementValue } from "./clients.index";
+import { RiskCalculator } from "@/components/risk-calculator";
 
 export const Route = createFileRoute("/_authenticated/clients/$id")({
   head: () => ({ meta: [{ title: "Client — AuditKit" }] }),
@@ -88,6 +89,14 @@ function ClientDetail() {
 
       {client.data && <ConnectedAccountsSection client={client.data} />}
 
+      {client.data && (
+        <RiskCalculator
+          clientId={client.data.id}
+          industry={(client.data as any).industry ?? null}
+          annualRevenueRange={(client.data as any).annual_revenue_range ?? null}
+          userCountRange={(client.data as any).user_count_range ?? null}
+        />
+      )}
 
       <section>
         <h2 className="text-lg font-semibold mb-3">Audits</h2>

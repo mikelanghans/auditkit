@@ -21,6 +21,7 @@ import {
   launchRecommendation,
   type RiskBreakdown,
 } from "@/lib/security-score";
+import { calculateRiskExposure, formatRange, isCompleteRiskInput, type Industry, type RevenueRange, type UserCountRange } from "@/lib/risk-calculator";
 
 
 export const Route = createFileRoute("/_authenticated/audits/$id/report")({
@@ -36,7 +37,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
+        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features, industry, annual_revenue_range, user_count_range)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
