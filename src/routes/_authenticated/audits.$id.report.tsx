@@ -135,6 +135,17 @@ function ReportPage() {
   const effort = useMemo(() => estimateRemediationHours(risk), [risk]);
   const verdict = useMemo(() => launchRecommendation(security.score, risk), [security.score, risk]);
 
+  const exposure = useMemo(() => {
+    const c = audit.data?.client;
+    if (!c) return null;
+    if (!isCompleteRiskInput(c.industry, c.annual_revenue_range, c.user_count_range)) return null;
+    return calculateRiskExposure(
+      c.industry as Industry,
+      c.annual_revenue_range as RevenueRange,
+      c.user_count_range as UserCountRange,
+    );
+  }, [audit.data]);
+
   const scopeSnapshot = useMemo(() => {
     return grouped.map(([cat, list]) => {
       let pass = 0, fail = 0, na = 0, unanswered = 0;
@@ -181,6 +192,7 @@ function ReportPage() {
           effort={effort}
           verdict={verdict}
           totals={totals}
+          exposure={exposure}
         />
 
         <ScopeSnapshot items={scopeSnapshot} score={security.score} />
@@ -232,7 +244,7 @@ function ReportPage() {
 }
 
 function ExecutiveSummary({
-  score, grade, risk, effort, verdict, totals,
+  score, grade, risk, effort, verdict, totals, exposure,
 }: {
   score: number | null;
   grade: "A" | "B" | "C" | "D" | "F" | "—";
@@ -240,6 +252,7 @@ function ExecutiveSummary({
   effort: { min: number; max: number };
   verdict: ReturnType<typeof launchRecommendation>;
   totals: { pass: number; fail: number; na: number; unanswered: number; total: number };
+  exposure: ReturnType<typeof calculateRiskExposure> | null;
 }) {
   const tone = gradeTone(grade);
   const scoreCls = {
