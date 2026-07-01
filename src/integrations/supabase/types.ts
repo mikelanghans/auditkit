@@ -271,6 +271,7 @@ export type Database = {
       }
       clients: {
         Row: {
+          annual_revenue_range: string | null
           contact_email: string | null
           contact_name: string | null
           created_at: string
@@ -278,13 +279,16 @@ export type Database = {
           engagement_type: Database["public"]["Enums"]["engagement_type"]
           has_agentic_features: boolean
           id: string
+          industry: string | null
           name: string
           notes: string | null
           updated_at: string
+          user_count_range: string | null
           uses_ai_features: boolean
           websites: string[]
         }
         Insert: {
+          annual_revenue_range?: string | null
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string
@@ -292,13 +296,16 @@ export type Database = {
           engagement_type?: Database["public"]["Enums"]["engagement_type"]
           has_agentic_features?: boolean
           id?: string
+          industry?: string | null
           name: string
           notes?: string | null
           updated_at?: string
+          user_count_range?: string | null
           uses_ai_features?: boolean
           websites?: string[]
         }
         Update: {
+          annual_revenue_range?: string | null
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string
@@ -306,9 +313,11 @@ export type Database = {
           engagement_type?: Database["public"]["Enums"]["engagement_type"]
           has_agentic_features?: boolean
           id?: string
+          industry?: string | null
           name?: string
           notes?: string | null
           updated_at?: string
+          user_count_range?: string | null
           uses_ai_features?: boolean
           websites?: string[]
         }
