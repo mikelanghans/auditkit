@@ -307,6 +307,7 @@ function AuditView() {
                 </span>
               </span>
             )}
+            <BuiltWithChip auditId={id} value={(audit.data as any)?.built_with ?? null} onChanged={() => audit.refetch()} />
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
