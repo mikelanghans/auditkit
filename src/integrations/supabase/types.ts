@@ -141,6 +141,7 @@ export type Database = {
       }
       audits: {
         Row: {
+          built_with: string | null
           client_id: string
           completed_at: string | null
           created_at: string
@@ -154,6 +155,7 @@ export type Database = {
           website_url: string | null
         }
         Insert: {
+          built_with?: string | null
           client_id: string
           completed_at?: string | null
           created_at?: string
@@ -167,6 +169,7 @@ export type Database = {
           website_url?: string | null
         }
         Update: {
+          built_with?: string | null
           client_id?: string
           completed_at?: string | null
           created_at?: string

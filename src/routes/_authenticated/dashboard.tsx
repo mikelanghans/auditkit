@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { computeSecurityScore, failuresBySeverity, gradeTone } from "@/lib/security-score";
 import { cn } from "@/lib/utils";
+import { BUILT_WITH_OPTIONS, type BuiltWith } from "@/lib/built-with";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — AuditKit" }] }),
@@ -322,6 +323,7 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [builtWith, setBuiltWith] = useState<BuiltWith | "">("");
   const qc = useQueryClient();
   const navigate = useNavigate();
 
@@ -350,7 +352,8 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
           created_by: u.user.id,
           status: "in_progress",
           website_url: websiteUrl || null,
-        })
+          built_with: builtWith || null,
+        } as any)
         .select("id")
         .single();
       if (error) throw error;
@@ -363,6 +366,7 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
       setTitle("");
       setClientId("");
       setWebsiteUrl("");
+      setBuiltWith("");
       toast.success("Audit created");
       navigate({ to: "/audits/$id", params: { id: d.id } });
     },
@@ -416,6 +420,18 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
           <div className="space-y-1.5">
             <Label>Audit title</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Q2 2026 Security Review" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Built with <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Select value={builtWith} onValueChange={(v) => setBuiltWith(v as BuiltWith)}>
+              <SelectTrigger><SelectValue placeholder="Which tool built this app?" /></SelectTrigger>
+              <SelectContent>
+                {BUILT_WITH_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">Tailors remediation prompts and helps track patterns across audits.</p>
           </div>
         </div>
         <DialogFooter>

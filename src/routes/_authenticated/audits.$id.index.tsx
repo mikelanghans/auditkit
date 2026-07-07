@@ -38,6 +38,8 @@ import { ScanProgressPanel, defaultSurfaceScanSteps, type ScanProgressState } fr
 import { useLastRun } from "@/hooks/use-last-run";
 import { LastRunBadge } from "@/components/last-run-badge";
 import { format } from "date-fns";
+import { BUILT_WITH_OPTIONS, builtWithLabel, type BuiltWith } from "@/lib/built-with";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
@@ -66,7 +68,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, website_url, client:clients(id, name, websites, has_agentic_features, uses_ai_features)")
+        .select("id, title, status, started_at, completed_at, summary, website_url, built_with, client:clients(id, name, websites, has_agentic_features, uses_ai_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data;
@@ -305,6 +307,7 @@ function AuditView() {
                 </span>
               </span>
             )}
+            <BuiltWithChip auditId={id} value={(audit.data as any)?.built_with ?? null} onChanged={() => audit.refetch()} />
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1533,5 +1536,49 @@ function ResolveButton({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function BuiltWithChip({ auditId, value, onChanged }: { auditId: string; value: string | null; onChanged: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const label = builtWithLabel(value);
+  const update = async (v: BuiltWith | null) => {
+    setSaving(true);
+    const { error } = await supabase.from("audits").update({ built_with: v } as any).eq("id", auditId);
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success(v ? `Marked as built with ${builtWithLabel(v)}` : "Built with cleared");
+    onChanged();
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={saving}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-muted/40 text-xs hover:bg-muted transition-colors"
+          title="Which tool built this app"
+        >
+          <Sparkles className="h-3 w-3" />
+          <span className="text-[10px] uppercase tracking-wide">
+            {label ? `Built with ${label}` : "Built with…"}
+          </span>
+          <ChevronDown className="h-3 w-3 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        {BUILT_WITH_OPTIONS.map((o) => (
+          <DropdownMenuItem key={o.value} onSelect={() => update(o.value)}>
+            {o.label}
+            {value === o.value && <Check className="h-3.5 w-3.5 ml-auto" />}
+          </DropdownMenuItem>
+        ))}
+        {value && (
+          <DropdownMenuItem onSelect={() => update(null)} className="text-muted-foreground">
+            Clear
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
