@@ -100,11 +100,21 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
     if (ierr || !item) return { ok: false as const, error: "Checklist item not found." };
 
 
+    const BUILT_WITH_LABEL: Record<string, string> = {
+      lovable: "Lovable", cursor: "Cursor", claude_code: "Claude Code",
+      v0: "v0", bolt: "Bolt", windsurf: "Windsurf", replit: "Replit Agent",
+      chatgpt: "ChatGPT", other: "another AI tool", hand_coded: "hand-coded (no AI)",
+    };
+    const builtWithHint = builtWith && BUILT_WITH_LABEL[builtWith]
+      ? `\nApp origin: this codebase was built with ${BUILT_WITH_LABEL[builtWith]}. Tailor file paths, conventions, and phrasing to that toolchain when relevant.\n`
+      : "";
+
     const userMessage =
       `Finding title: ${item.title}\n` +
       `Category: ${item.category}\n` +
       (item.description ? `Description: ${item.description}\n` : "") +
       (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
+      builtWithHint +
       `\nAuditor notes & evidence:\n${(finding.notes ?? "").trim() || "(no notes provided)"}`;
 
     const result = await callClaude(target, userMessage);
