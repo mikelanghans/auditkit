@@ -72,10 +72,11 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
     }
 
     const { data: auditRow, error: aerr } = await supabase
-      .from("audits").select("id, created_by").eq("id", data.auditId).single();
+      .from("audits").select("id, created_by, built_with").eq("id", data.auditId).single();
     if (aerr || !auditRow || auditRow.created_by !== userId) {
       return { ok: false as const, error: "Audit not found or access denied." };
     }
+    const builtWith = (auditRow as any).built_with as string | null;
 
     const { data: finding, error: ferr } = await supabase
       .from("audit_findings")
