@@ -38,6 +38,8 @@ import { ScanProgressPanel, defaultSurfaceScanSteps, type ScanProgressState } fr
 import { useLastRun } from "@/hooks/use-last-run";
 import { LastRunBadge } from "@/components/last-run-badge";
 import { format } from "date-fns";
+import { BUILT_WITH_OPTIONS, builtWithLabel, type BuiltWith } from "@/lib/built-with";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 
 export const Route = createFileRoute("/_authenticated/audits/$id/")({
