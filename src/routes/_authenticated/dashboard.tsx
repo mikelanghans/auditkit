@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { computeSecurityScore, failuresBySeverity, gradeTone } from "@/lib/security-score";
 import { cn } from "@/lib/utils";
+import { BUILT_WITH_OPTIONS, type BuiltWith } from "@/lib/built-with";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — AuditKit" }] }),
