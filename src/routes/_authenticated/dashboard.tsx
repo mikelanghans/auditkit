@@ -352,7 +352,8 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
           created_by: u.user.id,
           status: "in_progress",
           website_url: websiteUrl || null,
-        })
+          built_with: builtWith || null,
+        } as any)
         .select("id")
         .single();
       if (error) throw error;
@@ -365,6 +366,7 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
       setTitle("");
       setClientId("");
       setWebsiteUrl("");
+      setBuiltWith("");
       toast.success("Audit created");
       navigate({ to: "/audits/$id", params: { id: d.id } });
     },
