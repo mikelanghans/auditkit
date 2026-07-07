@@ -323,6 +323,7 @@ export function NewAuditDialog({ inline = false }: { inline?: boolean }) {
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [builtWith, setBuiltWith] = useState<BuiltWith | "">("");
   const qc = useQueryClient();
   const navigate = useNavigate();
 
