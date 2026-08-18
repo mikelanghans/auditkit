@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertSafeOutboundUrl, SSRFBlockedError } from "./ssrf-guard";
+import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
 
 
 const TIMEOUT_MS = 15_000;
@@ -15,18 +15,30 @@ export type SupabaseScanInput = {
   serviceRoleKey: string;
   managementPat?: string | null;
   appUrl?: string | null;
+  /**
+   * Opt in to probes that write to or stress the client's project:
+   *  - POST /auth/v1/signup with a weak password (creates a real user row,
+   *    and may send a confirmation email)
+   *  - a burst of 8 sign-in attempts against /auth/v1/token to detect rate
+   *    limiting (trips alerting, pollutes auth logs, may lock out an IP)
+   *
+   * Defaults to false. These are legitimate audit techniques, but they are
+   * active testing against production infrastructure, so they need the client's
+   * informed consent rather than being bundled into a "read-only" scan.
+   */
+  intrusiveProbes?: boolean;
 };
 
 type CheckResult = { status: "pass" | "fail" | "na"; notes: string };
 
+/**
+ * Carries the client's anon key, service-role key or Management PAT depending on
+ * the probe, against a project URL they typed in. safeFetch re-validates every
+ * redirect hop and strips credential headers on cross-origin hops so a wrong or
+ * hostile project URL cannot walk those keys off to another host.
+ */
 async function timedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: ctl.signal, redirect: "follow" });
-  } finally {
-    clearTimeout(t);
-  }
+  return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS });
 }
 
 function normalizeProjectUrl(raw: string): string | null {
@@ -126,7 +138,7 @@ async function listBuckets(projectUrl: string, serviceRoleKey: string): Promise<
   }
 }
 
-async function probeAuthBehavior(projectUrl: string, anonKey: string): Promise<{
+async function probeAuthBehavior(projectUrl: string, anonKey: string, intrusive: boolean): Promise<{
   enumeration: CheckResult;
   passwordPolicy: CheckResult;
 }> {
@@ -162,7 +174,22 @@ async function probeAuthBehavior(projectUrl: string, anonKey: string): Promise<{
   }
 
   // Password policy: try signing up with a 4-char password.
+  // This creates a real user in the client's project and can trigger a
+  // confirmation email, so it only runs with explicit consent.
   let passwordPolicy: CheckResult = { status: "na", notes: "Could not probe." };
+  if (!intrusive) {
+    return {
+      enumeration,
+      passwordPolicy: {
+        status: "na",
+        notes:
+          "Not tested. Verifying the minimum password length requires submitting a real signup to /auth/v1/signup, " +
+          "which creates a user record in the project and may send a confirmation email. " +
+          "Re-run with active probes enabled, with the client's consent, to test this. " +
+          "Alternatively, confirm the setting manually under Authentication → Providers → Email.",
+      },
+    };
+  }
   try {
     const r = await timedFetch(`${projectUrl}/auth/v1/signup`, {
       method: "POST",
@@ -346,7 +373,8 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     const rlsDisabled = (rlsRows ?? []).filter((r) => !r.rls);
 
     // 3) Auth checks
-    const authBehavior = await probeAuthBehavior(projectUrl, anonKey);
+    const intrusive = data.intrusiveProbes === true;
+    const authBehavior = await probeAuthBehavior(projectUrl, anonKey, intrusive);
     let authConfig: { ok: boolean; data?: Record<string, unknown>; error?: string } | null = null;
     if (pat && projectRef) authConfig = await fetchManagementAuth(projectRef, pat);
 
@@ -415,24 +443,36 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       };
     }
 
-    // Rate limiting on auth endpoints — best effort: send a burst, look for 429
+    // Rate limiting on auth endpoints — best effort: send a burst, look for 429.
+    // A burst of failed sign-ins pollutes the client's auth logs and can trip
+    // their alerting or IP lockout, so it is gated behind explicit consent.
     let rateLimit: CheckResult = { status: "na", notes: "Not probed." };
-    try {
-      const bursts = await Promise.all(
-        Array.from({ length: 8 }, () =>
-          timedFetch(`${projectUrl}/auth/v1/token?grant_type=password`, {
-            method: "POST",
-            headers: { apikey: anonKey, "content-type": "application/json" },
-            body: JSON.stringify({ email: `auditkit-rl-${Date.now()}@example.invalid`, password: "x" }),
-          }).then((r) => r.status).catch(() => 0),
-        ),
-      );
-      const got429 = bursts.includes(429);
-      rateLimit = got429
-        ? { status: "pass", notes: `Burst of 8 sign-in attempts triggered HTTP 429 — rate limiting is active.\n\nStatuses: ${bursts.join(", ")}` }
-        : { status: "fail", notes: `Burst of 8 sign-in attempts did NOT trigger HTTP 429. Confirm rate limits on /auth/v1/token in project settings.\n\nStatuses: ${bursts.join(", ")}` };
-    } catch (e: any) {
-      rateLimit = { status: "na", notes: `Probe failed: ${e?.message ?? "unknown"}` };
+    if (!intrusive) {
+      rateLimit = {
+        status: "na",
+        notes:
+          "Not tested. Detecting rate limiting requires sending a burst of failed sign-in attempts to /auth/v1/token, " +
+          "which writes to the project's auth logs and may trigger alerting or temporary IP lockout. " +
+          "Re-run with active probes enabled, with the client's consent, to test this.",
+      };
+    } else {
+      try {
+        const bursts = await Promise.all(
+          Array.from({ length: 8 }, () =>
+            timedFetch(`${projectUrl}/auth/v1/token?grant_type=password`, {
+              method: "POST",
+              headers: { apikey: anonKey, "content-type": "application/json" },
+              body: JSON.stringify({ email: `auditkit-rl-${Date.now()}@example.invalid`, password: "x" }),
+            }).then((r) => r.status).catch(() => 0),
+          ),
+        );
+        const got429 = bursts.includes(429);
+        rateLimit = got429
+          ? { status: "pass", notes: `Burst of 8 sign-in attempts triggered HTTP 429 — rate limiting is active.\n\nStatuses: ${bursts.join(", ")}` }
+          : { status: "fail", notes: `Burst of 8 sign-in attempts did NOT trigger HTTP 429. Confirm rate limits on /auth/v1/token in project settings.\n\nStatuses: ${bursts.join(", ")}` };
+      } catch (e: any) {
+        rateLimit = { status: "na", notes: `Probe failed: ${e?.message ?? "unknown"}` };
+      }
     }
 
     // Bundle / service role exposure

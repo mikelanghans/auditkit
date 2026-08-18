@@ -1,5 +1,7 @@
 // Shared dependency scan helpers used by runRepoScan.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { decodeBase64Utf8 } from "./decode-blob";
+import { GITHUB_HOSTS, NPM_HOSTS, safeFetch } from "./ssrf-guard";
 
 const TIMEOUT_MS = 15_000;
 const NPM_CONCURRENCY = 8;
@@ -24,14 +26,17 @@ export type DepScanResult = {
   notes: string;
 } | { ok: false; error: string };
 
+/**
+ * Talks to GitHub (with the client's PAT) and the public npm registry, so both
+ * host sets are allowed. safeFetch drops the Authorization header before any
+ * cross-origin hop, which matters here: the same helper carries a GitHub token
+ * on some calls and hits npm on others.
+ */
 async function timedFetch(url: string, init: RequestInit = {}, timeoutMs = TIMEOUT_MS): Promise<Response> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: ctl.signal, redirect: "follow" });
-  } finally {
-    clearTimeout(t);
-  }
+  return await safeFetch(url, init, {
+    timeoutMs,
+    allowHosts: [...GITHUB_HOSTS, ...NPM_HOSTS],
+  });
 }
 
 function ghHeaders(token: string): Record<string, string> {
@@ -79,7 +84,7 @@ async function fetchPackageJson(owner: string, repo: string, token: string, defa
       const j = await r.json();
       if (!j?.content) continue;
       try {
-        const text = atob(String(j.content).replace(/\n/g, ""));
+        const text = decodeBase64Utf8(String(j.content));
         return { path: p, json: JSON.parse(text) };
       } catch {
         continue;

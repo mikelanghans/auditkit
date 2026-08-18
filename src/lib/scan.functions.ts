@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertSafeOutboundUrl, SSRFBlockedError } from "./ssrf-guard";
+import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
 
 
 type ScanStatus = "pass" | "fail" | "warn";
@@ -8,14 +8,13 @@ type CheckResult = { key: string; status: ScanStatus; notes: string };
 
 const TIMEOUT_MS = 10_000;
 
+/**
+ * Routed through safeFetch so every redirect hop is re-validated. The target is
+ * a client-supplied site, so a 302 into an internal address is a realistic
+ * bypass rather than a theoretical one.
+ */
 async function timedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: ctl.signal, redirect: "follow" });
-  } finally {
-    clearTimeout(t);
-  }
+  return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS });
 }
 
 function normalizeUrl(raw: string): string {

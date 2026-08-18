@@ -5,12 +5,38 @@
  * probing internal services such as 127.0.0.1, RFC-1918 ranges, link-local
  * IPs, or cloud metadata endpoints (e.g. 169.254.169.254).
  *
- * Resolves the hostname via Cloudflare DNS-over-HTTPS once and rejects if any
- * resolved address is private. Callers should pin the resolved hostname/IP
- * before reusing it elsewhere if extra DNS-rebinding hardening is required.
+ * Resolves the hostname via DNS-over-HTTPS (Cloudflare, falling back to Google)
+ * and rejects if any resolved address is private.
+ *
+ * IMPORTANT: validating a URL is not enough on its own. HTTP redirects are the
+ * standard bypass — an attacker-controlled public host can 302 to
+ * http://169.254.169.254/. Always issue requests through `safeFetch`, which
+ * re-validates every hop, rather than calling `fetch` with `redirect: "follow"`.
+ *
+ * Known residual risk: DNS rebinding. We resolve the name to check it, then the
+ * runtime resolves it again to connect, and the answer can change in between.
+ * Fully closing this requires connecting to a pinned IP with an explicit Host
+ * header, which the Workers fetch API does not expose. Treat scan output as
+ * untrusted input, not as proof an internal service was unreachable.
  */
 
-const DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query";
+const DOH_ENDPOINTS = [
+  "https://cloudflare-dns.com/dns-query",
+  "https://dns.google/resolve",
+];
+
+/**
+ * Escape hatch for deployments where outbound DoH is blocked and every scan
+ * would otherwise fail closed. Set AUDITKIT_ALLOW_UNRESOLVED_HOSTS=true only if
+ * you understand that it re-opens the resolution-failure bypass.
+ */
+function allowUnresolvedHosts(): boolean {
+  try {
+    return String(process.env.AUDITKIT_ALLOW_UNRESOLVED_HOSTS ?? "").toLowerCase() === "true";
+  } catch {
+    return false;
+  }
+}
 
 /** IPv4 literals matching private/loopback/link-local/metadata ranges. */
 function isPrivateIPv4(ip: string): boolean {
@@ -64,23 +90,48 @@ function isBlockedHostname(host: string): boolean {
   return false;
 }
 
-async function dohResolve(name: string, type: "A" | "AAAA"): Promise<string[]> {
+async function dohResolveVia(
+  endpoint: string,
+  name: string,
+  type: "A" | "AAAA",
+): Promise<string[] | null> {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 4000);
   try {
-    const r = await fetch(`${DOH_ENDPOINT}?name=${encodeURIComponent(name)}&type=${type}`, {
+    const r = await fetch(`${endpoint}?name=${encodeURIComponent(name)}&type=${type}`, {
       headers: { accept: "application/dns-json" },
       signal: ctl.signal,
+      redirect: "error",
     });
-    if (!r.ok) return [];
-    const json = (await r.json()) as { Answer?: { data: string; type: number }[] };
+    // null = resolver unusable (throttled / errored); [] = resolver answered "no such record".
+    if (!r.ok) return null;
+    const json = (await r.json()) as { Answer?: { data: string; type: number }[]; Status?: number };
+    if (typeof json.Status === "number" && json.Status !== 0 && json.Status !== 3) return null;
     const wanted = type === "A" ? 1 : 28;
     return (json.Answer ?? []).filter((a) => a.type === wanted).map((a) => a.data);
   } catch {
-    return [];
+    return null;
   } finally {
     clearTimeout(t);
   }
+}
+
+/**
+ * Resolve a name across the configured DoH endpoints.
+ * Returns null only when every resolver was unusable — distinct from an
+ * authoritative "this name has no records", which returns [].
+ */
+async function dohResolve(name: string, type: "A" | "AAAA"): Promise<string[] | null> {
+  let sawResolver = false;
+  const collected: string[] = [];
+  for (const endpoint of DOH_ENDPOINTS) {
+    const res = await dohResolveVia(endpoint, name, type);
+    if (res === null) continue;
+    sawResolver = true;
+    collected.push(...res);
+    if (res.length > 0) break;
+  }
+  return sawResolver ? collected : null;
 }
 
 export class SSRFBlockedError extends Error {
@@ -126,17 +177,155 @@ export async function assertSafeOutboundUrl(raw: string): Promise<void> {
 
   // Resolve hostname to verify no record points at a private range.
   const [a, aaaa] = await Promise.all([dohResolve(host, "A"), dohResolve(host, "AAAA")]);
-  const addrs = [...a, ...aaaa];
-  if (addrs.length === 0) {
-    // Resolution failed — allow request to proceed; the fetch itself will fail
-    // safely if the host is bogus. Blocking would create false positives when
-    // DoH is throttled. The hostname/literal checks above already cover the
-    // common bypass attempts.
-    return;
+
+  if (a === null && aaaa === null) {
+    // Every resolver was unusable, so we cannot prove the host is external.
+    // Fail closed: a name that silently resolves internally is exactly the case
+    // this guard exists to stop.
+    if (allowUnresolvedHosts()) return;
+    throw new SSRFBlockedError(
+      `Could not verify ${host} via DNS-over-HTTPS (all resolvers unavailable). ` +
+        `Refusing to send the request. If outbound DoH is blocked in this environment, ` +
+        `set AUDITKIT_ALLOW_UNRESOLVED_HOSTS=true to override.`,
+    );
   }
+
+  const addrs = [...(a ?? []), ...(aaaa ?? [])];
   for (const ip of addrs) {
     if (isPrivateIPLiteral(ip)) {
       throw new SSRFBlockedError(`Blocked: ${host} resolves to private address ${ip}`);
     }
+  }
+}
+
+/** Hostname matches an allowlist entry exactly, or is a subdomain of one. */
+function hostAllowed(host: string, allowHosts: string[]): boolean {
+  const h = host.toLowerCase();
+  return allowHosts.some((entry) => {
+    const e = entry.toLowerCase();
+    return h === e || h.endsWith(`.${e}`);
+  });
+}
+
+/**
+ * GitHub hosts a repo scan may legitimately touch. `raw.githubusercontent.com`
+ * redirects blobs to `objects.githubusercontent.com`, so the allowlist has to
+ * cover the whole family rather than a single API host.
+ */
+export const GITHUB_HOSTS = ["github.com", "githubusercontent.com"];
+
+/** Public npm registry hosts used by the dependency scan. */
+export const NPM_HOSTS = ["registry.npmjs.org", "npmjs.org", "npmjs.com"];
+
+export type SafeFetchOptions = {
+  timeoutMs?: number;
+  /** Max redirect hops to follow. Default 5. */
+  maxRedirects?: number;
+  /**
+   * When set, every hop's hostname must match one of these (exact or subdomain).
+   * Use for fixed-host integrations (api.github.com, registry.npmjs.org) so a
+   * redirect can never walk the request off the intended provider.
+   */
+  allowHosts?: string[];
+};
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+function sameOrigin(a: URL, b: URL): boolean {
+  return a.protocol === b.protocol && a.host === b.host;
+}
+
+/**
+ * fetch() with SSRF validation applied to the initial URL *and every redirect
+ * hop*. Never use `redirect: "follow"` on a user-influenced URL — the guard only
+ * sees the first URL in that case, so a 302 to a private address goes through.
+ *
+ * Credential-bearing headers are stripped on cross-origin hops, matching what
+ * the fetch spec does for automatic redirects. Without this, manually following
+ * a redirect from raw.githubusercontent.com would forward the caller's GitHub
+ * PAT to whatever host the redirect names.
+ */
+export async function safeFetch(
+  rawUrl: string,
+  init: RequestInit = {},
+  opts: SafeFetchOptions = {},
+): Promise<Response> {
+  const { timeoutMs = 15_000, maxRedirects = 5, allowHosts } = opts;
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const externalSignal = init.signal;
+  if (externalSignal) {
+    if (externalSignal.aborted) ctl.abort();
+    else externalSignal.addEventListener("abort", () => ctl.abort(), { once: true });
+  }
+
+  try {
+    let currentUrl = rawUrl;
+    let method = (init.method ?? "GET").toUpperCase();
+    let body = init.body;
+    let headers = new Headers(init.headers ?? {});
+
+    for (let hop = 0; hop <= maxRedirects; hop++) {
+      await assertSafeOutboundUrl(currentUrl);
+      if (allowHosts) {
+        const host = new URL(currentUrl).hostname;
+        if (!hostAllowed(host, allowHosts)) {
+          throw new SSRFBlockedError(
+            `Blocked: ${host} is not in the allowed host list for this request.`,
+          );
+        }
+      }
+
+      const res = await fetch(currentUrl, {
+        ...init,
+        method,
+        body,
+        headers,
+        signal: ctl.signal,
+        redirect: "manual",
+      });
+
+      const location = res.headers.get("location");
+      if (!REDIRECT_STATUSES.has(res.status) || !location) return res;
+
+      if (hop === maxRedirects) {
+        throw new SSRFBlockedError(
+          `Blocked: too many redirects (>${maxRedirects}) starting from ${rawUrl}.`,
+        );
+      }
+
+      const from = new URL(currentUrl);
+      let next: URL;
+      try {
+        next = new URL(location, from);
+      } catch {
+        throw new SSRFBlockedError(`Blocked: unparseable redirect target "${location}".`);
+      }
+
+      // Drop credentials when the redirect leaves the current origin.
+      if (!sameOrigin(from, next)) {
+        headers = new Headers(headers);
+        headers.delete("authorization");
+        headers.delete("cookie");
+        headers.delete("proxy-authorization");
+        headers.delete("apikey");
+      }
+
+      // Per fetch spec: 303 always becomes GET; 301/302 downgrade POST to GET.
+      if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === "POST")) {
+        method = "GET";
+        body = undefined;
+        headers.delete("content-type");
+        headers.delete("content-length");
+      }
+
+      currentUrl = next.toString();
+    }
+
+    // Unreachable — the loop either returns or throws.
+    throw new SSRFBlockedError(`Blocked: redirect handling failed for ${rawUrl}.`);
+  } finally {
+    clearTimeout(timer);
   }
 }

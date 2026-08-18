@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { decodeBase64Utf8 } from "./decode-blob";
+import { redactForPrompt } from "./secret-redaction";
 
 // Per-batch budget sent to Claude (well under 200k-token context window)
 const BATCH_MAX_FILES = 40;
@@ -88,6 +90,7 @@ async function fetchRepoFiles(owner: string, repo: string, token: string, maxFil
     .slice(0, maxFiles);
 
   const picked: { path: string; content: string }[] = [];
+  const redactedPaths: string[] = [];
   let total = 0;
   for (const f of candidates) {
     try {
@@ -96,16 +99,32 @@ async function fetchRepoFiles(owner: string, repo: string, token: string, maxFil
       );
       let content = "";
       if (blob.encoding === "base64") {
-        try { content = atob(blob.content.replace(/\n/g, "")); }
-        catch { content = ""; }
+        content = decodeBase64Utf8(blob.content);
       } else { content = String(blob.content || ""); }
       if (!content) continue;
+
+      // Redact before truncation and before this content reaches any prompt.
+      // These files come from a private client repo and can contain live
+      // credentials — a committed .env is something the repo scan reports as a
+      // critical finding, so shipping it verbatim to a third-party API would
+      // mean leaking the very secret we just told the client about.
+      const red = redactForPrompt(f.path, content);
+      content = red.content;
+      if (red.redacted) redactedPaths.push(f.path);
+
       if (content.length > MAX_FILE_CHARS) content = content.slice(0, MAX_FILE_CHARS) + "\n…[truncated]";
       picked.push({ path: f.path, content });
       total += content.length;
     } catch { /* skip */ }
   }
-  return { branch, files: picked, totalChars: total, scanned: candidates.length, truncatedTree: tree.truncated === true };
+  return {
+    branch,
+    files: picked,
+    totalChars: total,
+    scanned: candidates.length,
+    truncatedTree: tree.truncated === true,
+    redactedPaths,
+  };
 }
 
 function chunkFiles(files: { path: string; content: string }[], maxBatches: number) {
@@ -279,7 +298,10 @@ export const runAIAssist = createServerFn({ method: "POST" })
       let arr: any[];
       try { arr = extractJson(raw, truncated); }
       catch (e: any) {
-        console.error("[ai-assist] parse failure", { batch: i + 1, truncated, rawHead: raw.slice(0, 500), rawTail: raw.slice(-500), len: raw.length });
+        // Deliberately does not log the model output. On a parse failure the
+        // raw text still contains `evidence` snippets lifted from the client's
+        // source, which would put client code into our server logs.
+        console.error("[ai-assist] parse failure", { batch: i + 1, truncated, len: raw.length });
         batchErrors.push(`batch ${i + 1}: parse error${truncated ? " (truncated)" : ""}`);
         continue;
       }
@@ -338,6 +360,9 @@ export const runAIAssist = createServerFn({ method: "POST" })
       total: totalRaw,
       partial: batchErrors.length > 0 ? batchErrors : undefined,
       truncatedTree: repoData.truncatedTree || undefined,
+      // Surfaced so the auditor can state, on the record, which files had
+      // secret values stripped before anything was sent to the model.
+      redactedFiles: repoData.redactedPaths.length > 0 ? repoData.redactedPaths : undefined,
     };
   });
 

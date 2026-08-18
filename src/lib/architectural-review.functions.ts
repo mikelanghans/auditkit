@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { decodeBase64Utf8 } from "./decode-blob";
+import { redactForPrompt } from "./secret-redaction";
 
 // Mirror the file-selection strategy used by AI Assist, but cap at ~20 files for
 // a single holistic pass that fits in one Claude call.
@@ -92,9 +94,13 @@ async function fetchTopFiles(owner: string, repo: string, token: string, maxFile
       );
       let content = "";
       if (blob.encoding === "base64") {
-        try { content = atob(blob.content.replace(/\n/g, "")); } catch { content = ""; }
+        content = decodeBase64Utf8(blob.content);
       } else { content = String(blob.content || ""); }
       if (!content) continue;
+
+      // Strip secret values before this content is sent to the Anthropic API.
+      content = redactForPrompt(f.path, content).content;
+
       if (content.length > MAX_FILE_CHARS) content = content.slice(0, MAX_FILE_CHARS) + "\n…[truncated]";
       picked.push({ path: f.path, content });
     } catch { /* skip */ }

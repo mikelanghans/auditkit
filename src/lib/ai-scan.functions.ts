@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertSafeOutboundUrl, SSRFBlockedError } from "./ssrf-guard";
+import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
 
 
 const TIMEOUT_MS = 30_000;
@@ -40,16 +40,16 @@ const PAYLOADS: { label: string; payload: string }[] = [
   },
 ];
 
+/**
+ * The endpoint URL is supplied by the client being audited and we attach their
+ * bearer token to it. safeFetch re-validates each redirect hop and strips the
+ * Authorization header if a hop crosses origins, so a malicious or
+ * misconfigured endpoint cannot redirect the token to a host of its choosing.
+ */
 async function timedFetch(url: string, init: RequestInit, timeoutMs = TIMEOUT_MS): Promise<{ res: Response; ms: number }> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), timeoutMs);
   const start = Date.now();
-  try {
-    const res = await fetch(url, { ...init, signal: ctl.signal, redirect: "follow" });
-    return { res, ms: Date.now() - start };
-  } finally {
-    clearTimeout(t);
-  }
+  const res = await safeFetch(url, init, { timeoutMs });
+  return { res, ms: Date.now() - start };
 }
 
 function isValidHttpUrl(raw: string): boolean {

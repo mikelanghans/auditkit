@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { GITHUB_HOSTS, safeFetch } from "./ssrf-guard";
 
 const TIMEOUT_MS = 15_000;
 const MAX_FILES_TO_FETCH = 40;
@@ -39,14 +40,9 @@ function ghHeaders(token: string): Record<string, string> {
   };
 }
 
+/** Pinned to GitHub hosts; the PAT is dropped on any cross-origin redirect. */
 async function timedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: ctl.signal, redirect: "follow" });
-  } finally {
-    clearTimeout(t);
-  }
+  return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS, allowHosts: GITHUB_HOSTS });
 }
 
 async function pMap<T, R>(items: T[], n: number, fn: (it: T) => Promise<R>): Promise<R[]> {

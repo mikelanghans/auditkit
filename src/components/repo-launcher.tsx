@@ -146,11 +146,15 @@ export function RepoLauncher({
       repo_url: rurl,
     };
     if (saveForClient && clientId) {
+      // The PAT is deliberately NOT persisted here. Only the repo reference is
+      // stored; the token lives in sessionStorage via setCachedRepoToken below
+      // and is re-prompted when that expires. Nothing ever read the old
+      // client_repos.github_token column back, so writing it stored live client
+      // credentials at rest in exchange for no functionality at all.
       const { data: inserted, error } = await supabase.from("client_repos").insert({
         client_id: clientId,
         label: savedRepoRow.label,
         repo_url: rurl,
-        github_token: tok,
       }).select("id, label, repo_url").single();
       if (error) {
         toast.error(`Could not save repo: ${error.message}`);
@@ -231,7 +235,10 @@ export function RepoLauncher({
               />
               <span>
                 <span className="font-medium">Remember this token</span>
-                <span className="block text-xs text-muted-foreground">Saves the PAT on this repo so future scans run with one click.</span>
+                <span className="block text-xs text-muted-foreground">
+                  Keeps the PAT in this browser tab only, so repeat scans run with one click.
+                  It is never written to the database and is discarded when you close the tab.
+                </span>
               </span>
             </label>
             {pending && (

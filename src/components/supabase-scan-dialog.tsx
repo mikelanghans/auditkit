@@ -31,6 +31,9 @@ export function SupabaseScanDialog({
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(0);
   const [showRotate, setShowRotate] = useState(false);
+  // Off by default: these probes write to the client's project. See
+  // SupabaseScanInput.intrusiveProbes.
+  const [intrusiveProbes, setIntrusiveProbes] = useState(false);
 
   useEffect(() => {
     if (!pending) { setProgress(0); return; }
@@ -41,7 +44,7 @@ export function SupabaseScanDialog({
     return () => clearInterval(iv);
   }, [pending]);
 
-  const reset = () => { setProjectUrl(""); setAnonKey(""); setServiceRoleKey(""); setPat(""); };
+  const reset = () => { setProjectUrl(""); setAnonKey(""); setServiceRoleKey(""); setPat(""); setIntrusiveProbes(false); };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,6 +63,7 @@ export function SupabaseScanDialog({
           serviceRoleKey: serviceRoleKey.trim(),
           managementPat: pat.trim() || null,
           appUrl: appUrl ?? null,
+          intrusiveProbes,
         },
       });
       setProgress(100);
@@ -117,12 +121,40 @@ export function SupabaseScanDialog({
                 <ShieldAlert className="h-3.5 w-3.5" /> Service role key handling
               </div>
               <p className="text-foreground/80">
-                The service role key is used <strong>read-only</strong> to enumerate buckets and validate the key is real.
+                The service role key is used only to enumerate storage buckets and validate that the key is real.
                 It is held in memory for the duration of the scan, never logged, and never written to the database.
               </p>
               <p className="text-foreground/80">
                 <strong>Rotate this key immediately after the scan completes</strong> as a security best practice.
               </p>
+            </div>
+
+            <div className="rounded-md border border-border bg-muted/40 p-3 text-xs space-y-2">
+              <label htmlFor="sb-intrusive" className="flex items-start gap-2 cursor-pointer">
+                <input
+                  id="sb-intrusive"
+                  type="checkbox"
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-current"
+                  checked={intrusiveProbes}
+                  onChange={(e) => setIntrusiveProbes(e.target.checked)}
+                  disabled={pending}
+                />
+                <span className="space-y-1">
+                  <span className="block font-semibold">
+                    Enable active probes (needs the client&rsquo;s consent)
+                  </span>
+                  <span className="block text-foreground/70">
+                    Adds two checks that <strong>write to the client&rsquo;s live project</strong>: a signup attempt
+                    with a weak password (creates a user record, may send a confirmation email) to test the password
+                    policy, and a burst of 8 failed sign-ins to test rate limiting (writes to their auth logs and may
+                    trigger alerting).
+                  </span>
+                  <span className="block text-foreground/70">
+                    Leave this off for a passive scan. Both checks are reported as
+                    &ldquo;not tested&rdquo; rather than passing.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <div className="space-y-1.5">
