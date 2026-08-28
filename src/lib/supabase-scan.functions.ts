@@ -62,19 +62,37 @@ function projectRefFromUrl(u: string): string | null {
   }
 }
 
-async function listExposedTables(projectUrl: string, anonKey: string): Promise<string[]> {
+type TableListing = { ok: boolean; tables: string[]; http: number; error?: string };
+
+async function listExposedTables(projectUrl: string, anonKey: string): Promise<TableListing> {
   // PostgREST root returns an OpenAPI spec listing every exposed table.
-  const r = await timedFetch(`${projectUrl}/rest/v1/`, {
-    headers: { apikey: anonKey, accept: "application/openapi+json" },
-  });
-  if (!r.ok) return [];
-  const spec = (await r.json()) as any;
+  // IMPORTANT: distinguish "couldn't read the schema" from "read it, no tables".
+  // If this returned a bare [] on failure, the caller would probe nothing and then
+  // report a PASS ("0 tables probed") — telling a client their database is safe
+  // having tested nothing. That false pass is the bug this shape exists to prevent.
+  let r: Response;
+  try {
+    r = await timedFetch(`${projectUrl}/rest/v1/`, {
+      headers: { apikey: anonKey, accept: "application/openapi+json" },
+    });
+  } catch (e: any) {
+    return { ok: false, tables: [], http: 0, error: e?.message ?? "request failed" };
+  }
+  if (!r.ok) {
+    return { ok: false, tables: [], http: r.status, error: `PostgREST root returned HTTP ${r.status}` };
+  }
+  let spec: any;
+  try {
+    spec = await r.json();
+  } catch {
+    return { ok: false, tables: [], http: r.status, error: "Could not parse the PostgREST OpenAPI spec." };
+  }
   const paths = spec?.paths ?? {};
   const tables = Object.keys(paths)
     .filter((p) => p.startsWith("/") && p.length > 1 && !p.startsWith("/rpc/"))
     .map((p) => p.replace(/^\//, ""))
     .filter((t) => !!t);
-  return Array.from(new Set(tables));
+  return { ok: true, tables: Array.from(new Set(tables)), http: r.status };
 }
 
 type TableProbe = {
@@ -251,6 +269,62 @@ async function fetchManagementRls(projectRef: string, pat: string): Promise<{ ok
   }
 }
 
+type AnonWriteRow = { table: string; insert: boolean; update: boolean; delete: boolean; rls: boolean };
+
+/**
+ * Authoritative anon write-access check via the Management API.
+ *
+ * The most common critical failure in these apps is not that a table is
+ * *readable* by anon, but that it is *writable* — agents write a SELECT policy
+ * and forget INSERT/UPDATE/DELETE. Rather than probe writes blind (which risks
+ * inserting live rows and can't reliably distinguish an RLS block from a schema
+ * error), we read the truth directly: which write privileges the `anon` role
+ * holds on each public table, joined with whether RLS is enabled.
+ *
+ * A table where anon holds a write grant AND RLS is disabled is writable by
+ * anyone on the internet — a definitive hole. A write grant WITH RLS enabled is
+ * flagged for policy review (the grant is only as safe as the policy scoping it).
+ */
+async function fetchAnonWriteAccess(projectRef: string, pat: string): Promise<{ ok: boolean; rows?: AnonWriteRow[]; error?: string }> {
+  const query = `
+    select t.relname as table,
+      coalesce(bool_or(g.privilege_type = 'INSERT'), false) as ins,
+      coalesce(bool_or(g.privilege_type = 'UPDATE'), false) as upd,
+      coalesce(bool_or(g.privilege_type = 'DELETE'), false) as del,
+      bool_or(t.relrowsecurity) as rls
+    from pg_class t
+    join pg_namespace n on n.oid = t.relnamespace
+    left join information_schema.role_table_grants g
+      on g.table_schema = n.nspname and g.table_name = t.relname and g.grantee = 'anon'
+    where n.nspname = 'public' and t.relkind = 'r'
+    group by t.relname
+    order by t.relname;`;
+  try {
+    const r = await timedFetch(
+      `https://api.supabase.com/v1/projects/${projectRef}/database/query`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${pat}`, "content-type": "application/json" },
+        body: JSON.stringify({ query }),
+      },
+    );
+    if (!r.ok) return { ok: false, error: `Management API HTTP ${r.status}` };
+    const rows = (await r.json()) as any[];
+    return {
+      ok: true,
+      rows: (rows ?? []).map((row) => ({
+        table: row.table,
+        insert: !!row.ins,
+        update: !!row.upd,
+        delete: !!row.del,
+        rls: !!row.rls,
+      })),
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch failed" };
+  }
+}
+
 async function fetchManagementAuth(projectRef: string, pat: string): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
   try {
     const r = await timedFetch(
@@ -357,18 +431,25 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     }
 
     // 1) Discover exposed tables and probe anon access
-    const tables = (await listExposedTables(projectUrl, anonKey)).slice(0, MAX_TABLES_PROBED);
+    const tableListing = await listExposedTables(projectUrl, anonKey);
+    const schemaReadable = tableListing.ok;
+    const tables = tableListing.tables.slice(0, MAX_TABLES_PROBED);
     const probes = await pMap(tables, 6, (t) => probeAnon(projectUrl, anonKey, t));
     const leaks = probes.filter((p) => p.status === "leaks");
     const exposedEmpty = probes.filter((p) => p.status === "exposed_empty");
 
-    // 2) RLS truth check (only when PAT provided)
+    // 2) RLS truth check + anon write-access check (only when PAT provided)
     let rlsRows: { schema: string; table: string; rls: boolean }[] | null = null;
     let rlsError: string | null = null;
+    let writeRows: AnonWriteRow[] | null = null;
     if (pat && projectRef) {
-      const rls = await fetchManagementRls(projectRef, pat);
+      const [rls, wr] = await Promise.all([
+        fetchManagementRls(projectRef, pat),
+        fetchAnonWriteAccess(projectRef, pat),
+      ]);
       if (rls.ok) rlsRows = rls.rows ?? [];
       else rlsError = rls.error ?? null;
+      if (wr.ok) writeRows = wr.rows ?? [];
     }
     const rlsDisabled = (rlsRows ?? []).filter((r) => !r.rls);
 
@@ -416,6 +497,16 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
         status: "na",
         notes: `Could not determine RLS status without a Management API PAT.\n\n${exposedEmpty.length} table(s) responded 200 to anon but returned no rows — they could be empty, or RLS could be filtering. Re-run with a PAT to confirm.`,
       };
+    } else if (!schemaReadable) {
+      rlsCheck = {
+        status: "na",
+        notes: `Could not read the project's Data API schema (${tableListing.error ?? "unknown error"}), and no Management API PAT was provided — RLS status could NOT be determined. This is not a pass. Confirm the project URL and anon key are correct, or supply a PAT, and re-run.`,
+      };
+    } else if (tables.length === 0) {
+      rlsCheck = {
+        status: "na",
+        notes: `No tables were exposed through the Data API to probe, and no Management API PAT was provided — RLS status could NOT be determined. Supply a PAT for an authoritative check.`,
+      };
     } else {
       rlsCheck = {
         status: "pass",
@@ -431,10 +522,20 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
         status: "fail",
         notes: `${leaks.length} table(s) returned data to an unauthenticated request using only the anon key:\n\n${list}\n\nTighten RLS so anon SELECT is scoped, or revoke anon GRANTs on these tables.`,
       };
+    } else if (!schemaReadable) {
+      anonScope = {
+        status: "na",
+        notes: `Could not read the project's Data API schema (${tableListing.error ?? "unknown error"}). No tables were probed, so anon access was NOT verified — this is not a pass. Confirm the project URL and anon key are reachable and re-run.`,
+      };
     } else if (exposedEmpty.length > 0) {
       anonScope = {
         status: "pass",
         notes: `${exposedEmpty.length} table(s) accepted the anon key but returned no rows — RLS appears to be filtering correctly. ${tables.length - exposedEmpty.length} table(s) rejected anon entirely.`,
+      };
+    } else if (tables.length === 0) {
+      anonScope = {
+        status: "na",
+        notes: `The Data API exposed no tables to probe. Anon read access was not verified — treat as inconclusive, not safe.`,
       };
     } else {
       anonScope = {
@@ -496,12 +597,92 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       serviceRoleCheck = { status: "pass", notes: note };
     }
 
+    // Anon write access (authoritative, PAT only)
+    let writeAccessCheck: CheckResult;
+    if (!writeRows) {
+      writeAccessCheck = {
+        status: "na",
+        notes: pat
+          ? "Could not read anon write grants from the Management API. Re-run to verify whether anon can INSERT/UPDATE/DELETE."
+          : "Not checked. Verifying that the anon role cannot write to tables requires a Management API PAT. Supply one and re-run — this is the highest-value database check, because agents routinely write a read policy and forget the write side.",
+      };
+    } else {
+      const openWrite = writeRows.filter((r) => (r.insert || r.update || r.delete) && !r.rls);
+      const grantedButRls = writeRows.filter((r) => (r.insert || r.update || r.delete) && r.rls);
+      if (openWrite.length > 0) {
+        const list = openWrite
+          .map((r) => {
+            const ops = [r.insert && "INSERT", r.update && "UPDATE", r.delete && "DELETE"].filter(Boolean).join("/");
+            return `• ${r.table} — anon can ${ops} (RLS OFF)`;
+          })
+          .join("\n");
+        writeAccessCheck = {
+          status: "fail",
+          notes: `CRITICAL: the anon role holds write privileges on ${openWrite.length} table(s) with RLS DISABLED — anyone with the public anon key can modify or delete this data:\n\n${list}\n\nEnable RLS on these tables (and add scoped write policies), or revoke the anon INSERT/UPDATE/DELETE grants.`,
+        };
+      } else if (grantedButRls.length > 0) {
+        const list = grantedButRls.map((r) => `• ${r.table}`).join("\n");
+        writeAccessCheck = {
+          status: "na",
+          notes: `${grantedButRls.length} table(s) grant the anon role write access but have RLS enabled:\n\n${list}\n\nThe grant is only as safe as the policy scoping it — review each write policy to confirm anon cannot INSERT/UPDATE/DELETE rows it shouldn't. (Where possible, revoke unused anon write grants entirely.)`,
+        };
+      } else {
+        writeAccessCheck = {
+          status: "pass",
+          notes: `The anon role holds no INSERT/UPDATE/DELETE privileges on any public table. Unauthenticated writes are not possible via the Data API.`,
+        };
+      }
+    }
+
+    // Public storage buckets
+    let bucketCheck: CheckResult;
+    if (!buckets.ok) {
+      bucketCheck = { status: "na", notes: `Could not enumerate storage buckets: ${buckets.error ?? "unknown error"}.` };
+    } else if (publicBuckets.length > 0) {
+      const list = publicBuckets.map((b) => `• ${b.name}`).join("\n");
+      bucketCheck = {
+        status: "fail",
+        notes: `${publicBuckets.length} storage bucket(s) are marked PUBLIC — their objects are readable by anyone with the URL:\n\n${list}\n\nConfirm nothing sensitive is stored here; make buckets private and serve via signed URLs where possible.`,
+      };
+    } else {
+      bucketCheck = {
+        status: "pass",
+        notes: `No public storage buckets. ${buckets.buckets.length} bucket(s) checked; all are private.`,
+      };
+    }
+
+    // Email confirmation (from Management auth config)
+    let emailConfirmCheck: CheckResult;
+    if (!authConfig || !authConfig.ok || !authConfig.data) {
+      emailConfirmCheck = {
+        status: "na",
+        notes: pat
+          ? "Could not read the auth configuration from the Management API."
+          : "Not checked. Verifying email confirmation requires a Management API PAT.",
+      };
+    } else {
+      const autoconfirm = authConfig.data["mailer_autoconfirm"] === true;
+      emailConfirmCheck = autoconfirm
+        ? {
+            status: "fail",
+            notes: "Email auto-confirm is ON (mailer_autoconfirm = true): new signups are confirmed without verifying the address, so anyone can register as any email. Turn on email confirmation under Authentication → Providers → Email.",
+          }
+        : {
+            status: "pass",
+            notes: "Email confirmation is required for new signups (mailer_autoconfirm is off).",
+          };
+    }
+
     // ---- Persist findings by title (only items that exist in the checklist) ----
     const titleToResult: Record<string, CheckResult> = {
       "RLS enabled on all tables": rlsCheck,
       "Anon key permissions scoped correctly": anonScope,
       "No direct table access without auth check": anonScope,
       "No unauthenticated endpoints returning user data": anonScope,
+      "Anon role cannot write to tables": writeAccessCheck,
+      "Minimum password length enforced": authBehavior.passwordPolicy,
+      "Email confirmation required for signup": emailConfirmCheck,
+      "No public storage buckets": bucketCheck,
       "Email enumeration not possible": authBehavior.enumeration,
       "Rate limiting on auth endpoints": rateLimit,
       "No secrets in client-side bundle": bundleCheck,

@@ -36,6 +36,25 @@ function header(h: Headers, name: string, key: string, friendly: string): CheckR
     : { key, status: "fail", notes: `Missing ${name} header.` };
 }
 
+function checkCors(h: Headers): CheckResult {
+  const acao = h.get("access-control-allow-origin");
+  const acac = (h.get("access-control-allow-credentials") ?? "").toLowerCase() === "true";
+  if (!acao) {
+    // No CORS header on the top-level document is normal and safe.
+    return { key: "cors_policy", status: "pass", notes: "No Access-Control-Allow-Origin header on the main response — no cross-origin exposure from this endpoint." };
+  }
+  if (acao === "*" && acac) {
+    // The genuinely dangerous pair: wildcard origin with credentials. Browsers
+    // block literal "*"+credentials, but servers that reflect the origin AND set
+    // credentials achieve the same effect — flag the wildcard as a strong signal.
+    return { key: "cors_policy", status: "fail", notes: "Access-Control-Allow-Origin is '*' together with Access-Control-Allow-Credentials: true — any site can make credentialed cross-origin requests. Restrict the allowed origin to a specific trusted host." };
+  }
+  if (acao === "*") {
+    return { key: "cors_policy", status: "warn", notes: "Access-Control-Allow-Origin is '*' — any origin may read responses from this endpoint. Fine for genuinely public data; scope it to a trusted origin if the endpoint ever returns anything user-specific." };
+  }
+  return { key: "cors_policy", status: "pass", notes: `Access-Control-Allow-Origin is scoped: ${acao}${acac ? " (with credentials)" : ""}.` };
+}
+
 function parseCspDirectives(csp: string): Map<string, string[]> {
   const directives = new Map<string, string[]>();
   for (const rawDirective of csp.split(";")) {
@@ -249,12 +268,13 @@ export const runAutoScan = createServerFn({ method: "POST" })
       results.push(header(h, "strict-transport-security", "hsts_header", "HSTS"));
       results.push(header(h, "permissions-policy", "permissions_policy", "Permissions-Policy"));
       results.push(checkCsp(h));
+      results.push(checkCors(h));
       results.push(checkSensitiveUrlParams(body, base));
       results.push(checkBundleSecrets(body));
       results.push(checkDebugMode(body, h));
       results.push(await checkViteExposure(base, body));
     } else {
-      const warnKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "sensitive_url_params", "bundle_secrets", "debug_mode", "vite_exposure"];
+      const warnKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "cors_policy", "sensitive_url_params", "bundle_secrets", "debug_mode", "vite_exposure"];
       for (const key of warnKeys) {
         results.push({ key, status: "warn", notes: `Could not fetch ${base}: ${mainErr ?? "unknown error"}` });
       }
