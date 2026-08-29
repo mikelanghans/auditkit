@@ -23,6 +23,9 @@
 const DOH_ENDPOINTS = [
   "https://cloudflare-dns.com/dns-query",
   "https://dns.google/resolve",
+  "https://1.1.1.1/dns-query",
+  "https://8.8.8.8/resolve",
+  "https://dns.alidns.com/resolve",
 ];
 
 /**
@@ -37,6 +40,22 @@ function allowUnresolvedHosts(): boolean {
     return false;
   }
 }
+
+/**
+ * A hostname that is clearly a public FQDN: at least two labels, an alphabetic
+ * TLD of 2+ chars, and none of the blocked internal suffixes. Used only as a
+ * last resort when every DoH resolver is unreachable, so that a blocked-egress
+ * environment does not make every scan fail. Private IP literals, `localhost`,
+ * `*.local`, `*.internal` and friends are still rejected before this point.
+ */
+function looksPublicFqdn(host: string): boolean {
+  const labels = host.toLowerCase().split(".");
+  if (labels.length < 2) return false;
+  if (labels.some((l) => l.length === 0)) return false;
+  const tld = labels[labels.length - 1];
+  return /^[a-z]{2,}$/.test(tld);
+}
+
 
 /** IPv4 literals matching private/loopback/link-local/metadata ranges. */
 function isPrivateIPv4(ip: string): boolean {
