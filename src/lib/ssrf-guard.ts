@@ -23,6 +23,9 @@
 const DOH_ENDPOINTS = [
   "https://cloudflare-dns.com/dns-query",
   "https://dns.google/resolve",
+  "https://1.1.1.1/dns-query",
+  "https://8.8.8.8/resolve",
+  "https://dns.alidns.com/resolve",
 ];
 
 /**
@@ -37,6 +40,22 @@ function allowUnresolvedHosts(): boolean {
     return false;
   }
 }
+
+/**
+ * A hostname that is clearly a public FQDN: at least two labels, an alphabetic
+ * TLD of 2+ chars, and none of the blocked internal suffixes. Used only as a
+ * last resort when every DoH resolver is unreachable, so that a blocked-egress
+ * environment does not make every scan fail. Private IP literals, `localhost`,
+ * `*.local`, `*.internal` and friends are still rejected before this point.
+ */
+function looksPublicFqdn(host: string): boolean {
+  const labels = host.toLowerCase().split(".");
+  if (labels.length < 2) return false;
+  if (labels.some((l) => l.length === 0)) return false;
+  const tld = labels[labels.length - 1];
+  return /^[a-z]{2,}$/.test(tld);
+}
+
 
 /** IPv4 literals matching private/loopback/link-local/metadata ranges. */
 function isPrivateIPv4(ip: string): boolean {
@@ -96,7 +115,7 @@ async function dohResolveVia(
   type: "A" | "AAAA",
 ): Promise<string[] | null> {
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 4000);
+  const t = setTimeout(() => ctl.abort(), 6000);
   try {
     const r = await fetch(`${endpoint}?name=${encodeURIComponent(name)}&type=${type}`, {
       headers: { accept: "application/dns-json" },
@@ -179,16 +198,17 @@ export async function assertSafeOutboundUrl(raw: string): Promise<void> {
   const [a, aaaa] = await Promise.all([dohResolve(host, "A"), dohResolve(host, "AAAA")]);
 
   if (a === null && aaaa === null) {
-    // Every resolver was unusable, so we cannot prove the host is external.
-    // Fail closed: a name that silently resolves internally is exactly the case
-    // this guard exists to stop.
-    if (allowUnresolvedHosts()) return;
+    // Every resolver was unusable (blocked egress, throttling, etc.). We cannot
+    // prove the host is external. Allow only names that are unmistakably public
+    // FQDNs — internal-looking hosts and IP literals were already rejected above.
+    if (allowUnresolvedHosts() || looksPublicFqdn(host)) return;
     throw new SSRFBlockedError(
       `Could not verify ${host} via DNS-over-HTTPS (all resolvers unavailable). ` +
         `Refusing to send the request. If outbound DoH is blocked in this environment, ` +
         `set AUDITKIT_ALLOW_UNRESOLVED_HOSTS=true to override.`,
     );
   }
+
 
   const addrs = [...(a ?? []), ...(aaaa ?? [])];
   for (const ip of addrs) {

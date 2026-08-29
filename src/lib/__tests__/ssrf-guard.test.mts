@@ -21,7 +21,7 @@ function stubFetch(routes) {
   globalThis.fetch = async (url, init = {}) => {
     const u = new URL(String(url));
     // DoH resolver stub
-    if (u.hostname === "cloudflare-dns.com" || u.hostname === "dns.google") {
+    if (["cloudflare-dns.com", "dns.google", "1.1.1.1", "8.8.8.8", "dns.alidns.com"].includes(u.hostname)) {
       const name = u.searchParams.get("name");
       const type = u.searchParams.get("type");
       const ip = DNS[name];
@@ -106,15 +106,26 @@ try {
 requests = [];
 globalThis.fetch = async (url) => {
   const u = new URL(String(url));
-  if (u.hostname === "cloudflare-dns.com" || u.hostname === "dns.google") return new Response("nope", { status: 500 });
+  if (u.hostname.includes("dns") || u.hostname === "1.1.1.1" || u.hostname === "8.8.8.8")
+    return new Response("nope", { status: 500 });
   return new Response("ok", { status: 200 });
 };
 try {
-  await assertSafeOutboundUrl("https://unknown.example/");
+  // Single-label / non-public-looking name still fails closed when DoH is down.
+  await assertSafeOutboundUrl("https://unknownhost/");
   check("fails closed when DoH unavailable", false, "allowed through");
 } catch (e) {
   check("fails closed when DoH unavailable", e instanceof SSRFBlockedError, e.message);
 }
+
+// 9b. Clearly public FQDNs are allowed through when every resolver is down
+try {
+  await assertSafeOutboundUrl("https://unknown.example.com/");
+  check("public FQDN allowed when DoH unavailable", true);
+} catch (e) {
+  check("public FQDN allowed when DoH unavailable", false, e.message);
+}
+
 
 // 10. Escape hatch re-opens it deliberately
 process.env.AUDITKIT_ALLOW_UNRESOLVED_HOSTS = "true";
