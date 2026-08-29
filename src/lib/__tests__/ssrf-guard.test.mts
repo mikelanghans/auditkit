@@ -21,7 +21,7 @@ function stubFetch(routes) {
   globalThis.fetch = async (url, init = {}) => {
     const u = new URL(String(url));
     // DoH resolver stub
-    if (u.hostname === "cloudflare-dns.com" || u.hostname === "dns.google") {
+    if (["cloudflare-dns.com", "dns.google", "1.1.1.1", "8.8.8.8", "dns.alidns.com"].includes(u.hostname)) {
       const name = u.searchParams.get("name");
       const type = u.searchParams.get("type");
       const ip = DNS[name];
