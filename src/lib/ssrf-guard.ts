@@ -115,7 +115,7 @@ async function dohResolveVia(
   type: "A" | "AAAA",
 ): Promise<string[] | null> {
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 4000);
+  const t = setTimeout(() => ctl.abort(), 6000);
   try {
     const r = await fetch(`${endpoint}?name=${encodeURIComponent(name)}&type=${type}`, {
       headers: { accept: "application/dns-json" },
