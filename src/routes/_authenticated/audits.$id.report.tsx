@@ -19,6 +19,8 @@ import {
   failuresBySeverity,
   estimateRemediationHours,
   launchRecommendation,
+  computeCoverage,
+  type Coverage,
   type RiskBreakdown,
 } from "@/lib/security-score";
 
@@ -132,7 +134,14 @@ function ReportPage() {
     [items.data, statusMap],
   );
   const effort = useMemo(() => estimateRemediationHours(risk), [risk]);
-  const verdict = useMemo(() => launchRecommendation(security.score, risk), [security.score, risk]);
+  const coverage = useMemo(
+    () => computeCoverage((items.data ?? []) as any, statusMap as any),
+    [items.data, statusMap],
+  );
+  const verdict = useMemo(
+    () => launchRecommendation(security.score, risk, coverage),
+    [security.score, risk, coverage],
+  );
 
   const scopeSnapshot = useMemo(() => {
     return grouped.map(([cat, list]) => {
@@ -180,6 +189,7 @@ function ReportPage() {
           effort={effort}
           verdict={verdict}
           totals={totals}
+          coverage={coverage}
         />
 
         <ScopeSnapshot items={scopeSnapshot} score={security.score} />
@@ -231,7 +241,7 @@ function ReportPage() {
 }
 
 function ExecutiveSummary({
-  score, grade, risk, effort, verdict, totals,
+  score, grade, risk, effort, verdict, totals, coverage,
 }: {
   score: number | null;
   grade: "A" | "B" | "C" | "D" | "F" | "—";
@@ -239,6 +249,7 @@ function ExecutiveSummary({
   effort: { min: number; max: number };
   verdict: ReturnType<typeof launchRecommendation>;
   totals: { pass: number; fail: number; na: number; unanswered: number; total: number };
+  coverage: Coverage;
 }) {
   const tone = gradeTone(grade);
   const scoreCls = {
@@ -256,6 +267,7 @@ function ExecutiveSummary({
   const verdictTone =
     verdict.verdict === "go" ? "border-status-pass/50 bg-status-pass/[0.08] text-status-pass" :
     verdict.verdict === "fix-first" ? "border-status-na/50 bg-status-na/[0.08] text-status-na" :
+    verdict.verdict === "insufficient" ? "border-status-na/50 bg-muted/40 text-status-na" :
     "border-status-fail/60 bg-status-fail/[0.08] text-status-fail";
 
   return (
@@ -267,24 +279,44 @@ function ExecutiveSummary({
         </div>
       </div>
 
+      <div className="rounded-xl border p-5">
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Assessment coverage</div>
+        <div className="text-3xl font-semibold tracking-tight mt-1">
+          Assessment {Math.round(coverage.ratio * 100)}% complete — {coverage.assessed} of {coverage.total} checks run.
+        </div>
+        <div className="mt-3 h-2 w-full rounded-full bg-muted overflow-hidden">
+          <div
+            className={cn("h-full rounded-full", coverage.sufficient ? "bg-status-pass" : "bg-status-na")}
+            style={{ width: `${Math.round(coverage.ratio * 100)}%` }}
+          />
+        </div>
+        {coverage.underCoveredCategories.length > 0 && (
+          <div className="text-xs text-muted-foreground mt-2">
+            Not sufficiently assessed: {coverage.underCoveredCategories.map((c) => `${c.category} (${c.assessed}/${c.total})`).join(", ")}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_2fr] gap-4">
         <div className={cn("rounded-xl ring-1 p-5 flex items-center gap-4", ringCls)}>
           <div className="flex flex-col items-center">
-            <div className={cn("text-5xl font-semibold tabular-nums leading-none", scoreCls)}>
+            <div className={cn("text-4xl font-semibold tabular-nums leading-none", scoreCls)}>
               {score ?? "—"}
             </div>
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">/ 100</div>
           </div>
           <div className="h-12 w-px bg-border" />
           <div>
-            <div className={cn("font-mono text-3xl font-semibold leading-none", scoreCls)}>{grade}</div>
-            <div className="text-xs uppercase tracking-wide text-muted-foreground mt-1">Overall grade</div>
+            <div className={cn("font-mono text-2xl font-semibold leading-none", scoreCls)}>{grade}</div>
+            <div className="text-[11px] text-muted-foreground mt-1 max-w-[16rem]">
+              Score among items assessed so far — not a whole-app grade.
+            </div>
           </div>
         </div>
 
         <div className={cn("rounded-xl border p-4 flex items-start gap-3", verdictTone)}>
           {verdict.verdict === "go" && <ShieldCheck className="h-6 w-6 shrink-0 mt-0.5" />}
-          {verdict.verdict === "fix-first" && <ShieldAlert className="h-6 w-6 shrink-0 mt-0.5" />}
+          {(verdict.verdict === "fix-first" || verdict.verdict === "insufficient") && <ShieldAlert className="h-6 w-6 shrink-0 mt-0.5" />}
           {verdict.verdict === "block" && <AlertOctagon className="h-6 w-6 shrink-0 mt-0.5" />}
           <div>
             <div className="text-[10px] uppercase tracking-widest opacity-80">Launch Recommendation</div>
@@ -305,7 +337,7 @@ function ExecutiveSummary({
         <span><span className="font-medium text-foreground">Estimated remediation effort:</span>{" "}
           {effort.max === 0 ? "—" : `${effort.min}–${effort.max} hours`}
         </span>
-        <span className="opacity-70">Score is severity-weighted across rated items (Pass / Pass + Fail). N/A and unanswered items are excluded.</span>
+        <span className="opacity-70">Score reflects only assessed items (severity-weighted Pass / Pass + Fail); unanswered items are tracked separately and prevent a launch recommendation until run.</span>
       </div>
     </section>
   );
