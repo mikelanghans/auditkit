@@ -87,29 +87,105 @@ export function estimateRemediationHours(r: RiskBreakdown): { min: number; max: 
   return { min: Math.round(min * 2) / 2, max: Math.round(max * 2) / 2 };
 }
 
-export type LaunchVerdict = "go" | "fix-first" | "block";
+export type LaunchVerdict = "go" | "fix-first" | "insufficient" | "block";
 
-export function launchRecommendation(score: number | null, r: RiskBreakdown): { verdict: LaunchVerdict; label: string; reason: string } {
-  if (score === null) {
-    return { verdict: "fix-first", label: "Not enough data", reason: "Rate more items to get a launch recommendation." };
-  }
-  if (r.critical > 0) {
+// Categories that must be meaningfully assessed before any green verdict.
+export const CRITICAL_CATEGORIES = [
+  "Database Security",
+  "Authentication & Sessions",
+  "API & Endpoint Security",
+];
+
+export const COVERAGE_THRESHOLD = 0.8;
+export const CRITICAL_CATEGORY_THRESHOLD = 0.5;
+
+export type CategoryCoverage = { category: string; assessed: number; total: number; ratio: number };
+
+export type Coverage = {
+  assessed: number;
+  total: number;
+  unanswered: number;
+  ratio: number; // 0..1
+  criticalCategories: CategoryCoverage[];
+  underCoveredCategories: CategoryCoverage[]; // critical categories below threshold
+  sufficient: boolean;
+};
+
+export function computeCoverage(
+  items: { id: string; category?: string | null }[],
+  statusByItemId: Map<string, "pass" | "fail" | "na" | null | string | undefined>,
+): Coverage {
+  const isAssessed = (id: string) => {
+    const s = statusByItemId.get(id);
+    return s === "pass" || s === "fail" || s === "na";
+  };
+  const total = items.length;
+  const assessed = items.filter((it) => isAssessed(it.id)).length;
+  const ratio = total === 0 ? 0 : assessed / total;
+
+  const criticalCategories: CategoryCoverage[] = CRITICAL_CATEGORIES.map((category) => {
+    const list = items.filter((it) => (it.category ?? "") === category);
+    const a = list.filter((it) => isAssessed(it.id)).length;
+    return { category, assessed: a, total: list.length, ratio: list.length === 0 ? 1 : a / list.length };
+  }).filter((c) => c.total > 0);
+
+  const underCoveredCategories = criticalCategories.filter((c) => c.ratio < CRITICAL_CATEGORY_THRESHOLD);
+
+  return {
+    assessed,
+    total,
+    unanswered: total - assessed,
+    ratio,
+    criticalCategories,
+    underCoveredCategories,
+    sufficient: total > 0 && ratio >= COVERAGE_THRESHOLD && underCoveredCategories.length === 0,
+  };
+}
+
+export function launchRecommendation(
+  score: number | null,
+  r: RiskBreakdown,
+  coverage?: Coverage,
+): { verdict: LaunchVerdict; label: string; reason: string } {
+  if (r.critical > 0 || r.high > 0) {
+    const parts = [];
+    if (r.critical) parts.push(`${r.critical} critical`);
+    if (r.high) parts.push(`${r.high} high`);
     return {
       verdict: "block",
-      label: `Block launch — ${r.critical} critical finding${r.critical === 1 ? "" : "s"}`,
-      reason: "Critical issues should be resolved before going live.",
+      label: "Do not launch",
+      reason: `${parts.join(" + ")} finding${r.critical + r.high === 1 ? "" : "s"} must be resolved before going live.`,
     };
   }
-  if (r.high > 0 || score < 80) {
+
+  if (coverage && !coverage.sufficient) {
+    const missing = coverage.underCoveredCategories.map((c) => c.category);
+    const pct = Math.round(coverage.ratio * 100);
+    return {
+      verdict: "insufficient",
+      label: "Insufficient coverage — not assessed",
+      reason: missing.length
+        ? `${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} not been sufficiently assessed (${pct}% of checks run). Not enough coverage to certify readiness.`
+        : `Only ${pct}% of checks have been run. Not enough coverage to certify readiness.`,
+    };
+  }
+
+  if (score === null) {
+    return { verdict: "insufficient", label: "Insufficient coverage — not assessed", reason: "Rate more items to get a launch recommendation." };
+  }
+
+  if (r.medium > 0 || r.low > 0 || score < 80) {
     const parts = [];
-    if (r.high) parts.push(`${r.high} high`);
     if (r.medium) parts.push(`${r.medium} medium`);
+    if (r.low) parts.push(`${r.low} low`);
     return {
       verdict: "fix-first",
-      label: `Launch after resolving ${parts.join(" + ") || "outstanding findings"}`,
-      reason: "Address high-impact items before launch.",
+      label: "Fix findings first",
+      reason: `Resolve ${parts.join(" + ") || "outstanding findings"} before launch.`,
     };
   }
-  return { verdict: "go", label: "Ready to launch", reason: "No critical or high findings detected." };
+
+  return { verdict: "go", label: "Ready to launch", reason: "All checks assessed with no outstanding findings." };
 }
+
 
