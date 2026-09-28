@@ -217,9 +217,9 @@ export function AIAssistReviewPanel({
                   )}
                   {f.suggested_status === "fail" && (
                     <FixPromptButton
+                      auditId={auditId}
+                      checklistItemId={f.checklist_item_id}
                       adhoc={{
-                        title: f.checklist_title,
-                        category: f.category,
                         notes: [f.reasoning, f.evidence].filter(Boolean).join("\n\n"),
                       }}
                     />

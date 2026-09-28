@@ -22,10 +22,6 @@ const TARGETS: { id: FixTarget; label: string; openUrl?: string; openLabel?: str
 ];
 
 type AdhocContext = {
-  title: string;
-  category?: string;
-  description?: string;
-  what_to_look_for?: string;
   notes?: string;
 };
 
@@ -58,7 +54,7 @@ export function FixPromptButton({
     setLoading(target);
     try {
       const payload = adhoc
-        ? { target, adhoc }
+        ? { auditId, checklistItemId, target, adhoc }
         : { auditId, checklistItemId, target };
       const res = await gen({ data: payload as any });
       if (!res.ok) { toast.error(res.error); return; }

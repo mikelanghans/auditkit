@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { redactSourceFile } from "./secret-redaction";
+import { consumeQuota } from "./quota";
 
 export type FixTarget = "lovable" | "cursor" | "claude";
 
@@ -55,17 +56,17 @@ const COLUMN: Record<FixTarget, "lovable_prompt" | "cursor_prompt" | "claude_pro
   claude: "claude_prompt",
 };
 
+const MAX_ADHOC_NOTES = 6_000;
+
 export type GenerateFixPromptInput = {
   auditId?: string;
   checklistItemId?: string;
   target: FixTarget;
   force?: boolean;
-  // Ad-hoc mode (e.g. AI Assist suggestions not yet applied):
+  // Ad-hoc mode, for AI Assist suggestions that aren't saved as findings yet.
+  // Still requires auditId + checklistItemId: the finding's title and guidance
+  // come from our own checklist, and only the evidence text comes from the caller.
   adhoc?: {
-    title: string;
-    category?: string;
-    description?: string;
-    what_to_look_for?: string;
     notes?: string;
   };
 };
@@ -79,18 +80,6 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
     const column = COLUMN[target];
     if (!column) return { ok: false as const, error: "Invalid target." };
 
-    // Ad-hoc mode: skip audit/finding lookups, don't cache.
-    if (data.adhoc) {
-      const item = data.adhoc;
-      const userMessage =
-        `Finding title: ${item.title}\n` +
-        (item.category ? `Category: ${item.category}\n` : "") +
-        (item.description ? `Description: ${item.description}\n` : "") +
-        (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
-        `\nAuditor notes & evidence:\n${redactSourceFile((item.notes ?? "").trim()) || "(no notes provided)"}`;
-      return await callClaude(target, userMessage);
-    }
-
     if (!data.auditId || !data.checklistItemId) {
       return { ok: false as const, error: "Missing auditId/checklistItemId." };
     }
@@ -99,6 +88,27 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       .from("audits").select("id, created_by, built_with").eq("id", data.auditId).single();
     if (aerr || !auditRow || auditRow.created_by !== userId) {
       return { ok: false as const, error: "Audit not found or access denied." };
+    }
+
+    // Ad-hoc mode: an AI Assist suggestion that isn't a saved finding yet.
+    // The item's title and guidance come from our checklist, not the request,
+    // and the caller's evidence text is capped and redacted. No caching.
+    if (data.adhoc) {
+      const { data: adhocItem, error: aiErr } = await supabase
+        .from("checklist_items")
+        .select("title, category, description, what_to_look_for")
+        .eq("id", data.checklistItemId).single();
+      if (aiErr || !adhocItem) return { ok: false as const, error: "Checklist item not found." };
+      const evidence = redactSourceFile(String(data.adhoc.notes ?? "").slice(0, MAX_ADHOC_NOTES).trim());
+      const quota = await consumeQuota(supabase, "llm", 1);
+      if (!quota.ok) return { ok: false as const, error: quota.error };
+      const userMessage =
+        `Finding title: ${adhocItem.title}\n` +
+        `Category: ${adhocItem.category}\n` +
+        (adhocItem.description ? `Description: ${adhocItem.description}\n` : "") +
+        (adhocItem.what_to_look_for ? `What to look for: ${adhocItem.what_to_look_for}\n` : "") +
+        `\nAI Assist evidence (unverified, from the client's code):\n${evidence || "(no evidence provided)"}`;
+      return await callClaude(target, userMessage);
     }
     const builtWith = (auditRow as any).built_with as string | null;
 
@@ -142,6 +152,8 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       // Notes can hold evidence pasted from the client's code or scan output.
       `\nAuditor notes & evidence:\n${redactSourceFile((finding.notes ?? "").trim()) || "(no notes provided)"}`;
 
+    const quota = await consumeQuota(supabase, "llm", 1);
+    if (!quota.ok) return { ok: false as const, error: quota.error };
     const result = await callClaude(target, userMessage);
     if (!result.ok) return result;
 

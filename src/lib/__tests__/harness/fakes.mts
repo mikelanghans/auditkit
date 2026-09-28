@@ -4,6 +4,7 @@ type Row = Record<string, any>;
 
 export class FakeDb {
   tables: Record<string, Row[]> = {};
+  quota?: { used: number; limit: number };
   constructor(seed: Record<string, Row[]> = {}) {
     for (const [k, v] of Object.entries(seed)) this.tables[k] = v.map((r) => ({ ...r }));
   }
@@ -59,7 +60,15 @@ class FakeClient {
   private db: FakeDb;
   constructor(db: FakeDb) { this.db = db; }
   from(t: string) { return new Query(this.db, t); }
-  async rpc() { return { data: false, error: null }; }
+  async rpc(name: string, args: any) {
+    if (name === "consume_quota") {
+      const q = (this.db.quota ??= { used: 0, limit: Infinity });
+      if (q.used + (args?.p_amount ?? 1) > q.limit) return { data: { allowed: false, used: q.used, limit: q.limit }, error: null };
+      q.used += args?.p_amount ?? 1;
+      return { data: { allowed: true, used: q.used, limit: q.limit }, error: null };
+    }
+    return { data: false, error: null };
+  }
 }
 
 export type Route = (url: string, init: RequestInit) => Response | Promise<Response> | undefined;

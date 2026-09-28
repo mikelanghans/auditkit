@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
+import { consumeQuota } from "./quota";
 
 
 const TIMEOUT_MS = 30_000;
@@ -220,6 +221,9 @@ export const runAIScan = createServerFn({ method: "POST" })
     if (aerr || !auditRow || auditRow.created_by !== userId) {
       return { ok: false as const, error: "Audit not found or access denied." };
     }
+
+    const quota = await consumeQuota(supabase, "scan", 1);
+    if (!quota.ok) return { ok: false as const, error: quota.error };
 
     const headers: Record<string, string> = {
       "content-type": "application/json",

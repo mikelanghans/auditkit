@@ -5,6 +5,7 @@ import { detectAIEndpointsCore, type DetectedEndpoint } from "./ai-endpoint-dete
 import { GITHUB_HOSTS, safeFetch } from "./ssrf-guard";
 import { decodeBase64Utf8 } from "./decode-blob";
 import { upsertScanFinding } from "./finding-writer";
+import { consumeQuota } from "./quota";
 import { gitignoreIgnoresEnv, isEnvFilePath } from "./repo-hygiene";
 
 
@@ -105,9 +106,20 @@ export const runRepoScan = createServerFn({ method: "POST" })
   })
 
   .handler(async ({ data, context }) => {
-    const { supabase } = context;
+    const { supabase, userId } = context;
     const parsed = parseRepo(data.repoUrl);
     if (!parsed) return { ok: false as const, error: `Could not parse GitHub URL: ${data.repoUrl}` };
+
+    // Check ownership before doing any work (RLS would also block the writes,
+    // but only after the GitHub calls had run).
+    const { data: auditRow, error: aerr } = await supabase
+      .from("audits").select("id, created_by").eq("id", data.auditId).single();
+    if (aerr || !auditRow || (auditRow as any).created_by !== userId) {
+      return { ok: false as const, error: "Audit not found or access denied." };
+    }
+
+    const quota = await consumeQuota(supabase, "scan", 1);
+    if (!quota.ok) return { ok: false as const, error: quota.error };
     const headers = ghHeaders(data.token);
 
     // Verify the repo & token up front (and discover default branch).

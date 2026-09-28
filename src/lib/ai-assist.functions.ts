@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { decodeBase64Utf8 } from "./decode-blob";
+import { consumeQuota } from "./quota";
 import { redactForPrompt } from "./secret-redaction";
 
 // Per-batch budget sent to Claude (well under 200k-token context window)
@@ -275,6 +276,8 @@ export const runAIAssist = createServerFn({ method: "POST" })
     }
 
     const { batches, dropped } = chunkFiles(repoData.files, caps.maxBatches);
+    const quota = await consumeQuota(supabase, "llm", batches.length);
+    if (!quota.ok) return { ok: false as const, error: quota.error };
     let reviewedFiles = 0;
     const stamp = new Date().toISOString();
     // dedupe findings across batches: keep highest confidence per checklist item
@@ -470,6 +473,8 @@ export const recheckAIAssistItem = createServerFn({ method: "POST" })
     }
 
     const { batches, dropped } = chunkFiles(repoData.files, DEPTH_CAPS.deep.maxBatches);
+    const quota = await consumeQuota(supabase, "llm", batches.length);
+    if (!quota.ok) return { ok: false as const, error: quota.error };
     const itemKey = (item.checklist_key || slugify(item.title)).toLowerCase();
     const checklistList = `- key="${itemKey}" | title="${item.title}" | category=${item.category}`;
     const confRank: Record<string, number> = { high: 3, medium: 2, low: 1 };

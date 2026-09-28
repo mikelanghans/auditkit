@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
+import { consumeQuota } from "./quota";
 
 
 // "warn" = advisory, left for manual review and not written.
@@ -292,7 +293,8 @@ export const runAutoScan = createServerFn({ method: "POST" })
       throw e;
     }
 
-
+    const quota = await consumeQuota(supabase, "scan", 1);
+    if (!quota.ok) throw new Error(quota.error);
 
     const results: CheckResult[] = [];
     let mainResp: Response | null = null;

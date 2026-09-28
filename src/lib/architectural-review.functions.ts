@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { decodeBase64Utf8 } from "./decode-blob";
+import { consumeQuota } from "./quota";
 import { redactForPrompt, redactSourceFile } from "./secret-redaction";
 
 // Mirror the file-selection strategy used by AI Assist, but cap at ~20 files for
@@ -225,6 +226,9 @@ export const runArchitecturalReview = createServerFn({ method: "POST" })
       `Files included for architectural review: ${repoData.files.length}\n\n` +
       `EXISTING LINE-LEVEL FINDINGS (do not repeat these; use them as context):\n${findingsBlob}\n\n` +
       `SOURCE FILES:\n${codeBlob}`;
+
+    const quota = await consumeQuota(supabase, "llm", 1);
+    if (!quota.ok) return { ok: false as const, error: quota.error };
 
     let raw: string;
     try {

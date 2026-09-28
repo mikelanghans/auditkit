@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { redactSourceFile } from "./secret-redaction";
+import { consumeQuota } from "./quota";
 
 const SYSTEM_PROMPT =
   "You are a security expert who explains findings to non-technical founders. " +
@@ -48,6 +49,8 @@ export const explainFinding = createServerFn({ method: "POST" })
 
     const key = process.env.ANTHROPIC_API_KEY;
     if (!key) return { ok: false as const, error: "ANTHROPIC_API_KEY is not configured." };
+    const quota = await consumeQuota(supabase, "llm", 1);
+    if (!quota.ok) return { ok: false as const, error: quota.error };
 
     const userMessage =
       `Finding: ${item.title}\n` +
