@@ -127,6 +127,11 @@ async function fetchRepoFiles(owner: string, repo: string, token: string, maxFil
   };
 }
 
+/**
+ * Pack files into at most `maxBatches` prompts. Returns the files that did not
+ * fit, so the caller reports what the model actually saw instead of claiming
+ * every fetched file was reviewed.
+ */
 function chunkFiles(files: { path: string; content: string }[], maxBatches: number) {
   const batches: { path: string; content: string }[][] = [];
   let cur: { path: string; content: string }[] = [];
@@ -141,7 +146,9 @@ function chunkFiles(files: { path: string; content: string }[], maxBatches: numb
     curChars += f.content.length;
   }
   if (cur.length && batches.length < maxBatches) batches.push(cur);
-  return batches;
+  const sent = new Set(batches.flat().map((f) => f.path));
+  const dropped = files.filter((f) => !sent.has(f.path)).map((f) => f.path);
+  return { batches, dropped };
 }
 
 async function callClaude(systemPrompt: string, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
@@ -267,7 +274,8 @@ export const runAIAssist = createServerFn({ method: "POST" })
       itemByKey.set(it.title.toLowerCase(), it);
     }
 
-    const batches = chunkFiles(repoData.files, caps.maxBatches);
+    const { batches, dropped } = chunkFiles(repoData.files, caps.maxBatches);
+    let reviewedFiles = 0;
     const stamp = new Date().toISOString();
     // dedupe findings across batches: keep highest confidence per checklist item
     const confRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -306,13 +314,15 @@ export const runAIAssist = createServerFn({ method: "POST" })
         continue;
       }
 
+      reviewedFiles += batch.length;
       totalRaw += arr.length;
       for (const f of arr) {
         const key = String(f?.checklist_key ?? "").toLowerCase().trim();
         const item = itemByKey.get(key);
         if (!item) continue;
         const status = f?.suggested_status === "fail" ? "fail" : f?.suggested_status === "pass" ? "pass" : null;
-        const confidence = f?.confidence === "high" ? "high" : f?.confidence === "medium" ? "medium" : f?.confidence === "low" ? "low" : null;
+        // Low-confidence answers are not strong enough to change a verdict.
+        const confidence = f?.confidence === "high" ? "high" : f?.confidence === "medium" ? "medium" : null;
         if (!status || !confidence) continue;
         const finding: AIAssistFinding = {
           checklist_item_id: item.id,
@@ -339,9 +349,34 @@ export const runAIAssist = createServerFn({ method: "POST" })
     }
 
 
-    // Auto-apply high
+    if (batches.length > 0 && batchErrors.length === batches.length) {
+      return { ok: false as const, error: `AI Assist could not review any files: ${batchErrors.join("; ")}` };
+    }
+    const incomplete = dropped.length > 0 || batchErrors.length > 0 || repoData.truncatedTree;
+
+    // Auto-apply high-confidence results, with two guards:
+    //  1. Never overwrite a verdict an auditor or a deterministic scanner already
+    //     recorded. Model output is shaped by the client's own repo content, so it
+    //     must not silently replace a human "fail" with a "pass".
+    //  2. On a partial run, only auto-apply failures. A "pass" drawn from a subset
+    //     of the code goes to review instead.
+    const { data: existingRows, error: exErr } = await supabase
+      .from("audit_findings")
+      .select("checklist_item_id, status, ai_assisted")
+      .eq("audit_id", data.auditId);
+    if (exErr) throw new Error(exErr.message);
+    const existingById = new Map<string, { status: string | null; ai_assisted: boolean | null }>();
+    for (const row of existingRows ?? []) existingById.set((row as any).checklist_item_id, row as any);
+
     let applied = 0;
+    const heldForReview: AIAssistFinding[] = [];
     for (const f of high) {
+      const prev = existingById.get(f.checklist_item_id);
+      const hasHumanOrScannerVerdict = !!prev?.status && !prev.ai_assisted;
+      if (hasHumanOrScannerVerdict || prev?.status === "resolved" || (incomplete && f.suggested_status === "pass")) {
+        heldForReview.push(f);
+        continue;
+      }
       const notes = `[AI Assist ${stamp}] (high confidence)\n${f.reasoning}\n\nEvidence:\n${f.evidence}`;
       const { error } = await supabase.from("audit_findings").upsert(
         { audit_id: data.auditId, checklist_item_id: f.checklist_item_id, status: f.suggested_status, notes, ai_assisted: true },
@@ -353,10 +388,15 @@ export const runAIAssist = createServerFn({ method: "POST" })
     return {
       ok: true as const,
       repo: `${parsed.owner}/${parsed.repo}`,
-      filesScanned: repoData.files.length,
+      // Files the model actually reviewed (in batches that succeeded).
+      filesScanned: reviewedFiles,
+      filesFetched: repoData.files.length,
+      droppedFiles: dropped.length > 0 ? dropped : undefined,
       batches: batches.length,
       highApplied: applied,
-      mediumPending: medium,
+      // Held-back high-confidence results are shown for review alongside medium ones.
+      mediumPending: [...heldForReview, ...medium],
+      heldForReview: heldForReview.length,
       total: totalRaw,
       partial: batchErrors.length > 0 ? batchErrors : undefined,
       truncatedTree: repoData.truncatedTree || undefined,
@@ -429,7 +469,7 @@ export const recheckAIAssistItem = createServerFn({ method: "POST" })
       return { ok: false as const, error: "No source files found in the repo." };
     }
 
-    const batches = chunkFiles(repoData.files, DEPTH_CAPS.deep.maxBatches);
+    const { batches, dropped } = chunkFiles(repoData.files, DEPTH_CAPS.deep.maxBatches);
     const itemKey = (item.checklist_key || slugify(item.title)).toLowerCase();
     const checklistList = `- key="${itemKey}" | title="${item.title}" | category=${item.category}`;
     const confRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -465,7 +505,8 @@ export const recheckAIAssistItem = createServerFn({ method: "POST" })
         const key = String(f?.checklist_key ?? "").toLowerCase().trim();
         if (key !== itemKey) continue;
         const status = f?.suggested_status === "fail" ? "fail" : f?.suggested_status === "pass" ? "pass" : null;
-        const confidence = f?.confidence === "high" ? "high" : f?.confidence === "medium" ? "medium" : f?.confidence === "low" ? "low" : null;
+        // Low-confidence answers are not strong enough to change a verdict.
+        const confidence = f?.confidence === "high" ? "high" : f?.confidence === "medium" ? "medium" : null;
         if (!status || !confidence) continue;
         const finding: AIAssistFinding = {
           checklist_item_id: item.id,
@@ -482,11 +523,25 @@ export const recheckAIAssistItem = createServerFn({ method: "POST" })
       }
     }
 
+    if (batches.length > 0 && batchErrors.length === batches.length) {
+      return { ok: false as const, error: `Re-check could not review any files: ${batchErrors.join("; ")}` };
+    }
+    const incomplete = dropped.length > 0 || batchErrors.length > 0;
     if (!best) {
       return {
         ok: true as const,
         applied: false as const,
-        message: "No evidence found in the scanned files — status unchanged.",
+        message: incomplete
+          ? `No evidence found in the files that were reviewed, but ${dropped.length ? `${dropped.length} file(s) didn't fit` : ""}${dropped.length && batchErrors.length ? " and " : ""}${batchErrors.length ? `${batchErrors.length} batch(es) failed` : ""} — status unchanged.`
+          : "No evidence found in the scanned files — status unchanged.",
+        partial: batchErrors.length > 0 ? batchErrors : undefined,
+      };
+    }
+    if (incomplete && best.suggested_status === "pass") {
+      return {
+        ok: true as const,
+        applied: false as const,
+        message: "The model suggested a pass, but the re-check didn't cover every file, so the status was left unchanged. Review the suggestion manually.",
         partial: batchErrors.length > 0 ? batchErrors : undefined,
       };
     }

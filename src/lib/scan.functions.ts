@@ -1,9 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
+import { upsertScanFinding } from "./finding-writer";
 
 
-type ScanStatus = "pass" | "fail" | "warn";
+// "warn" = advisory, left for manual review and not written.
+// "inconclusive" = the scanner could not observe what it needed to; written so the
+// item is visibly unverified, but never allowed to overwrite a known failure.
+type ScanStatus = "pass" | "fail" | "warn" | "inconclusive";
 type CheckResult = { key: string; status: ScanStatus; notes: string };
 
 const TIMEOUT_MS = 10_000;
@@ -118,7 +122,7 @@ function checkSensitiveUrlParams(body: string, base: string): CheckResult {
   return { key: "sensitive_url_params", status: "fail", notes: `Found possible sensitive query parameters in HTML:\n${hits.join("\n")}` };
 }
 
-function checkBundleSecrets(body: string): CheckResult {
+function checkBundleSecrets(sources: { url: string; body: string }[], coverage: BundleCoverage): CheckResult {
   const patterns: Array<[RegExp, string]> = [
     [/sk_live_[A-Za-z0-9]{16,}/g, "Stripe live secret key"],
     [/sk_test_[A-Za-z0-9]{16,}/g, "Stripe test secret key"],
@@ -128,14 +132,27 @@ function checkBundleSecrets(body: string): CheckResult {
     [/service_role[^A-Za-z0-9]{0,5}[:=][^,\n]{20,}/gi, "service_role reference"],
   ];
   const hits: string[] = [];
-  for (const [re, label] of patterns) {
-    const matches = body.match(re);
-    if (matches) hits.push(`${label} (${matches.length} match${matches.length > 1 ? "es" : ""})`);
+  for (const { url, body } of sources) {
+    for (const [re, label] of patterns) {
+      const matches = body.match(re);
+      if (matches) hits.push(`${label} (${matches.length} match${matches.length > 1 ? "es" : ""}) in ${url}`);
+    }
   }
-  if (hits.length === 0) {
-    return { key: "bundle_secrets", status: "pass", notes: "No obvious secret patterns detected in the served HTML." };
+  if (hits.length > 0) {
+    return { key: "bundle_secrets", status: "fail", notes: `Possible secret patterns detected in client-side code:\n- ${hits.join("\n- ")}` };
   }
-  return { key: "bundle_secrets", status: "fail", notes: `Possible secret patterns detected in served HTML:\n- ${hits.join("\n- ")}` };
+  if (!coverage.complete) {
+    return {
+      key: "bundle_secrets",
+      status: "inconclusive",
+      notes: `No secret patterns found in what could be scanned, but the scan was incomplete, so this is not a pass.\n\n${coverage.summary}`,
+    };
+  }
+  return {
+    key: "bundle_secrets",
+    status: "pass",
+    notes: `No obvious secret patterns detected in the HTML and ${sources.length - 1} JS bundle(s).`,
+  };
 }
 
 function checkDebugMode(body: string, h: Headers): CheckResult {
@@ -153,9 +170,14 @@ function checkDebugMode(body: string, h: Headers): CheckResult {
   return { key: "debug_mode", status: "fail", notes: `Possible debug-mode signals:\n${notes}` };
 }
 
-const SENSITIVE_VITE_KEYWORDS = ["SECRET", "KEY", "TOKEN", "PASSWORD", "PRIVATE", "SERVICE_ROLE", "ANON", "API"];
+const SENSITIVE_VITE_KEYWORDS = ["SECRET", "KEY", "TOKEN", "PASSWORD", "PRIVATE", "SERVICE_ROLE", "API"];
+// Values that are designed to be public in a browser bundle. Flagging these as
+// "sensitive" would put a false critical in every Supabase app's report.
+const PUBLIC_BY_DESIGN_VITE = /^VITE_[A-Z0-9_]*(PUBLISHABLE_KEY|ANON_KEY|_URL|PROJECT_ID)$/;
 const MAX_BUNDLES = 15;
 const MAX_BUNDLE_BYTES = 2_000_000;
+
+type BundleCoverage = { complete: boolean; summary: string };
 
 function extractScriptUrls(html: string, base: string): string[] {
   const urls = new Set<string>();
@@ -168,23 +190,40 @@ function extractScriptUrls(html: string, base: string): string[] {
       /* ignore */
     }
   }
-  return Array.from(urls).slice(0, MAX_BUNDLES);
+  return Array.from(urls);
 }
 
-async function checkViteExposure(base: string, html: string): Promise<CheckResult> {
-  const scriptUrls = extractScriptUrls(html, base);
+/**
+ * Fetch the page's JS bundles once, for both bundle checks. Tracks what could
+ * NOT be scanned, because "we didn't see it" must never be reported as "clean".
+ */
+async function collectBundles(base: string, html: string): Promise<{ sources: { url: string; body: string }[]; coverage: BundleCoverage }> {
+  const allUrls = extractScriptUrls(html, base);
+  const scriptUrls = allUrls.slice(0, MAX_BUNDLES);
   const sources: { url: string; body: string }[] = [{ url: base, body: html }];
+  const skipped: string[] = [];
   for (const url of scriptUrls) {
     try {
       await assertSafeOutboundUrl(url);
       const r = await timedFetch(url, { headers: { "user-agent": "AuditKit-Scanner/1.0" } });
-      if (!r.ok) continue;
+      if (!r.ok) {
+        skipped.push(`${url} (HTTP ${r.status})`);
+        continue;
+      }
       const text = (await r.text()).slice(0, MAX_BUNDLE_BYTES);
       sources.push({ url, body: text });
-    } catch {
-      /* skip — SSRF-blocked or fetch error */
+    } catch (e: any) {
+      skipped.push(`${url} (${e?.message ?? "fetch failed"})`);
     }
   }
+  const overCap = allUrls.length - scriptUrls.length;
+  const lines: string[] = [`Scanned the HTML and ${sources.length - 1} of ${allUrls.length} referenced JS bundle(s).`];
+  if (skipped.length) lines.push(`Could not fetch ${skipped.length}:\n${skipped.slice(0, 15).map((u) => `- ${u}`).join("\n")}`);
+  if (overCap > 0) lines.push(`${overCap} bundle(s) beyond the ${MAX_BUNDLES}-file scan limit were not fetched.`);
+  return { sources, coverage: { complete: skipped.length === 0 && overCap === 0, summary: lines.join("\n\n") } };
+}
+
+function checkViteExposure(sources: { url: string; body: string }[], coverage: BundleCoverage): CheckResult {
 
   const viteVarRe = /\bVITE_[A-Z0-9_]+/g;
   const foundByVar = new Map<string, Set<string>>();
@@ -193,6 +232,7 @@ async function checkViteExposure(base: string, html: string): Promise<CheckResul
     if (!matches) continue;
     for (const name of matches) {
       const upper = name.toUpperCase();
+      if (PUBLIC_BY_DESIGN_VITE.test(upper)) continue;
       if (!SENSITIVE_VITE_KEYWORDS.some((kw) => upper.includes(kw))) continue;
       if (!foundByVar.has(upper)) foundByVar.set(upper, new Set());
       foundByVar.get(upper)!.add(url);
@@ -200,10 +240,17 @@ async function checkViteExposure(base: string, html: string): Promise<CheckResul
   }
 
   if (foundByVar.size === 0) {
+    if (!coverage.complete) {
+      return {
+        key: "vite_exposure",
+        status: "inconclusive",
+        notes: `No sensitive VITE_ variable names found in what could be scanned, but the scan was incomplete, so this is not a pass.\n\n${coverage.summary}`,
+      };
+    }
     return {
       key: "vite_exposure",
       status: "pass",
-      notes: `Scanned ${sources.length} source(s) (HTML + ${scriptUrls.length} JS bundle(s)). No VITE_ variable names containing sensitive keywords (${SENSITIVE_VITE_KEYWORDS.join(", ")}) were detected in the served bundle.`,
+      notes: `Scanned the HTML and ${sources.length - 1} JS bundle(s). No VITE_ variable names containing sensitive keywords (${SENSITIVE_VITE_KEYWORDS.join(", ")}) were detected in the served bundle.`,
     };
   }
   const lines = Array.from(foundByVar.entries())
@@ -251,16 +298,30 @@ export const runAutoScan = createServerFn({ method: "POST" })
     let mainResp: Response | null = null;
     let mainErr: string | undefined;
     let body = "";
+    // Content checks only count when we actually read the site's real page:
+    // a 2xx response whose body was read in full. An error page, a WAF challenge
+    // or a connection reset mid-body is not evidence that the site is clean.
+    let bodyObserved = false;
+    let unobservedReason = "";
     try {
       mainResp = await timedFetch(base, { method: "GET", headers: { "user-agent": "AuditKit-Scanner/1.0" } });
-      body = (await mainResp.text()).slice(0, 200_000);
     } catch (e: any) {
       mainErr = e?.message ?? String(e);
     }
+    if (mainResp) {
+      try {
+        body = (await mainResp.text()).slice(0, 200_000);
+        if (mainResp.ok) bodyObserved = true;
+        else unobservedReason = `${base} returned HTTP ${mainResp.status}, so its content and headers may not be the real page's.`;
+      } catch (e: any) {
+        unobservedReason = `Reading the response body from ${base} failed: ${e?.message ?? String(e)}`;
+      }
+    }
 
+    // TLS was negotiated if response headers arrived at all.
     results.push(checkSsl(base, !!mainResp, mainErr));
 
-    if (mainResp) {
+    if (mainResp && bodyObserved) {
       const h = mainResp.headers;
       results.push(header(h, "x-frame-options", "xframe_header", "X-Frame-Options"));
       results.push(header(h, "x-content-type-options", "xcontent_type", "X-Content-Type-Options"));
@@ -270,13 +331,15 @@ export const runAutoScan = createServerFn({ method: "POST" })
       results.push(checkCsp(h));
       results.push(checkCors(h));
       results.push(checkSensitiveUrlParams(body, base));
-      results.push(checkBundleSecrets(body));
       results.push(checkDebugMode(body, h));
-      results.push(await checkViteExposure(base, body));
+      const bundles = await collectBundles(base, body);
+      results.push(checkBundleSecrets(bundles.sources, bundles.coverage));
+      results.push(checkViteExposure(bundles.sources, bundles.coverage));
     } else {
-      const warnKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "cors_policy", "sensitive_url_params", "bundle_secrets", "debug_mode", "vite_exposure"];
-      for (const key of warnKeys) {
-        results.push({ key, status: "warn", notes: `Could not fetch ${base}: ${mainErr ?? "unknown error"}` });
+      const reason = mainResp ? unobservedReason : `Could not fetch ${base}: ${mainErr ?? "unknown error"}`;
+      const unobservedKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "cors_policy", "sensitive_url_params", "bundle_secrets", "debug_mode", "vite_exposure"];
+      for (const key of unobservedKeys) {
+        results.push({ key, status: "inconclusive", notes: `Not checked: ${reason}` });
       }
     }
 
@@ -287,7 +350,7 @@ export const runAutoScan = createServerFn({ method: "POST" })
       const text = (await probe.text()).slice(0, 50_000);
       results.push(checkErrorVerbosity(text, probe.status));
     } catch (e: any) {
-      results.push({ key: "error_verbosity", status: "warn", notes: `Probe request failed: ${e?.message ?? String(e)}` });
+      results.push({ key: "error_verbosity", status: "inconclusive", notes: `Not checked: the probe request failed (${e?.message ?? String(e)}).` });
     }
 
     // Map keys → checklist item ids
@@ -301,37 +364,33 @@ export const runAutoScan = createServerFn({ method: "POST" })
     (items ?? []).forEach((it: any) => byKey.set(it.checklist_key, it.id));
 
     const stamp = new Date().toISOString();
-    const written: { key: string; status: ScanStatus; matched: boolean }[] = [];
+    const written: { key: string; status: ScanStatus; matched: boolean; stored: boolean }[] = [];
 
     for (const r of results) {
       const itemId = byKey.get(r.key);
       if (!itemId) {
-        written.push({ key: r.key, status: r.status, matched: false });
+        written.push({ key: r.key, status: r.status, matched: false, stored: false });
         continue;
       }
       // Warn results: skip writing — leave for manual review
       if (r.status === "warn") {
-        written.push({ key: r.key, status: r.status, matched: true });
+        written.push({ key: r.key, status: r.status, matched: true, stored: false });
         continue;
       }
       const note = `[Auto-scan ${stamp}]\nTarget: ${base}\n\n${r.notes}`;
-      const { error: upErr } = await supabase.from("audit_findings").upsert(
-        {
-          audit_id: data.auditId,
-          checklist_item_id: itemId,
-          status: r.status,
-          notes: note,
-          auto_scanned: true,
-        },
-        { onConflict: "audit_id,checklist_item_id" },
-      );
-      if (upErr) throw new Error(upErr.message);
-      written.push({ key: r.key, status: r.status, matched: true });
+      const res = await upsertScanFinding(supabase, {
+        audit_id: data.auditId,
+        checklist_item_id: itemId,
+        status: r.status,
+        notes: note,
+      });
+      written.push({ key: r.key, status: r.status, matched: true, stored: res.written });
     }
 
     const passes = written.filter((w) => w.status === "pass").length;
     const fails = written.filter((w) => w.status === "fail").length;
     const warnings = written.filter((w) => w.status === "warn").length;
+    const inconclusive = written.filter((w) => w.status === "inconclusive").length;
 
-    return { target: base, results: written, passes, fails, warnings };
+    return { target: base, results: written, passes, fails, warnings, inconclusive };
   });

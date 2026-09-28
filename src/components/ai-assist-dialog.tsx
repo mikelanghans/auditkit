@@ -13,6 +13,11 @@ import { FixPromptButton } from "@/components/fix-prompt-dialog";
 export type AIAssistSummary = {
   repo: string;
   filesScanned: number;
+  filesFetched?: number;
+  droppedFiles?: number;
+  failedBatches?: number;
+  truncatedTree?: boolean;
+  heldForReview?: number;
   highApplied: number;
   mediumPending: AIAssistFinding[];
   at: string;
@@ -97,11 +102,16 @@ export function AIAssistDialog({
           if (!res.ok) { toast.error(res.error, { id: loadingToastId }); return false; }
           toast.success(
             `AI Assist found ${res.highApplied} high-confidence finding${res.highApplied === 1 ? "" : "s"} (auto-applied) and ${res.mediumPending.length} suggestion${res.mediumPending.length === 1 ? "" : "s"} awaiting your review`,
-            { id: loadingToastId, description: `${res.repo} · ${res.filesScanned} files reviewed` },
+            { id: loadingToastId, description: `${res.repo} · ${res.filesScanned} of ${res.filesFetched} files reviewed` },
           );
           onResult({
             repo: res.repo,
             filesScanned: res.filesScanned,
+            filesFetched: res.filesFetched,
+            droppedFiles: res.droppedFiles?.length ?? 0,
+            failedBatches: res.partial?.length ?? 0,
+            truncatedTree: !!res.truncatedTree,
+            heldForReview: res.heldForReview,
             highApplied: res.highApplied,
             mediumPending: res.mediumPending,
             at: new Date().toISOString(),
@@ -162,8 +172,23 @@ export function AIAssistReviewPanel({
         </div>
       </div>
       <p className="text-xs text-muted-foreground mb-3 truncate">
-        {summary.repo} · {summary.filesScanned} files reviewed
+        {summary.repo} · {summary.filesScanned}
+        {summary.filesFetched !== undefined && summary.filesFetched !== summary.filesScanned ? ` of ${summary.filesFetched}` : ""} files reviewed
       </p>
+      {(!!summary.droppedFiles || !!summary.failedBatches || summary.truncatedTree) && (
+        <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/[0.06] p-2 text-xs text-amber-800 dark:text-amber-300">
+          Partial review:
+          {summary.droppedFiles ? ` ${summary.droppedFiles} file(s) didn't fit this depth.` : ""}
+          {summary.failedBatches ? ` ${summary.failedBatches} batch(es) failed.` : ""}
+          {summary.truncatedTree ? " GitHub truncated the repo listing." : ""}
+          {" "}High-confidence passes were held for your review instead of auto-applied. Run a deeper scan for fuller coverage.
+        </div>
+      )}
+      {!!summary.heldForReview && (
+        <p className="text-xs text-muted-foreground mb-3">
+          {summary.heldForReview} high-confidence suggestion(s) were not auto-applied because the item already has a verdict or the run was partial. They're listed below for review.
+        </p>
+      )}
 
       {summary.mediumPending.length === 0 ? (
         <div className="text-xs text-muted-foreground italic">No medium-confidence suggestions to review.</div>

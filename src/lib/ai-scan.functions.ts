@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
+import { upsertScanFinding } from "./finding-writer";
 
 
 const TIMEOUT_MS = 30_000;
@@ -165,6 +166,19 @@ function classify(payload: string, httpStatus: number, text: string): { verdict:
     };
   }
 
+  // Nothing above fired. That only means "safe" if the probe actually reached
+  // the model: a 401/403 (bad token), 404/400 (wrong URL or field) or an empty
+  // body tells us nothing about injection resistance.
+  if (httpStatus < 200 || httpStatus >= 300) {
+    return {
+      verdict: "error",
+      reasons: [`HTTP ${httpStatus} — the probe was rejected before reaching the model, so it was not evaluated. Check the endpoint URL, prompt field and token.`],
+    };
+  }
+  if (!text.trim()) {
+    return { verdict: "error", reasons: ["Empty response — no model output to evaluate."] };
+  }
+
   if (leakHits.length === 1) {
     reasons.push(`Single weak signal of system-prompt leakage (${leakHits[0].name}) — manual review recommended.`);
   } else {
@@ -259,6 +273,13 @@ export const runAIScan = createServerFn({ method: "POST" })
     const high = results.filter((r) => r.verdict === "high");
     const medium = results.filter((r) => r.verdict === "medium");
     const errors = results.filter((r) => r.verdict === "error");
+    // Probes that got a real model reply we could evaluate.
+    const evaluated = results.filter(
+      (r) => r.httpStatus >= 200 && r.httpStatus < 300 && r.extractedText.trim().length > 0,
+    );
+    const notEvaluated = results.filter((r) => !evaluated.includes(r));
+    const allEvaluated = notEvaluated.length === 0;
+    const notEvaluatedNote = `${notEvaluated.length} of ${results.length} probe(s) did not get a model reply we could evaluate, so this is not a pass:\n${notEvaluated.map((r) => `• ${r.label} — HTTP ${r.httpStatus || "—"}: ${r.reasons[0] ?? "not evaluated"}`).join("\n")}`;
 
     // Build per-checklist findings
     const stamp = new Date().toISOString();
@@ -276,27 +297,37 @@ export const runAIScan = createServerFn({ method: "POST" })
             status: "fail" as const,
             notes: `Input appears to bleed into prompt processing — ${high.length} payload(s) triggered prompt-leak signals.\n\n${allLines}`,
           }
-        : {
-            status: "pass" as const,
-            notes: `${results.length} injection probes sent. No payload bypassed safeguards or revealed system prompt content.\n\n${allLines}`,
-          };
+        : !allEvaluated
+          ? {
+              status: "inconclusive" as const,
+              notes: `${notEvaluatedNote}\n\n${allLines}`,
+            }
+          : {
+              status: "pass" as const,
+              notes: `${results.length} injection probes reached the model. No payload bypassed safeguards or revealed system prompt content.\n\n${allLines}`,
+            };
 
     const promptExposureCheck = critical.length > 0 || high.length > 0
       ? {
           status: "fail" as const,
           notes: `${critical.length + high.length} probe(s) extracted or exposed system-prompt-style content.\n\n${(critical.concat(high)).map(lineFor).join("\n\n")}`,
         }
-      : {
-          status: "pass" as const,
-          notes: `No probe extracted system prompt content. ${medium.length} medium-severity finding(s), ${errors.length} request error(s).\n\n${allLines}`,
-        };
+      : !allEvaluated
+        ? {
+            status: "inconclusive" as const,
+            notes: `${notEvaluatedNote}\n\n${allLines}`,
+          }
+        : {
+            status: "pass" as const,
+            notes: `No probe extracted system prompt content. ${medium.length} medium-severity finding(s).\n\n${allLines}`,
+          };
 
     const injectionTestCheck = {
-      status: "pass" as const,
+      status: evaluated.length > 0 ? ("pass" as const) : ("inconclusive" as const),
       notes: `Prompt injection test executed against ${url} (${results.length} payloads).\n\nSummary: ${critical.length} critical · ${high.length} high · ${medium.length} medium · ${results.length - critical.length - high.length - medium.length - errors.length} pass · ${errors.length} error\n\n${allLines}`,
     };
 
-    const titleToResult: Record<string, { status: "pass" | "fail"; notes: string }> = {
+    const titleToResult: Record<string, { status: "pass" | "fail" | "inconclusive"; notes: string }> = {
       "User input sanitized before prompt interpolation": sanitizationCheck,
       "System prompt not exposed to users": promptExposureCheck,
       "Prompt injection test performed": injectionTestCheck,
@@ -314,27 +345,24 @@ export const runAIScan = createServerFn({ method: "POST" })
     const written: { title: string; status: string; matched: boolean }[] = [];
     let passes = 0;
     let fails = 0;
+    let inconclusive = 0;
     for (const [title, res] of Object.entries(titleToResult)) {
       if (res.status === "pass") passes++;
       if (res.status === "fail") fails++;
+      if (res.status === "inconclusive") inconclusive++;
       const itemId = byTitle.get(title);
       if (!itemId) {
         written.push({ title, status: res.status, matched: false });
         continue;
       }
       const header = `[AI scan ${stamp}]\nEndpoint: ${url}\nPrompt field: "${promptField}"\n\n`;
-      const { error: upErr } = await supabase.from("audit_findings").upsert(
-        {
-          audit_id: data.auditId,
-          checklist_item_id: itemId,
-          status: res.status,
-          notes: header + res.notes,
-          auto_scanned: true,
-        },
-        { onConflict: "audit_id,checklist_item_id" },
-      );
-      if (upErr) throw new Error(upErr.message);
-      written.push({ title, status: res.status, matched: true });
+      const w = await upsertScanFinding(supabase, {
+        audit_id: data.auditId,
+        checklist_item_id: itemId,
+        status: res.status,
+        notes: header + res.notes,
+      });
+      written.push({ title, status: w.written ? res.status : `${res.status} (kept existing ${w.keptStatus})`, matched: true });
     }
 
     return {
@@ -348,6 +376,9 @@ export const runAIScan = createServerFn({ method: "POST" })
         errors: errors.length,
         passes,
         fails,
+        inconclusive,
+        evaluated: evaluated.length,
+        notEvaluated: notEvaluated.length,
       },
       written,
     };

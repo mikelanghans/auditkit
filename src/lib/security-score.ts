@@ -1,5 +1,5 @@
 // Severity-weighted security score for an audit.
-// Score = passed_weight / (passed_weight + failed_weight) * 100, ignoring N/A and unanswered.
+// Score = passed_weight / (passed_weight + failed_weight) * 100, ignoring N/A, inconclusive and unanswered.
 // Grade: A 90+, B 80-89, C 70-79, D 60-69, F <60.
 
 const WEIGHTS: Record<string, number> = {
@@ -104,7 +104,8 @@ export type CategoryCoverage = { category: string; assessed: number; total: numb
 export type Coverage = {
   assessed: number;
   total: number;
-  unanswered: number;
+  unanswered: number; // includes inconclusive items
+  inconclusive: number; // scanner ran but could not determine the result
   ratio: number; // 0..1
   criticalCategories: CategoryCoverage[];
   underCoveredCategories: CategoryCoverage[]; // critical categories below threshold
@@ -115,12 +116,15 @@ export function computeCoverage(
   items: { id: string; category?: string | null }[],
   statusByItemId: Map<string, "pass" | "fail" | "na" | null | string | undefined>,
 ): Coverage {
+  // "inconclusive" means a scanner tried and could not tell, so it is NOT
+  // assessed. "resolved" is a failure that was fixed and verified, so it is.
   const isAssessed = (id: string) => {
     const s = statusByItemId.get(id);
-    return s === "pass" || s === "fail" || s === "na";
+    return s === "pass" || s === "fail" || s === "na" || s === "resolved";
   };
   const total = items.length;
   const assessed = items.filter((it) => isAssessed(it.id)).length;
+  const inconclusive = items.filter((it) => statusByItemId.get(it.id) === "inconclusive").length;
   const ratio = total === 0 ? 0 : assessed / total;
 
   const criticalCategories: CategoryCoverage[] = CRITICAL_CATEGORIES.map((category) => {
@@ -135,6 +139,7 @@ export function computeCoverage(
     assessed,
     total,
     unanswered: total - assessed,
+    inconclusive,
     ratio,
     criticalCategories,
     underCoveredCategories,
@@ -161,12 +166,15 @@ export function launchRecommendation(
   if (coverage && !coverage.sufficient) {
     const missing = coverage.underCoveredCategories.map((c) => c.category);
     const pct = Math.round(coverage.ratio * 100);
+    const inc = coverage.inconclusive
+      ? ` ${coverage.inconclusive} check${coverage.inconclusive === 1 ? "" : "s"} could not be verified by the scanners and need a manual review.`
+      : "";
     return {
       verdict: "insufficient",
       label: "Insufficient coverage — not assessed",
       reason: missing.length
-        ? `${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} not been sufficiently assessed (${pct}% of checks run). Not enough coverage to certify readiness.`
-        : `Only ${pct}% of checks have been run. Not enough coverage to certify readiness.`,
+        ? `${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} not been sufficiently assessed (${pct}% of checks run). Not enough coverage to certify readiness.${inc}`
+        : `Only ${pct}% of checks have been run. Not enough coverage to certify readiness.${inc}`,
     };
   }
 
@@ -182,6 +190,24 @@ export function launchRecommendation(
       verdict: "fix-first",
       label: "Fix findings first",
       reason: `Resolve ${parts.join(" + ") || "outstanding findings"} before launch.`,
+    };
+  }
+
+  // A green verdict is a certification. It must not be issued while any check
+  // is sitting at "the scanner couldn't tell".
+  if (coverage && coverage.inconclusive > 0) {
+    return {
+      verdict: "insufficient",
+      label: "Insufficient coverage — not assessed",
+      reason: `${coverage.inconclusive} check${coverage.inconclusive === 1 ? "" : "s"} could not be verified by the scanners. Review ${coverage.inconclusive === 1 ? "it" : "them"} manually before certifying readiness.`,
+    };
+  }
+
+  if (coverage && coverage.unanswered > 0) {
+    return {
+      verdict: "go",
+      label: "Ready to launch",
+      reason: `No outstanding findings across ${coverage.assessed} assessed checks (${coverage.unanswered} not yet reviewed).`,
     };
   }
 

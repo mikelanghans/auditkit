@@ -63,12 +63,29 @@ export const resolveFinding = createServerFn({ method: "POST" })
         event_type: "rescanned",
         before_status: before,
         after_status: after?.status ?? null,
-        scan_result: { passes: scanResult.passes, fails: scanResult.fails, warnings: scanResult.warnings, target: scanResult.target } as never,
+        scan_result: { passes: scanResult.passes, fails: scanResult.fails, warnings: scanResult.warnings, inconclusive: scanResult.inconclusive, target: scanResult.target } as never,
         performed_by: userId,
       });
 
-      if (after?.status !== "pass") {
-        return { ok: false as const, reason: "Re-scan did not return pass; the finding remains open." };
+      // Only resolve when this rescan actually re-evaluated THIS check and
+      // stored a pass for it. The surface scanner only re-checks its own items,
+      // and a pass left over from something else is not proof of a fix.
+      const key = (finding as any).checklist_item?.checklist_key as string | null | undefined;
+      const rescanned = key ? scanResult.results.find((r) => r.key === key) : undefined;
+      if (!rescanned) {
+        return {
+          ok: false as const,
+          reason: "This finding isn't re-checked by the website scan. Re-run the scanner that produced it, or resolve it with manual evidence.",
+        };
+      }
+      if (rescanned.status !== "pass" || !rescanned.stored || after?.status !== "pass") {
+        return {
+          ok: false as const,
+          reason:
+            rescanned.status === "inconclusive"
+              ? "The re-scan couldn't verify this check (the site or its bundles didn't load fully), so the finding stays open."
+              : "Re-scan did not return pass; the finding remains open.",
+        };
       }
 
       const { error: upErr } = await supabase

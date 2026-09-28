@@ -2,9 +2,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decodeBase64Utf8 } from "./decode-blob";
 import { GITHUB_HOSTS, NPM_HOSTS, safeFetch } from "./ssrf-guard";
+import { collectDeps } from "./dep-manifest";
+import { upsertScanFinding } from "./finding-writer";
 
 const TIMEOUT_MS = 15_000;
 const NPM_CONCURRENCY = 8;
+const MAX_MANIFESTS = 25;
 
 export type DepFinding = {
   name: string;
@@ -21,7 +24,9 @@ export type DepScanResult = {
   path: string;
   packagesScanned: number;
   counts: { critical: number; high: number; medium: number; low: number };
-  status: "pass" | "fail";
+  status: "pass" | "fail" | "inconclusive";
+  manifests: string[];
+  gaps: string[];
   findings: DepFinding[];
   notes: string;
 } | { ok: false; error: string };
@@ -48,11 +53,6 @@ function ghHeaders(token: string): Record<string, string> {
   };
 }
 
-function cleanVersion(v: string): string {
-  const m = v.match(/(\d+\.\d+\.\d+(?:[-+][\w.]+)?)/);
-  return m ? m[1] : v.replace(/^[\^~><=\s]+/, "").trim();
-}
-
 function majorOf(v: string): number | null {
   const m = v.match(/^v?(\d+)\./);
   return m ? parseInt(m[1], 10) : null;
@@ -72,43 +72,60 @@ async function pMap<T, R>(items: T[], n: number, fn: (it: T) => Promise<R>): Pro
   return out;
 }
 
-async function fetchPackageJson(owner: string, repo: string, token: string, defaultBranch: string): Promise<{ path: string; json: any } | null> {
+type Manifest = { path: string; json: any };
+
+/**
+ * Find and read EVERY package.json in the repo (outside node_modules), not just
+ * the first one. Monorepos keep their real app dependencies in sub-packages, so
+ * scanning only the root manifest reported "no CVEs" for code it never looked at.
+ * Anything that could not be read is returned in `gaps`.
+ */
+async function fetchManifests(owner: string, repo: string, token: string, defaultBranch: string): Promise<{ manifests: Manifest[]; gaps: string[] }> {
   const headers = ghHeaders(token);
-  const tryPaths = async (paths: string[]) => {
-    for (const p of paths) {
-      const r = await timedFetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/${p}?ref=${encodeURIComponent(defaultBranch)}`,
-        { headers },
-      );
-      if (!r.ok) continue;
-      const j = await r.json();
-      if (!j?.content) continue;
-      try {
-        const text = decodeBase64Utf8(String(j.content));
-        return { path: p, json: JSON.parse(text) };
-      } catch {
-        continue;
-      }
-    }
-    return null;
-  };
+  const gaps: string[] = [];
 
-  // Prompt-spec: root first, then src/. Also include a couple of common monorepo paths as fallback.
-  const common = await tryPaths(["package.json", "src/package.json", "client/package.json", "app/package.json", "web/package.json", "frontend/package.json", "apps/web/package.json", "packages/web/package.json"]);
-  if (common) return common;
-
+  let paths: string[] = [];
   const tree = await timedFetch(
-    `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`,
+    `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`,
     { headers },
   );
-  if (!tree.ok) return null;
-  const treeJson = await tree.json();
-  const candidates: string[] = (treeJson.tree ?? [])
-    .filter((n: any) => n.type === "blob" && /(^|\/)package\.json$/.test(String(n.path)) && !/node_modules\//.test(String(n.path)))
-    .map((n: any) => String(n.path))
-    .sort((a: string, b: string) => a.split("/").length - b.split("/").length);
-  if (candidates.length === 0) return null;
-  return tryPaths(candidates);
+  if (tree.ok) {
+    const treeJson = await tree.json();
+    if (treeJson.truncated === true) {
+      gaps.push("GitHub truncated the repository file listing, so some package.json files may not have been found.");
+    }
+    paths = (treeJson.tree ?? [])
+      .filter((n: any) => n.type === "blob" && /(^|\/)package\.json$/.test(String(n.path)) && !/(^|\/)node_modules\//.test(String(n.path)))
+      .map((n: any) => String(n.path))
+      .sort((a: string, b: string) => a.split("/").length - b.split("/").length || a.localeCompare(b));
+  } else {
+    gaps.push(`Could not list the repository tree (HTTP ${tree.status}); only package.json at the repo root was checked.`);
+    paths = ["package.json"];
+  }
+  if (paths.length > MAX_MANIFESTS) {
+    gaps.push(`${paths.length - MAX_MANIFESTS} package.json file(s) beyond the ${MAX_MANIFESTS}-manifest limit were not scanned.`);
+    paths = paths.slice(0, MAX_MANIFESTS);
+  }
+
+  const manifests: Manifest[] = [];
+  for (const p of paths) {
+    const r = await timedFetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${p.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(defaultBranch)}`,
+      { headers },
+    );
+    if (!r.ok) {
+      if (!(r.status === 404 && p === "package.json" && !tree.ok)) gaps.push(`${p}: could not be fetched (HTTP ${r.status}).`);
+      continue;
+    }
+    const j = await r.json();
+    try {
+      const text = decodeBase64Utf8(String(j?.content ?? ""));
+      manifests.push({ path: p, json: JSON.parse(text) });
+    } catch {
+      gaps.push(`${p}: could not be parsed.`);
+    }
+  }
+  return { manifests, gaps };
 }
 
 type NpmMeta = { latest: string | null; latestTime: string | null; currentTime: string | null };
@@ -132,17 +149,20 @@ async function fetchNpmMeta(name: string, current: string): Promise<NpmMeta> {
   }
 }
 
-async function fetchAdvisoriesBulk(pkgs: Record<string, string[]>): Promise<Record<string, any[]>> {
+/** Returns null when advisories could not be retrieved. Never treat that as "no advisories". */
+async function fetchAdvisoriesBulk(pkgs: Record<string, string[]>): Promise<Record<string, any[]> | null> {
   try {
     const r = await timedFetch("https://registry.npmjs.org/-/npm/v1/security/advisories/bulk", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json", "user-agent": "AuditKit-DependencyScan/1.0" },
       body: JSON.stringify(pkgs),
     });
-    if (!r.ok) return {};
-    return (await r.json()) ?? {};
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j || typeof j !== "object" || Array.isArray(j)) return null;
+    return j as Record<string, any[]>;
   } catch {
-    return {};
+    return null;
   }
 }
 
@@ -156,36 +176,40 @@ export async function runDepScan(args: {
 }): Promise<DepScanResult> {
   const { owner, repo, token, defaultBranch, supabase, auditId } = args;
 
-  const pkg = await fetchPackageJson(owner, repo, token, defaultBranch);
-  if (!pkg) {
-    return { ok: false, error: `No package.json found in ${owner}/${repo} (checked root and src/, then walked the tree on branch ${defaultBranch}).` };
+  const { manifests, gaps } = await fetchManifests(owner, repo, token, defaultBranch);
+  if (manifests.length === 0) {
+    return { ok: false, error: `No readable package.json found in ${owner}/${repo} on branch ${defaultBranch}.${gaps.length ? ` ${gaps.join(" ")}` : ""}` };
+  }
+  const manifestPaths = manifests.map((m) => m.path);
+
+  const { query, unresolved } = collectDeps(manifests);
+  const names = Object.keys(query);
+  if (names.length === 0 && unresolved.length === 0) {
+    return { ok: false, error: `${manifestPaths.join(", ")} declare no dependencies.` };
+  }
+  if (unresolved.length) {
+    gaps.push(`${unresolved.length} dependency spec(s) have no concrete version and could not be checked:\n${unresolved.slice(0, 20).map((u) => `  - ${u}`).join("\n")}${unresolved.length > 20 ? "\n  - …" : ""}`);
   }
 
-  const deps: Record<string, string> = {
-    ...(pkg.json.dependencies ?? {}),
-    ...(pkg.json.devDependencies ?? {}),
-  };
-  const names = Object.keys(deps);
-  if (names.length === 0) {
-    return { ok: false, error: `${pkg.path} has no dependencies.` };
-  }
-
+  // Lowest declared version per package, for the staleness checks below.
   const cleaned: Record<string, string> = {};
-  for (const n of names) cleaned[n] = cleanVersion(deps[n]);
+  for (const n of names) cleaned[n] = query[n].slice().sort()[0];
 
   const metas = await pMap(names, NPM_CONCURRENCY, async (n) => ({ name: n, meta: await fetchNpmMeta(n, cleaned[n]) }));
   const metaByName = new Map(metas.map((m) => [m.name, m.meta]));
 
-  const advisoryReq: Record<string, string[]> = {};
-  for (const n of names) advisoryReq[n] = [cleaned[n]];
-  const advisories = await fetchAdvisoriesBulk(advisoryReq);
+  const advisoryResult = names.length ? await fetchAdvisoriesBulk(query) : {};
+  if (advisoryResult === null) {
+    gaps.push("The npm advisory database could not be reached, so known vulnerabilities were NOT checked.");
+  }
+  const advisories: Record<string, any[]> = advisoryResult ?? {};
 
   const now = Date.now();
   const SIX_MONTHS = 1000 * 60 * 60 * 24 * 30 * 6;
   const findings: DepFinding[] = [];
 
   for (const name of names) {
-    const current = cleaned[name];
+    const current = query[name].join(", ");
     const meta = metaByName.get(name) ?? { latest: null, latestTime: null, currentTime: null };
     const advList: any[] = advisories[name] ?? [];
 
@@ -209,7 +233,7 @@ export async function runDepScan(args: {
     }
     if (recorded) continue;
 
-    const curMaj = majorOf(current);
+    const curMaj = majorOf(cleaned[name]);
     const latMaj = meta.latest ? majorOf(meta.latest) : null;
     if (curMaj !== null && latMaj !== null && latMaj - curMaj >= 2) {
       findings.push({
@@ -226,7 +250,7 @@ export async function runDepScan(args: {
 
     if (meta.currentTime) {
       const age = now - new Date(meta.currentTime).getTime();
-      if (age > SIX_MONTHS && meta.latest && meta.latest !== current) {
+      if (age > SIX_MONTHS && meta.latest && meta.latest !== cleaned[name]) {
         findings.push({
           name,
           current,
@@ -253,11 +277,16 @@ export async function runDepScan(args: {
   };
 
   const hasBlocker = counts.critical > 0 || counts.high > 0;
-  const status: "pass" | "fail" = hasBlocker ? "fail" : "pass";
+  // A clean result only counts if everything was actually checked.
+  const status: "pass" | "fail" | "inconclusive" = hasBlocker ? "fail" : gaps.length > 0 ? "inconclusive" : "pass";
   const summaryLines = [
-    `Scanned ${names.length} dependencies in ${pkg.path} of ${owner}/${repo}.`,
+    `Scanned ${names.length} direct dependencies across ${manifests.length} manifest(s) in ${owner}/${repo}: ${manifestPaths.join(", ")}.`,
+    `Versions checked are the lowest each declared range allows. Transitive dependencies are not included (no lockfile is read).`,
     `Critical: ${counts.critical} · High: ${counts.high} · Medium: ${counts.medium} · Low: ${counts.low}.`,
   ];
+  if (gaps.length) {
+    summaryLines.push("", "NOT fully checked, so this is not a pass:", ...gaps.map((g) => `• ${g}`));
+  }
   if (findings.length) {
     summaryLines.push("", "Flagged packages:");
     for (const f of findings.slice(0, 40)) {
@@ -266,7 +295,7 @@ export async function runDepScan(args: {
       );
     }
     if (findings.length > 40) summaryLines.push(`…and ${findings.length - 40} more.`);
-  } else {
+  } else if (!gaps.length) {
     summaryLines.push("No critical/high CVEs, no packages 2+ majors behind, no >6-month-old pins.");
   }
   const notes = summaryLines.join("\n");
@@ -280,17 +309,13 @@ export async function runDepScan(args: {
   const itemId = items?.[0]?.id;
   if (itemId) {
     const stamp = new Date().toISOString();
-    await supabase.from("audit_findings").upsert(
-      {
-        audit_id: auditId,
-        checklist_item_id: itemId,
-        status,
-        notes: `[Dependency scan ${stamp}]\n${notes}`,
-        auto_scanned: true,
-      },
-      { onConflict: "audit_id,checklist_item_id" },
-    );
+    await upsertScanFinding(supabase, {
+      audit_id: auditId,
+      checklist_item_id: itemId,
+      status,
+      notes: `[Dependency scan ${stamp}]\n${notes}`,
+    });
   }
 
-  return { ok: true, path: pkg.path, packagesScanned: names.length, counts, status, findings, notes };
+  return { ok: true, path: manifestPaths.join(", "), packagesScanned: names.length, counts, status, findings, notes, manifests: manifestPaths, gaps };
 }

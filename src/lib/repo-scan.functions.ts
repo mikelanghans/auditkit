@@ -3,6 +3,9 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { runDepScan } from "./dep-scan-core";
 import { detectAIEndpointsCore, type DetectedEndpoint } from "./ai-endpoint-detect.functions";
 import { GITHUB_HOSTS, safeFetch } from "./ssrf-guard";
+import { decodeBase64Utf8 } from "./decode-blob";
+import { upsertScanFinding } from "./finding-writer";
+import { gitignoreIgnoresEnv, isEnvFilePath } from "./repo-hygiene";
 
 
 const TIMEOUT_MS = 15_000;
@@ -117,39 +120,51 @@ export const runRepoScan = createServerFn({ method: "POST" })
 
     // ---- Check 1: .env files in .gitignore ----
     const tree = await timedFetch(
-      `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/git/trees/${defaultBranch}?recursive=1`,
+      `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`,
       { headers },
     );
-    let envCheck: { status: "pass" | "fail"; notes: string };
+    let envCheck: { status: "pass" | "fail" | "inconclusive"; notes: string };
     if (!tree.ok) {
-      envCheck = { status: "fail", notes: `Tree fetch failed (${tree.status}).` };
+      envCheck = { status: "inconclusive", notes: `Not checked: the repository file listing could not be fetched (HTTP ${tree.status}).` };
     } else {
       const treeJson = await tree.json();
+      // GitHub cuts off very large recursive listings. A .env outside the
+      // returned subset would be invisible, so a truncated tree can't pass.
+      const treeTruncated = treeJson.truncated === true;
       const paths: string[] = (treeJson.tree ?? [])
         .filter((n: any) => n.type === "blob")
         .map((n: any) => n.path);
-      const envFiles = paths.filter(
-        (p) => /(^|\/)\.env(\..+)?$/.test(p) && !/\.env\.example$/i.test(p) && !/\.env\.sample$/i.test(p),
-      );
+      const envFiles = paths.filter(isEnvFilePath);
+      // Read .gitignore through the API with the PAT, so private repos work.
       let gitignore = "";
       const gi = await timedFetch(
-        `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${defaultBranch}/.gitignore`,
-        { headers: { "user-agent": "AuditKit-RepoScan/1.0" } },
+        `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/contents/.gitignore?ref=${encodeURIComponent(defaultBranch)}`,
+        { headers },
       );
-      if (gi.ok) gitignore = await gi.text();
-      const ignoresEnv = /(^|\n)\s*(\.env\*?|\*\.env|\.env(\.|$))/m.test(gitignore);
+      if (gi.ok) {
+        const giJson = await gi.json();
+        gitignore = decodeBase64Utf8(String(giJson?.content ?? ""));
+      }
+      const ignoresEnv = gitignoreIgnoresEnv(gitignore);
 
       if (envFiles.length > 0) {
         envCheck = {
           status: "fail",
           notes: `Found .env file(s) committed to default branch (${defaultBranch}):\n${envFiles.map((p) => "- " + p).join("\n")}\n\n.gitignore ${ignoresEnv ? "does" : "does NOT"} include a .env rule. Already-tracked files remain in git history even after being added to .gitignore.`,
         };
+      } else if (!gi.ok && gi.status !== 404) {
+        envCheck = { status: "inconclusive", notes: `Not checked: .gitignore could not be read (HTTP ${gi.status}).` };
       } else if (!gi.ok) {
         envCheck = { status: "fail", notes: "No .gitignore file at repository root. Add one that excludes .env and .env.*" };
       } else if (!ignoresEnv) {
         envCheck = { status: "fail", notes: ".gitignore exists but contains no .env rule. Recommended:\n\n  .env\n  .env.*\n  !.env.example" };
+      } else if (treeTruncated) {
+        envCheck = {
+          status: "inconclusive",
+          notes: `.gitignore ignores .env, but GitHub truncated the file listing for ${defaultBranch} (the repo is very large), so committed .env files could not be ruled out. Verify manually.`,
+        };
       } else {
-        envCheck = { status: "pass", notes: `No .env files committed to ${defaultBranch}; .gitignore contains a .env rule.` };
+        envCheck = { status: "pass", notes: `No .env files committed to ${defaultBranch}; .gitignore ignores .env.` };
       }
     }
 
@@ -162,6 +177,10 @@ export const runRepoScan = createServerFn({ method: "POST" })
     const commits = (await commitsResp.json()) as any[];
 
     const findings: RepoFinding[] = [];
+    // Commits and file diffs we could not actually inspect. If any exist, a
+    // clean result is not a pass: the secret may be in exactly what we skipped.
+    const unevaluated: string[] = [];
+    let evaluatedCommits = 0;
     await pMap(commits, COMMIT_CONCURRENCY, async (c) => {
       const sha = c.sha as string;
       const date: string | null = c.commit?.author?.date ?? c.commit?.committer?.date ?? null;
@@ -169,18 +188,18 @@ export const runRepoScan = createServerFn({ method: "POST" })
         `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/commits/${sha}`,
         { headers },
       );
-      if (!r.ok) return;
+      if (!r.ok) {
+        unevaluated.push(`${sha.slice(0, 7)} — commit detail not returned (HTTP ${r.status})`);
+        return;
+      }
       const detail = await r.json();
       const files: any[] = detail.files ?? [];
+      // GitHub returns at most 300 files per commit on this endpoint.
+      if (files.length >= 300) unevaluated.push(`${sha.slice(0, 7)} — file list truncated by GitHub (300+ files)`);
       for (const f of files) {
         const filename = String(f.filename ?? "");
         // .env file additions
-        if (
-          (f.status === "added" || f.status === "modified") &&
-          /(^|\/)\.env(\..+)?$/.test(filename) &&
-          !/\.env\.example$/i.test(filename) &&
-          !/\.env\.sample$/i.test(filename)
-        ) {
+        if ((f.status === "added" || f.status === "modified") && isEnvFilePath(filename)) {
           findings.push({
             pattern: ".env file added/modified",
             sample: filename,
@@ -190,7 +209,14 @@ export const runRepoScan = createServerFn({ method: "POST" })
           });
         }
         const patch = (f.patch as string | undefined) ?? "";
-        if (!patch) continue;
+        if (!patch) {
+          // No patch means GitHub withheld the diff (large or binary file).
+          // Removed files have nothing added, so they're not a gap.
+          if (f.status !== "removed" && (f.additions ?? 1) > 0) {
+            unevaluated.push(`${sha.slice(0, 7)} — ${filename} (diff not returned by GitHub)`);
+          }
+          continue;
+        }
         const added = patch
           .split("\n")
           .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
@@ -202,6 +228,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
           findings.push({ pattern: h.pattern, sample: h.sample, commit: sha, date, file: filename });
         }
       }
+      evaluatedCommits++;
     });
 
     // Group findings for the note
@@ -212,11 +239,19 @@ export const runRepoScan = createServerFn({ method: "POST" })
     }
     const unique = Array.from(dedup.values());
 
-    let historyCheck: { status: "pass" | "fail"; notes: string };
-    if (unique.length === 0) {
+    const unevaluatedNote = unevaluated.length
+      ? `\n\n${unevaluated.length} commit(s)/file diff(s) could NOT be inspected:\n${unevaluated.slice(0, 30).map((u) => `• ${u}`).join("\n")}${unevaluated.length > 30 ? `\n• …and ${unevaluated.length - 30} more` : ""}`
+      : "";
+    let historyCheck: { status: "pass" | "fail" | "inconclusive"; notes: string };
+    if (unique.length === 0 && unevaluated.length > 0) {
+      historyCheck = {
+        status: "inconclusive",
+        notes: `No secret patterns found in the ${evaluatedCommits} of ${commits.length} recent commits that could be inspected on ${defaultBranch}, but the scan was incomplete, so this is not a pass. Re-run (GitHub rate limits are often transient) or review the listed items manually.${unevaluatedNote}`,
+      };
+    } else if (unique.length === 0) {
       historyCheck = {
         status: "pass",
-        notes: `Scanned last ${commits.length} commits — no .env file additions or secret patterns (.env, SUPABASE_SERVICE_ROLE_KEY, service_role, STRIPE_SECRET_KEY, sk_live_, OPENAI_API_KEY, sk-ant-, AWS_SECRET_ACCESS_KEY, PEM private keys, ghp_ tokens) detected in added lines.`,
+        notes: `Scanned the last ${commits.length} commits on ${defaultBranch} — no .env file additions or secret patterns (.env, SUPABASE_SERVICE_ROLE_KEY, service_role, STRIPE_SECRET_KEY, sk_live_, OPENAI_API_KEY, sk-ant-, AWS_SECRET_ACCESS_KEY, PEM private keys, ghp_ tokens) detected in added lines.`,
       };
     } else {
       const lines = unique.slice(0, 30).map((f) => {
@@ -226,12 +261,12 @@ export const runRepoScan = createServerFn({ method: "POST" })
       });
       historyCheck = {
         status: "fail",
-        notes: `Scanned last ${commits.length} commits. Found ${unique.length} potential secret exposure(s):\n\n${lines.join("\n\n")}${unique.length > 30 ? `\n\n…and ${unique.length - 30} more.` : ""}\n\nRotate any real credentials and rewrite history (git filter-repo or BFG).`,
+        notes: `Scanned ${evaluatedCommits} of the last ${commits.length} commits on ${defaultBranch}. Found ${unique.length} potential secret exposure(s):\n\n${lines.join("\n\n")}${unique.length > 30 ? `\n\n…and ${unique.length - 30} more.` : ""}\n\nRotate any real credentials and rewrite history (git filter-repo or BFG).${unevaluatedNote}`,
       };
     }
 
     // ---- Persist findings by checklist title ----
-    const titleToResult: Record<string, { status: "pass" | "fail"; notes: string }> = {
+    const titleToResult: Record<string, { status: "pass" | "fail" | "inconclusive"; notes: string }> = {
       ".env files in .gitignore": envCheck,
       "No secrets in git history": historyCheck,
     };
@@ -253,18 +288,13 @@ export const runRepoScan = createServerFn({ method: "POST" })
         continue;
       }
       const note = `[Repo scan ${stamp}]\nRepo: ${parsed.owner}/${parsed.repo}\n\n${res.notes}`;
-      const { error: upErr } = await supabase.from("audit_findings").upsert(
-        {
-          audit_id: data.auditId,
-          checklist_item_id: itemId,
-          status: res.status,
-          notes: note,
-          auto_scanned: true,
-        },
-        { onConflict: "audit_id,checklist_item_id" },
-      );
-      if (upErr) throw new Error(upErr.message);
-      written.push({ title, status: res.status, matched: true });
+      const w = await upsertScanFinding(supabase, {
+        audit_id: data.auditId,
+        checklist_item_id: itemId,
+        status: res.status,
+        notes: note,
+      });
+      written.push({ title, status: w.written ? res.status : `${res.status} (kept existing ${w.keptStatus})`, matched: true });
     }
 
     // ---- Phase 2: dependency vulnerability scan ----
@@ -297,7 +327,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
       aiDetectError = e?.message ?? "AI endpoint detection failed";
     }
 
-    // If endpoints found but no test recorded yet, write a "warning" (na) finding
+    // If endpoints found but no test recorded yet, write an "inconclusive" finding
     // on "Prompt injection test performed" — do NOT overwrite an existing pass/fail.
     if (aiEndpoints.length > 0) {
       const { data: piItems } = await supabase
@@ -318,16 +348,13 @@ export const runRepoScan = createServerFn({ method: "POST" })
           const lines = aiEndpoints.slice(0, 10).map(
             (e) => `• ${e.source} — ${e.url || "(URL not resolved)"} (field: ${e.promptField}${e.requiresAuth ? ", auth" : ""})\n    ${e.filePath}`,
           ).join("\n");
-          await supabase.from("audit_findings").upsert(
-            {
+          // "inconclusive", not "na": the check applies, it just hasn't been run.
+          await upsertScanFinding(supabase, {
               audit_id: data.auditId,
               checklist_item_id: piItem.id,
-              status: "na",
+              status: "inconclusive",
               notes: `[Repo scan ${stamp}] ⚠ ${aiEndpoints.length} AI endpoint${aiEndpoints.length === 1 ? "" : "s"} discovered in ${parsed.owner}/${parsed.repo} but no prompt-injection test has been run yet. Use “Test for Injection” in the AI Endpoints Discovered panel.\n\n${lines}${aiEndpoints.length > 10 ? `\n\n…and ${aiEndpoints.length - 10} more.` : ""}`,
-              auto_scanned: true,
-            },
-            { onConflict: "audit_id,checklist_item_id" },
-          );
+          });
         }
       }
     }
@@ -335,7 +362,9 @@ export const runRepoScan = createServerFn({ method: "POST" })
     return {
       ok: true as const,
       repo: `${parsed.owner}/${parsed.repo}`,
-      commitsScanned: commits.length,
+      commitsScanned: evaluatedCommits,
+      commitsListed: commits.length,
+      commitsNotInspected: unevaluated.length,
       findings: unique,
       results: written,
       dep,

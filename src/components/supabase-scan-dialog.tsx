@@ -72,8 +72,11 @@ export function SupabaseScanDialog({
         return;
       }
       toast.success(
-        `Supabase scan complete — ${res.passes} pass, ${res.fails} fail`,
-        { id: tid, description: `${res.project} · ${res.tablesProbed} tables probed${res.bundleMatches > 0 ? ` · ⚠ key found in bundle` : ""}` },
+        `Supabase scan complete — ${res.passes} pass, ${res.fails} fail${res.inconclusive ? `, ${res.inconclusive} couldn't verify` : ""}`,
+        {
+          id: tid,
+          description: `${res.project} · ${res.tablesProbed}${res.tablesDiscovered > res.tablesProbed ? ` of ${res.tablesDiscovered}` : ""} tables probed${res.probeErrors ? ` · ${res.probeErrors} probe error(s)` : ""}${res.bundleMatches > 0 ? ` · ⚠ key found in bundle` : ""}`,
+        },
       );
       onResult({
         passes: res.passes,

@@ -108,12 +108,14 @@ function ReportPage() {
   }, [items.data]);
 
   const totals = useMemo(() => {
-    const t = { pass: 0, fail: 0, na: 0, unanswered: 0, total: items.data?.length ?? 0 };
+    const t = { pass: 0, fail: 0, na: 0, resolved: 0, inconclusive: 0, unanswered: 0, total: items.data?.length ?? 0 };
     items.data?.forEach((it: any) => {
       const s = map.get(it.id)?.status;
       if (s === "pass") t.pass++;
       else if (s === "fail") t.fail++;
       else if (s === "na") t.na++;
+      else if (s === "resolved") t.resolved++;
+      else if (s === "inconclusive") t.inconclusive++;
       else t.unanswered++;
     });
     return t;
@@ -148,7 +150,7 @@ function ReportPage() {
       let pass = 0, fail = 0, na = 0, unanswered = 0;
       list.forEach((it: any) => {
         const s = map.get(it.id)?.status;
-        if (s === "pass") pass++;
+        if (s === "pass" || s === "resolved") pass++;
         else if (s === "fail") fail++;
         else if (s === "na") na++;
         else unanswered++;
@@ -248,7 +250,7 @@ function ExecutiveSummary({
   risk: RiskBreakdown;
   effort: { min: number; max: number };
   verdict: ReturnType<typeof launchRecommendation>;
-  totals: { pass: number; fail: number; na: number; unanswered: number; total: number };
+  totals: { pass: number; fail: number; na: number; resolved: number; inconclusive: number; unanswered: number; total: number };
   coverage: Coverage;
 }) {
   const tone = gradeTone(grade);
@@ -275,7 +277,7 @@ function ExecutiveSummary({
       <div className="flex items-baseline justify-between">
         <h2 className="text-lg font-semibold">Executive Security Summary</h2>
         <div className="text-xs text-muted-foreground">
-          {totals.pass} pass · {totals.fail} fail · {totals.na} N/A · {totals.unanswered} unanswered
+          {totals.pass} pass · {totals.fail} fail · {totals.resolved} resolved · {totals.na} N/A · {totals.inconclusive} couldn't verify · {totals.unanswered} unanswered
         </div>
       </div>
 
@@ -555,9 +557,11 @@ function PassFindingCard({
   status: string | null | undefined;
   notes: string | null;
 }) {
-  const isPass = status === "pass";
+  const isPass = status === "pass" || status === "resolved";
+  const isResolved = status === "resolved";
   const isNa = status === "na";
-  const isUnanswered = !status;
+  const isInconclusive = status === "inconclusive";
+  const isUnanswered = !status || isInconclusive;
   const Icon = isPass ? Check : isNa ? Minus : AlertTriangle;
   const tone = isPass
     ? "border-l-status-pass"
@@ -582,7 +586,7 @@ function PassFindingCard({
           isUnanswered && "bg-status-na/15 text-status-na",
         )}>
           <Icon className="h-3.5 w-3.5" />
-          {isPass ? "Passed" : isNa ? "N/A" : "Unanswered"}
+          {isResolved ? "Resolved" : isPass ? "Passed" : isNa ? "N/A" : isInconclusive ? "Not verified" : "Unanswered"}
         </div>
       </div>
 
@@ -601,6 +605,8 @@ function PassFindingCard({
               ? "Verified during this audit."
               : isNa
               ? "Not applicable to this project."
+              : isInconclusive
+              ? "The automated scan could not verify this check."
               : "Not yet reviewed."}
           </p>
         )}
@@ -612,6 +618,8 @@ function PassFindingCard({
             ? "No action required — keep this control in place and re-verify on the next audit."
             : isNa
             ? "No action required. Re-evaluate if scope changes."
+            : isInconclusive
+            ? "The scanner could not verify this. Check it manually and record a pass / fail / N/A before finalizing the report."
             : "Review this check and record a pass / fail / N/A before finalizing the report."}
         </p>
       </DetailRow>

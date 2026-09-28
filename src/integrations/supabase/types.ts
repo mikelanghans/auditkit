@@ -513,7 +513,7 @@ export type Database = {
       app_role: "admin" | "auditor"
       audit_status: "draft" | "in_progress" | "completed"
       engagement_type: "prospect" | "one_time" | "retainer"
-      finding_status: "pass" | "fail" | "na" | "resolved"
+      finding_status: "pass" | "fail" | "na" | "resolved" | "inconclusive"
       severity: "critical" | "high" | "medium" | "low"
     }
     CompositeTypes: {
@@ -645,7 +645,7 @@ export const Constants = {
       app_role: ["admin", "auditor"],
       audit_status: ["draft", "in_progress", "completed"],
       engagement_type: ["prospect", "one_time", "retainer"],
-      finding_status: ["pass", "fail", "na", "resolved"],
+      finding_status: ["pass", "fail", "na", "resolved", "inconclusive"],
       severity: ["critical", "high", "medium", "low"],
     },
   },

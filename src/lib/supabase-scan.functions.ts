@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
+import { upsertScanFinding } from "./finding-writer";
 
 
 const TIMEOUT_MS = 15_000;
@@ -29,7 +30,10 @@ export type SupabaseScanInput = {
   intrusiveProbes?: boolean;
 };
 
-type CheckResult = { status: "pass" | "fail" | "na"; notes: string };
+// "inconclusive" = the check could not be performed or its result could not be
+// determined. It is never counted as coverage and never overwrites a known failure.
+// Use "na" only when the check genuinely does not apply to this project.
+type CheckResult = { status: "pass" | "fail" | "na" | "inconclusive"; notes: string };
 
 /**
  * Carries the client's anon key, service-role key or Management PAT depending on
@@ -163,7 +167,7 @@ async function probeAuthBehavior(projectUrl: string, anonKey: string, intrusive:
   const headers = { apikey: anonKey, "content-type": "application/json" };
   // Email enumeration: ask for password recovery on a clearly fake address.
   // Supabase with enumeration protection returns 200 regardless of existence.
-  let enumeration: CheckResult = { status: "na", notes: "Could not probe." };
+  let enumeration: CheckResult = { status: "inconclusive", notes: "Could not probe." };
   try {
     const r = await timedFetch(`${projectUrl}/auth/v1/recover`, {
       method: "POST",
@@ -183,23 +187,23 @@ async function probeAuthBehavior(projectUrl: string, anonKey: string, intrusive:
       };
     } else {
       enumeration = {
-        status: "na",
+        status: "inconclusive",
         notes: `Unexpected status ${r.status} from /auth/v1/recover — could not determine enumeration setting.`,
       };
     }
   } catch (e: any) {
-    enumeration = { status: "na", notes: `Probe failed: ${e?.message ?? "unknown"}` };
+    enumeration = { status: "inconclusive", notes: `Probe failed: ${e?.message ?? "unknown"}` };
   }
 
   // Password policy: try signing up with a 4-char password.
   // This creates a real user in the client's project and can trigger a
   // confirmation email, so it only runs with explicit consent.
-  let passwordPolicy: CheckResult = { status: "na", notes: "Could not probe." };
+  let passwordPolicy: CheckResult = { status: "inconclusive", notes: "Could not probe." };
   if (!intrusive) {
     return {
       enumeration,
       passwordPolicy: {
-        status: "na",
+        status: "inconclusive",
         notes:
           "Not tested. Verifying the minimum password length requires submitting a real signup to /auth/v1/signup, " +
           "which creates a user record in the project and may send a confirmation email. " +
@@ -231,12 +235,12 @@ async function probeAuthBehavior(projectUrl: string, anonKey: string, intrusive:
       };
     } else {
       passwordPolicy = {
-        status: "na",
+        status: "inconclusive",
         notes: `Inconclusive response (status ${r.status}). Body: ${txt.slice(0, 300)}`,
       };
     }
   } catch (e: any) {
-    passwordPolicy = { status: "na", notes: `Probe failed: ${e?.message ?? "unknown"}` };
+    passwordPolicy = { status: "inconclusive", notes: `Probe failed: ${e?.message ?? "unknown"}` };
   }
 
   return { enumeration, passwordPolicy };
@@ -338,7 +342,7 @@ async function fetchManagementAuth(projectRef: string, pat: string): Promise<{ o
   }
 }
 
-async function scanBundleForSecret(appUrl: string, secret: string): Promise<{ ok: boolean; checkedUrls: string[]; matches: string[]; bytesScanned: number; error?: string }> {
+async function scanBundleForSecret(appUrl: string, secret: string): Promise<{ ok: boolean; checkedUrls: string[]; matches: string[]; bytesScanned: number; failed?: string[]; error?: string }> {
   if (!secret) return { ok: false, checkedUrls: [], matches: [], bytesScanned: 0, error: "no secret to scan for" };
   const normalized = appUrl.trim().replace(/\/+$/, "");
   const base = /^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`;
@@ -363,22 +367,31 @@ async function scanBundleForSecret(appUrl: string, secret: string): Promise<{ ok
       .filter((u): u is string => !!u)
       .slice(0, MAX_BUNDLE_FILES);
 
+    const failed: string[] = [];
     for (const u of resolved) {
-      if (bytes > MAX_BUNDLE_BYTES) break;
+      if (bytes > MAX_BUNDLE_BYTES) {
+        failed.push(`${u} (scan size limit reached)`);
+        continue;
+      }
       try {
         await assertSafeOutboundUrl(u);
         const r = await timedFetch(u);
-        if (!r.ok) continue;
+        if (!r.ok) {
+          failed.push(`${u} (HTTP ${r.status})`);
+          continue;
+        }
         const body = await r.text();
         bytes += body.length;
         checked.push(u);
         if (body.includes(secret)) matches.push(u);
-      } catch {
-        // skip — SSRF-blocked or fetch error
+      } catch (e: any) {
+        failed.push(`${u} (${e?.message ?? "fetch failed"})`);
       }
     }
+    const overCap = scriptSrcs.length - resolved.length;
+    if (overCap > 0) failed.push(`${overCap} more script(s) beyond the ${MAX_BUNDLE_FILES}-file limit`);
 
-    return { ok: true, checkedUrls: checked, matches, bytesScanned: bytes };
+    return { ok: true, checkedUrls: checked, matches, bytesScanned: bytes, failed };
   } catch (e: any) {
     return { ok: false, checkedUrls: [], matches: [], bytesScanned: 0, error: e?.message ?? "fetch failed" };
   }
@@ -433,10 +446,24 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     // 1) Discover exposed tables and probe anon access
     const tableListing = await listExposedTables(projectUrl, anonKey);
     const schemaReadable = tableListing.ok;
+    const totalTables = tableListing.tables.length;
     const tables = tableListing.tables.slice(0, MAX_TABLES_PROBED);
+    const unprobed = tableListing.tables.slice(MAX_TABLES_PROBED);
     const probes = await pMap(tables, 6, (t) => probeAnon(projectUrl, anonKey, t));
     const leaks = probes.filter((p) => p.status === "leaks");
     const exposedEmpty = probes.filter((p) => p.status === "exposed_empty");
+    // A probe that errored (429, 5xx, timeout) tells us nothing. Any errored or
+    // unprobed table means "no leaks seen" is NOT the same as "no leaks".
+    const errored = probes.filter((p) => p.status === "error");
+    const incompleteNote = [
+      errored.length
+        ? `${errored.length} table probe(s) failed and were NOT evaluated:\n${errored.slice(0, 20).map((p) => `• ${p.table} (${p.http ? `HTTP ${p.http}` : "timeout/network error"})`).join("\n")}`
+        : "",
+      unprobed.length
+        ? `Only ${tables.length} of ${totalTables} exposed tables were probed; ${unprobed.length} were NOT checked:\n${unprobed.slice(0, 20).map((t) => `• ${t}`).join("\n")}${unprobed.length > 20 ? "\n• …" : ""}`
+        : "",
+    ].filter(Boolean).join("\n\n");
+    const probesIncomplete = errored.length > 0 || unprobed.length > 0;
 
     // 2) RLS truth check + anon write-access check (only when PAT provided)
     let rlsRows: { schema: string; table: string; rls: boolean }[] | null = null;
@@ -473,7 +500,12 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
 
     // RLS
     let rlsCheck: CheckResult;
-    if (rlsRows) {
+    if (rlsRows && rlsRows.length === 0 && totalTables > 0) {
+      rlsCheck = {
+        status: "inconclusive",
+        notes: `The Management API returned no public tables, but the Data API exposes ${totalTables}. RLS status could NOT be confirmed — this is not a pass. Check that the PAT belongs to this project and re-run.`,
+      };
+    } else if (rlsRows) {
       if (rlsDisabled.length === 0) {
         rlsCheck = {
           status: "pass",
@@ -492,19 +524,24 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
         status: "fail",
         notes: `Anon probe returned rows from ${leaks.length} table(s) — RLS is either off or has overly permissive policies:\n\n${list}\n\nProvide a Management API PAT for an authoritative RLS check.${rlsError ? `\n\nPAT lookup error: ${rlsError}` : ""}`,
       };
+    } else if (probesIncomplete) {
+      rlsCheck = {
+        status: "inconclusive",
+        notes: `No anon probe returned rows, but the probe was incomplete, so RLS status could NOT be determined — this is not a pass.\n\n${incompleteNote}\n\nRe-run, or supply a Management API PAT for an authoritative check.`,
+      };
     } else if (exposedEmpty.length > 0) {
       rlsCheck = {
-        status: "na",
+        status: "inconclusive",
         notes: `Could not determine RLS status without a Management API PAT.\n\n${exposedEmpty.length} table(s) responded 200 to anon but returned no rows — they could be empty, or RLS could be filtering. Re-run with a PAT to confirm.`,
       };
     } else if (!schemaReadable) {
       rlsCheck = {
-        status: "na",
+        status: "inconclusive",
         notes: `Could not read the project's Data API schema (${tableListing.error ?? "unknown error"}), and no Management API PAT was provided — RLS status could NOT be determined. This is not a pass. Confirm the project URL and anon key are correct, or supply a PAT, and re-run.`,
       };
     } else if (tables.length === 0) {
       rlsCheck = {
-        status: "na",
+        status: "inconclusive",
         notes: `No tables were exposed through the Data API to probe, and no Management API PAT was provided — RLS status could NOT be determined. Supply a PAT for an authoritative check.`,
       };
     } else {
@@ -524,8 +561,13 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       };
     } else if (!schemaReadable) {
       anonScope = {
-        status: "na",
+        status: "inconclusive",
         notes: `Could not read the project's Data API schema (${tableListing.error ?? "unknown error"}). No tables were probed, so anon access was NOT verified — this is not a pass. Confirm the project URL and anon key are reachable and re-run.`,
+      };
+    } else if (probesIncomplete) {
+      anonScope = {
+        status: "inconclusive",
+        notes: `No probed table returned data to the anon key, but anon access was not fully verified — this is not a pass.\n\n${incompleteNote}\n\nRe-run the scan (rate limits and timeouts are often transient).`,
       };
     } else if (exposedEmpty.length > 0) {
       anonScope = {
@@ -534,7 +576,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       };
     } else if (tables.length === 0) {
       anonScope = {
-        status: "na",
+        status: "inconclusive",
         notes: `The Data API exposed no tables to probe. Anon read access was not verified — treat as inconclusive, not safe.`,
       };
     } else {
@@ -547,10 +589,10 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     // Rate limiting on auth endpoints — best effort: send a burst, look for 429.
     // A burst of failed sign-ins pollutes the client's auth logs and can trip
     // their alerting or IP lockout, so it is gated behind explicit consent.
-    let rateLimit: CheckResult = { status: "na", notes: "Not probed." };
+    let rateLimit: CheckResult = { status: "inconclusive", notes: "Not probed." };
     if (!intrusive) {
       rateLimit = {
-        status: "na",
+        status: "inconclusive",
         notes:
           "Not tested. Detecting rate limiting requires sending a burst of failed sign-in attempts to /auth/v1/token, " +
           "which writes to the project's auth logs and may trigger alerting or temporary IP lockout. " +
@@ -572,36 +614,47 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
           ? { status: "pass", notes: `Burst of 8 sign-in attempts triggered HTTP 429 — rate limiting is active.\n\nStatuses: ${bursts.join(", ")}` }
           : { status: "fail", notes: `Burst of 8 sign-in attempts did NOT trigger HTTP 429. Confirm rate limits on /auth/v1/token in project settings.\n\nStatuses: ${bursts.join(", ")}` };
       } catch (e: any) {
-        rateLimit = { status: "na", notes: `Probe failed: ${e?.message ?? "unknown"}` };
+        rateLimit = { status: "inconclusive", notes: `Probe failed: ${e?.message ?? "unknown"}` };
       }
     }
 
     // Bundle / service role exposure
-    let bundleCheck: CheckResult;
+    // This scan only searches for the service role key itself. It can prove a
+    // FAIL on "No secrets in client-side bundle", but it cannot prove that item
+    // passes (other secrets aren't searched for) — the website scan owns that.
+    let bundleCheck: CheckResult | null;
     let serviceRoleCheck: CheckResult;
     if (!appUrl) {
-      bundleCheck = { status: "na", notes: "No website URL provided — cannot fetch JS bundle to scan." };
-      serviceRoleCheck = { status: "na", notes: "No website URL provided — cannot verify the service role key is absent from the bundle." };
+      bundleCheck = null;
+      serviceRoleCheck = { status: "inconclusive", notes: "Not checked: no website URL provided, so the JS bundle could not be searched for the service role key." };
     } else if (!bundle || !bundle.ok) {
       const reason = bundle?.error ?? "unknown";
-      bundleCheck = { status: "na", notes: `Could not fetch bundle from ${appUrl}: ${reason}` };
-      serviceRoleCheck = { status: "na", notes: `Could not verify — bundle fetch failed: ${reason}` };
+      bundleCheck = null;
+      serviceRoleCheck = { status: "inconclusive", notes: `Not checked: bundle fetch failed (${reason}).` };
     } else if (bundle.matches.length > 0) {
       const list = bundle.matches.map((u) => `• ${u}`).join("\n");
       const msg = `CRITICAL: the provided service role key was found in the live JS bundle at:\n\n${list}\n\nRotate this key IMMEDIATELY and remove it from client code.`;
       bundleCheck = { status: "fail", notes: msg };
       serviceRoleCheck = { status: "fail", notes: msg };
+    } else if (bundle.failed && bundle.failed.length > 0) {
+      bundleCheck = null;
+      serviceRoleCheck = {
+        status: "inconclusive",
+        notes: `The service role key was not found in the ${bundle.checkedUrls.length - 1} script(s) that loaded, but some scripts could not be scanned, so this is not a pass:\n${bundle.failed.slice(0, 15).map((u) => `• ${u}`).join("\n")}`,
+      };
     } else {
-      const note = `Service role key not present in ${bundle.checkedUrls.length} bundle file(s) scanned from ${appUrl} (${Math.round(bundle.bytesScanned / 1024)} KB).`;
-      bundleCheck = { status: "pass", notes: note };
-      serviceRoleCheck = { status: "pass", notes: note };
+      bundleCheck = null;
+      serviceRoleCheck = {
+        status: "pass",
+        notes: `Service role key not present in the HTML or any of the ${bundle.checkedUrls.length - 1} script(s) it loads from ${appUrl} (${Math.round(bundle.bytesScanned / 1024)} KB).`,
+      };
     }
 
     // Anon write access (authoritative, PAT only)
     let writeAccessCheck: CheckResult;
     if (!writeRows) {
       writeAccessCheck = {
-        status: "na",
+        status: "inconclusive",
         notes: pat
           ? "Could not read anon write grants from the Management API. Re-run to verify whether anon can INSERT/UPDATE/DELETE."
           : "Not checked. Verifying that the anon role cannot write to tables requires a Management API PAT. Supply one and re-run — this is the highest-value database check, because agents routinely write a read policy and forget the write side.",
@@ -623,8 +676,13 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       } else if (grantedButRls.length > 0) {
         const list = grantedButRls.map((r) => `• ${r.table}`).join("\n");
         writeAccessCheck = {
-          status: "na",
+          status: "inconclusive",
           notes: `${grantedButRls.length} table(s) grant the anon role write access but have RLS enabled:\n\n${list}\n\nThe grant is only as safe as the policy scoping it — review each write policy to confirm anon cannot INSERT/UPDATE/DELETE rows it shouldn't. (Where possible, revoke unused anon write grants entirely.)`,
+        };
+      } else if (writeRows.length === 0 && totalTables > 0) {
+        writeAccessCheck = {
+          status: "inconclusive",
+          notes: `The Management API returned no public tables, but the Data API exposes ${totalTables}. Anon write access could NOT be confirmed — this is not a pass. Check that the PAT belongs to this project and re-run.`,
         };
       } else {
         writeAccessCheck = {
@@ -637,7 +695,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     // Public storage buckets
     let bucketCheck: CheckResult;
     if (!buckets.ok) {
-      bucketCheck = { status: "na", notes: `Could not enumerate storage buckets: ${buckets.error ?? "unknown error"}.` };
+      bucketCheck = { status: "inconclusive", notes: `Could not enumerate storage buckets: ${buckets.error ?? "unknown error"}.` };
     } else if (publicBuckets.length > 0) {
       const list = publicBuckets.map((b) => `• ${b.name}`).join("\n");
       bucketCheck = {
@@ -655,10 +713,15 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     let emailConfirmCheck: CheckResult;
     if (!authConfig || !authConfig.ok || !authConfig.data) {
       emailConfirmCheck = {
-        status: "na",
+        status: "inconclusive",
         notes: pat
           ? "Could not read the auth configuration from the Management API."
           : "Not checked. Verifying email confirmation requires a Management API PAT.",
+      };
+    } else if (typeof authConfig.data["mailer_autoconfirm"] !== "boolean") {
+      emailConfirmCheck = {
+        status: "inconclusive",
+        notes: "The auth configuration did not include mailer_autoconfirm, so the email confirmation setting could not be read. Confirm it under Authentication → Providers → Email.",
       };
     } else {
       const autoconfirm = authConfig.data["mailer_autoconfirm"] === true;
@@ -674,7 +737,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     }
 
     // ---- Persist findings by title (only items that exist in the checklist) ----
-    const titleToResult: Record<string, CheckResult> = {
+    const titleToResult: Record<string, CheckResult | null> = {
       "RLS enabled on all tables": rlsCheck,
       "Anon key permissions scoped correctly": anonScope,
       "No direct table access without auth check": anonScope,
@@ -701,33 +764,33 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     const written: { title: string; status: string; matched: boolean }[] = [];
     let passes = 0;
     let fails = 0;
+    let inconclusive = 0;
     for (const [title, res] of Object.entries(titleToResult)) {
+      if (!res) continue; // this scan can't speak to this item this time
       const itemId = byTitle.get(title);
       if (res.status === "pass") passes++;
       if (res.status === "fail") fails++;
+      if (res.status === "inconclusive") inconclusive++;
       if (!itemId) {
         written.push({ title, status: res.status, matched: false });
         continue;
       }
       const header = `[Supabase scan ${stamp}]\nProject: ${projectLabel}\n\n`;
-      const { error: upErr } = await supabase.from("audit_findings").upsert(
-        {
-          audit_id: data.auditId,
-          checklist_item_id: itemId,
-          status: res.status,
-          notes: header + res.notes,
-          auto_scanned: true,
-        },
-        { onConflict: "audit_id,checklist_item_id" },
-      );
-      if (upErr) throw new Error(upErr.message);
-      written.push({ title, status: res.status, matched: true });
+      const w = await upsertScanFinding(supabase, {
+        audit_id: data.auditId,
+        checklist_item_id: itemId,
+        status: res.status,
+        notes: header + res.notes,
+      });
+      written.push({ title, status: w.written ? res.status : `${res.status} (kept existing ${w.keptStatus})`, matched: true });
     }
 
     return {
       ok: true as const,
       project: projectLabel,
       tablesProbed: tables.length,
+      tablesDiscovered: totalTables,
+      probeErrors: errored.length,
       leaks: leaks.length,
       publicBuckets: publicBuckets.map((b) => b.name),
       bundleMatches: bundle?.matches.length ?? 0,
@@ -735,6 +798,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       authConfig: authConfig?.ok ? "fetched" : authConfig ? `error: ${authConfig.error}` : "skipped",
       passes,
       fails,
+      inconclusive,
       results: written,
     };
   });

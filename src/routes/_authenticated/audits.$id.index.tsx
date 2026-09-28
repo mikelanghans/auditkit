@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw, ChevronDown, ClipboardCheck, History, RotateCcw } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, CircleHelp, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw, ChevronDown, ClipboardCheck, History, RotateCcw } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +56,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { id?: string; checklist_item_id: string; status: "pass" | "fail" | "na" | "resolved" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null; cursor_prompt?: string | null; claude_prompt?: string | null; explanation?: string | null; resolved_at?: string | null; resolved_via?: "automated_rescan" | "manual_evidence" | null; evidence_text?: string | null; evidence_url?: string | null };
+type Finding = { id?: string; checklist_item_id: string; status: "pass" | "fail" | "na" | "resolved" | "inconclusive" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null; cursor_prompt?: string | null; claude_prompt?: string | null; explanation?: string | null; resolved_at?: string | null; resolved_via?: "automated_rescan" | "manual_evidence" | null; evidence_text?: string | null; evidence_url?: string | null };
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -146,7 +146,7 @@ function AuditView() {
       path?: string;
       packagesScanned?: number;
       counts?: { critical: number; high: number; medium: number; low: number };
-      status?: "pass" | "fail";
+      status?: "pass" | "fail" | "inconclusive";
       findings?: DepFinding[];
     };
     aiEndpoints?: DetectedEndpoint[];
@@ -188,7 +188,8 @@ function AuditView() {
     });
     return Array.from(seen.entries()).map(([name, list]) => {
       const statuses = list.map((it) => findingsMap.get(it.id)?.status);
-      const done = statuses.filter((s) => s).length;
+      // "inconclusive" means a scanner couldn't verify it — still to do.
+      const done = statuses.filter((s) => s && s !== "inconclusive").length;
       const pass = statuses.filter((s) => s === "pass").length;
       const fail = statuses.filter((s) => s === "fail").length;
       const na = statuses.filter((s) => s === "na").length;
@@ -210,7 +211,7 @@ function AuditView() {
   }, [items.data]);
 
   const [selectedSeverities, setSelectedSeverities] = useState<string[]>(["critical", "high", "medium", "low"]);
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["pass", "fail", "na", "unrated"]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["pass", "fail", "na", "inconclusive", "unrated"]);
 
   const setFinding = useMutation({
     mutationFn: async (payload: { checklist_item_id: string; status: "pass" | "fail" | "na"; notes?: string | null }) => {
@@ -593,6 +594,9 @@ function AuditView() {
               <ToggleGroupItem value="na" aria-label="N/A" className="text-xs">
                 <Minus className="h-3.5 w-3.5 mr-1 text-status-na" /> N/A
               </ToggleGroupItem>
+              <ToggleGroupItem value="inconclusive" aria-label="Couldn't verify" className="text-xs">
+                <CircleHelp className="h-3.5 w-3.5 mr-1 text-amber-600" /> Couldn't verify
+              </ToggleGroupItem>
               <ToggleGroupItem value="resolved" aria-label="Resolved" className="text-xs">
                 <CheckCircle2 className="h-3.5 w-3.5 mr-1 text-status-pass" /> Resolved
               </ToggleGroupItem>
@@ -658,7 +662,7 @@ function ShieldScanBanner({
   onSurfaceResult: (s: { passes: number; fails: number; warnings: number; target: string; at: string }) => void;
   onRepoResult: (s: {
     passes: number; fails: number; findings: number; repo: string; at: string;
-    dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+    dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail" | "inconclusive"; findings?: DepFinding[] };
     aiEndpoints?: DetectedEndpoint[];
     aiDetectError?: string | null;
   }) => void;
@@ -805,6 +809,7 @@ function ItemRow({
     status === "fail" ? "border-l-status-fail" :
     status === "na" ? "border-l-status-na" :
     status === "resolved" ? "border-l-status-pass" :
+    status === "inconclusive" ? "border-l-amber-500" :
     "border-l-transparent";
 
   const statusBg =
@@ -812,6 +817,7 @@ function ItemRow({
     status === "fail" ? "bg-status-fail/[0.04]" :
     status === "na" ? "bg-status-na/[0.04]" :
     status === "resolved" ? "bg-status-pass/[0.06]" :
+    status === "inconclusive" ? "bg-amber-500/[0.05]" :
     "";
 
   return (
@@ -822,6 +828,11 @@ function ItemRow({
           <div className="flex items-center gap-2 flex-wrap mt-0.5">
             {item.description && <p className="text-sm text-muted-foreground">{item.description}</p>}
             <SeverityBadge severity={item.severity} />
+            {status === "inconclusive" && (
+              <Badge variant="outline" className="gap-1 text-[10px] uppercase tracking-wide border-amber-500/50 text-amber-700 dark:text-amber-300">
+                <CircleHelp className="h-3 w-3" /> Couldn't verify
+              </Badge>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -890,6 +901,17 @@ function ItemRow({
           <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed text-foreground/90">
 {item.what_to_look_for}
           </pre>
+        </div>
+      )}
+
+      {status === "inconclusive" && (
+        <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/[0.06] p-3 space-y-1.5">
+          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            Scanner couldn't verify this — check it manually, then mark Pass, Fail or N/A
+          </div>
+          {finding?.notes && (
+            <pre className="text-xs whitespace-pre-wrap font-sans leading-relaxed text-foreground/80 max-h-64 overflow-auto">{finding.notes}</pre>
+          )}
         </div>
       )}
 
@@ -984,7 +1006,7 @@ function SurfaceRecheckButton({
       const updated = qc.getQueryData<Finding[]>(["findings", auditId])?.find((f) => f.checklist_item_id === checklistItemId);
       setScanState("success");
       setScanSummary(
-        `${updated?.status === "pass" ? "Re-scan cleared this finding. " : ""}${res.passes} passed · ${res.fails} failed · ${res.warnings} warnings`,
+        `${updated?.status === "pass" ? "Re-scan cleared this finding. " : ""}${res.passes} passed · ${res.fails} failed · ${res.warnings} warnings${res.inconclusive ? ` · ${res.inconclusive} couldn't verify` : ""}`,
       );
     } catch (e: any) {
       setScanState("error");
@@ -1119,7 +1141,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
   onDone: () => void;
   onRepoResult: (s: {
     passes: number; fails: number; findings: number; repo: string; at: string;
-    dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail"; findings?: DepFinding[] };
+    dep?: { ok: boolean; error?: string; path?: string; packagesScanned?: number; counts?: { critical: number; high: number; medium: number; low: number }; status?: "pass" | "fail" | "inconclusive"; findings?: DepFinding[] };
     aiEndpoints?: DetectedEndpoint[];
     aiDetectError?: string | null;
   }) => void;

@@ -171,7 +171,11 @@ export function AIScanDialog({
         ? `${counts.critical} CRITICAL injection${counts.critical === 1 ? "" : "s"} succeeded`
         : counts.high > 0
           ? `${counts.high} high-severity finding${counts.high === 1 ? "" : "s"}`
-          : `${counts.passes} pass, ${counts.fails} fail`;
+          : counts.evaluated === 0
+            ? "No probe reached the model — check the URL, prompt field and token. Nothing was marked as passed."
+            : counts.inconclusive > 0
+              ? `${counts.inconclusive} check${counts.inconclusive === 1 ? "" : "s"} inconclusive — ${counts.evaluated} of ${counts.evaluated + counts.notEvaluated} probes reached the model`
+              : `${counts.passes} pass, ${counts.fails} fail`;
       toast.success(`AI scan complete — ${headline}`, { id: tid, description: res.endpoint });
       setResults(res.results);
       setEndpointLabel(res.endpoint);
@@ -422,8 +426,8 @@ export function AIScanDialog({
 function ResultRow({ r }: { r: AIPayloadResult }) {
   const [open, setOpen] = useState(r.verdict === "critical" || r.verdict === "high");
   const tone =
-    r.verdict === "critical" || r.verdict === "high" || r.verdict === "error" ? "fail" :
-    r.verdict === "medium" ? "na" : "pass";
+    r.verdict === "critical" || r.verdict === "high" ? "fail" :
+    r.verdict === "medium" || r.verdict === "error" ? "na" : "pass";
   const toneClass = {
     fail: "border-l-status-fail bg-status-fail/[0.04]",
     na: "border-l-status-na bg-status-na/[0.04]",
