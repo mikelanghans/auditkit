@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { redactSourceFile } from "./secret-redaction";
 
 const SYSTEM_PROMPT =
   "You are a security expert who explains findings to non-technical founders. " +
@@ -55,7 +56,7 @@ export const explainFinding = createServerFn({ method: "POST" })
       `Status: ${finding?.status ?? "unrated"}\n` +
       (item.description ? `Description: ${item.description}\n` : "") +
       (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
-      (finding?.notes ? `\nAuditor notes:\n${finding.notes}` : "");
+      (finding?.notes ? `\nAuditor notes:\n${redactSourceFile(finding.notes)}` : "");
 
     let res: Response;
     try {

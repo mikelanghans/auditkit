@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { redactSourceFile } from "./secret-redaction";
 
 export type FixTarget = "lovable" | "cursor" | "claude";
 
@@ -86,7 +87,7 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
         (item.category ? `Category: ${item.category}\n` : "") +
         (item.description ? `Description: ${item.description}\n` : "") +
         (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
-        `\nAuditor notes & evidence:\n${(item.notes ?? "").trim() || "(no notes provided)"}`;
+        `\nAuditor notes & evidence:\n${redactSourceFile((item.notes ?? "").trim()) || "(no notes provided)"}`;
       return await callClaude(target, userMessage);
     }
 
@@ -138,7 +139,8 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       (item.description ? `Description: ${item.description}\n` : "") +
       (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
       builtWithHint +
-      `\nAuditor notes & evidence:\n${(finding.notes ?? "").trim() || "(no notes provided)"}`;
+      // Notes can hold evidence pasted from the client's code or scan output.
+      `\nAuditor notes & evidence:\n${redactSourceFile((finding.notes ?? "").trim()) || "(no notes provided)"}`;
 
     const result = await callClaude(target, userMessage);
     if (!result.ok) return result;

@@ -59,5 +59,40 @@ check("path: environment.ts is NOT env", !isEnvFile("src/environment.ts"));
 check("flag: reports redaction happened", redactForPrompt(".env", env).redacted === true);
 check("flag: clean file reports no redaction", redactForPrompt("a.ts", "const x = 1;\n").redacted === false);
 
+
+// --- gaps found in the 2026-09-28 security audit (docs/security-audit) ---
+const envGaps = `# rotated 2026-01 -- old prod key kept for rollback
+# STRIPE_SECRET_KEY=sk_live_DUMMYOLDKEY0000000000000000
+STRIPE_SECRET_KEY=sk_live_DUMMYNEWKEY1111111111111111
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
+MIIEvDUMMYPEMBODYLINEONEaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DUMMYPEMBODYLINETWObbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+-----END PRIVATE KEY-----"
+AFTER=1
+`;
+const redGaps = redactEnvFile(envGaps);
+check("env: commented-out key value gone", !redGaps.includes("DUMMYOLDKEY"), redGaps);
+check("env: commented key NAME kept", redGaps.includes("STRIPE_SECRET_KEY"), redGaps);
+check("env: free-text comment kept", redGaps.includes("# rotated 2026-01"), redGaps);
+check("env: multi-line PEM body gone", !redGaps.includes("DUMMYPEMBODYLINE"), redGaps);
+check("env: lines after multi-line value still parsed", redGaps.includes("AFTER="), redGaps);
+
+const srcGaps: [string, string, string][] = [
+  ["drizzle.config.ts", `export default { dbCredentials: { url: "postgresql://postgres:DummyDbPassw0rd@db.dummyref.supabase.co:5432/postgres" } };`, "DummyDbPassw0rd"],
+  ["src/lib/ai.ts", `fetch(u, { headers: { "Authorization": "Bearer dummyBearerToken1234567890" } });`, "dummyBearerToken1234567890"],
+  ["src/lib/ai.ts", `fetch(u, { headers: { "x-api-key": "dummyApiKeyValue1234567890" } });`, "dummyApiKeyValue1234567890"],
+  ["src/admin.ts", `const serviceRoleKey = "sb_secret_DUMMYdummyDUMMYdummy1234";`, "DUMMYdummyDUMMYdummy1234"],
+  ["src/admin.ts", `createClient(url, "sb_secret_DUMMYdummyDUMMYdummy5678");`, "DUMMYdummyDUMMYdummy5678"],
+  ["src/keys.ts", "const k = `-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFDUMMYENCRYPTEDBODY\n-----END ENCRYPTED PRIVATE KEY-----`;", "MIIFDUMMYENCRYPTEDBODY"],
+  ["src/pay.ts", `const r = "rk_live_DUMMYrestricted00000000"; const w = "whsec_DUMMYwebhooksecret0000";`, "DUMMYrestricted"],
+  ["src/pay.ts", `const w = "whsec_DUMMYwebhooksecret0000";`, "DUMMYwebhooksecret"],
+  ["src/cfg.ts", `export const cfg = { stripe: { secretKey: "not-a-known-shape-but-secret" } };`, "not-a-known-shape-but-secret"],
+];
+for (const [path, content, secret] of srcGaps) {
+  const r = redactForPrompt(path, content);
+  check(`src gap: ${secret.slice(0, 18)}… removed`, !r.content.includes(secret) && r.redacted, r.content);
+}
+check("src: publishable key still readable", redactSourceFile(`const supabasePublishableKey = "sb_publishable_abcdefghijklmnop";`).includes("sb_publishable_"));
+
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAILURE(S)`);
 process.exit(fail === 0 ? 0 : 1);

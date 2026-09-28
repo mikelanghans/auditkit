@@ -27,6 +27,12 @@ const SECRET_VALUE_PATTERNS: { name: string; re: RegExp; replace: (m: string) =>
   // Provider-prefixed tokens — the prefix is the useful signal, not the body.
   { name: "stripe-live", re: /\bsk_live_[A-Za-z0-9]{16,}\b/g, replace: () => "sk_live_[REDACTED]" },
   { name: "stripe-test", re: /\bsk_test_[A-Za-z0-9]{16,}\b/g, replace: () => "sk_test_[REDACTED]" },
+  { name: "stripe-restricted", re: /\brk_(?:live|test)_[A-Za-z0-9]{16,}\b/g, replace: (m) => m.slice(0, 8) + "[REDACTED]" },
+  { name: "webhook-secret", re: /\bwhsec_[A-Za-z0-9+/=_-]{16,}/g, replace: () => "whsec_[REDACTED]" },
+  // Supabase's newer non-JWT secret API keys.
+  { name: "supabase-secret", re: /\bsb_secret_[A-Za-z0-9_-]{16,}/g, replace: () => "sb_secret_[REDACTED]" },
+  { name: "resend", re: /\bre_[A-Za-z0-9]{8,}_[A-Za-z0-9]{16,}\b/g, replace: () => "re_[REDACTED]" },
+  { name: "twilio-api-key", re: /\bSK[0-9a-f]{32}\b/g, replace: () => "SK[REDACTED]" },
   { name: "anthropic", re: /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g, replace: () => "sk-ant-[REDACTED]" },
   { name: "openai", re: /\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}\b/g, replace: () => "sk-[REDACTED]" },
   { name: "github-pat", re: /\b(gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}\b/g, replace: (m) => m.slice(0, 4) + "[REDACTED]" },
@@ -40,10 +46,23 @@ const SECRET_VALUE_PATTERNS: { name: string; re: RegExp; replace: (m: string) =>
     re: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
     replace: () => "eyJ[REDACTED_JWT]",
   },
-  // Private key blocks — replace the whole body, keep the header for context.
+  // Passwords embedded in connection strings: postgres://user:PASSWORD@host
+  {
+    name: "url-credentials",
+    re: /\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/'"`]+):([^\s@/'"`]+)@/gi,
+    replace: (m) => m.replace(/:([^:@]+)@$/, ":[REDACTED]@"),
+  },
+  // Literal Authorization header values.
+  {
+    name: "auth-header-value",
+    re: /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]{16,}=*/g,
+    replace: (m) => `${m.split(/\s+/)[0]} [REDACTED]`,
+  },
+  // Private key blocks (any label, including ENCRYPTED PRIVATE KEY) — replace
+  // the whole body, keep the header for context.
   {
     name: "pem",
-    re: /-----BEGIN ((?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY)-----[\s\S]*?-----END \1-----/g,
+    re: /-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[\s\S]*?-----END \1-----/g,
     replace: (m) => {
       const header = m.match(/-----BEGIN ([^-]+)-----/)?.[1] ?? "PRIVATE KEY";
       return `-----BEGIN ${header}-----\n[REDACTED]\n-----END ${header}-----`;
@@ -72,10 +91,20 @@ const SENSITIVE_NAME_HINTS = [
   "session_key",
   "encryption",
   "dsn",
+  "database_url",
+  "db_url",
+  "connection_string",
+  "access_key",
+  "webhook",
 ];
 
 function nameLooksSensitive(name: string): boolean {
-  const n = name.toLowerCase();
+  // Normalise camelCase, kebab-case and dotted names so serviceRoleKey,
+  // x-api-key and stripe.secretKey match the same hints as SNAKE_CASE.
+  const n = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
   if (SENSITIVE_NAME_HINTS.some((h) => n.includes(h))) return true;
   // Bare "*_KEY" but not obviously-public things like PUBLISHABLE_KEY / ANON_KEY.
   if (/(^|_)key$/.test(n) && !/(publishable|public|anon)/.test(n)) return true;
@@ -92,21 +121,60 @@ function placeholder(value: string): string {
  *
  * Keeps comments, blank lines, ordering and every key, because "this repo
  * commits a file defining SUPABASE_SERVICE_ROLE_KEY" is the finding. Drops
- * every value, because that is the part with blast radius.
+ * every value, because that is the part with blast radius. That includes:
+ *  - commented-out assignments (`# STRIPE_SECRET_KEY=sk_live_…` — an old key
+ *    kept "for rollback" is usually still live),
+ *  - every line of a multi-line quoted value (e.g. a PEM private key),
+ *  - any line we can't parse, which is replaced rather than passed through.
+ * Known token shapes are then stripped from the whole result as a backstop.
  */
 export function redactEnvFile(content: string): string {
-  return content
-    .split(/\r?\n/)
-    .map((line) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) return line;
-      const m = line.match(/^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_.-]*)(\s*=\s*)(.*)$/);
-      if (!m) return line;
-      const [, indent, name, eq, value] = m;
-      if (!value.trim()) return line;
-      return `${indent}${name}${eq}${placeholder(value)}`;
-    })
-    .join("\n");
+  const lines = content.split(/\r?\n/);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      out.push(line);
+      continue;
+    }
+    const m = line.match(/^(\s*(?:#\s*)?(?:export\s+)?)([A-Za-z_][A-Za-z0-9_.-]*)(\s*=\s*)(.*)$/);
+    if (!m) {
+      // Free-text comments are kept (token shapes are still stripped below).
+      // Anything else unparseable is replaced, not passed through.
+      out.push(trimmed.startsWith("#") ? line : "[REDACTED — unparsed line]");
+      continue;
+    }
+    const [, indent, name, eq, value] = m;
+    const v = value.trim();
+    if (!v) {
+      out.push(line);
+      continue;
+    }
+    // A quoted value that doesn't close on this line continues onto the next ones.
+    const q = v[0];
+    if ((q === '"' || q === "'" || q === "`") && !v.slice(1).includes(q)) {
+      let continuation = 0;
+      while (i + 1 < lines.length) {
+        i++;
+        continuation++;
+        if (lines[i].includes(q)) break;
+      }
+      out.push(`${indent}${name}${eq}[REDACTED — multi-line value, ${continuation + 1} lines]`);
+      continue;
+    }
+    out.push(`${indent}${name}${eq}${placeholder(value)}`);
+  }
+  return applyValuePatterns(out.join("\n"));
+}
+
+function applyValuePatterns(text: string): string {
+  let out = text;
+  for (const p of SECRET_VALUE_PATTERNS) {
+    p.re.lastIndex = 0;
+    out = out.replace(p.re, (m) => p.replace(m));
+  }
+  return out;
 }
 
 /**
@@ -117,21 +185,20 @@ export function redactEnvFile(content: string): string {
  * (`const STRIPE_SECRET = "whatever"`).
  */
 export function redactSourceFile(content: string): string {
-  let out = content;
+  let out = applyValuePatterns(content);
 
-  for (const p of SECRET_VALUE_PATTERNS) {
-    p.re.lastIndex = 0;
-    out = out.replace(p.re, (m) => p.replace(m));
-  }
-
-  // Quoted assignments to sensitive-looking names: KEY: "…", KEY = '…'
+  // Quoted assignments to sensitive-looking names, with the name itself
+  // optionally quoted (object keys and header maps):
+  //   KEY: "…"   KEY = '…'   "x-api-key": "…"   'Authorization': `…`
   out = out.replace(
-    /([A-Za-z_][A-Za-z0-9_.-]*)(\s*[:=]\s*)(['"`])([^'"`\n]{8,})\3/g,
-    (full, name: string, sep: string, quote: string, value: string) => {
+    /(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1(\s*[:=]\s*)(['"`])([^'"`\n]{8,})\4/g,
+    (full, nq: string, name: string, sep: string, quote: string, value: string) => {
       if (!nameLooksSensitive(name)) return full;
-      // Don't redact obvious non-secrets: env lookups, imports, placeholders.
+      // Don't redact obvious non-secrets: env lookups, imports, placeholders,
+      // or values another pattern already redacted.
       if (/^(process\.env|import\.meta|your[-_]|xxx|todo|changeme|<|\$\{)/i.test(value)) return full;
-      return `${name}${sep}${quote}${placeholder(value)}${quote}`;
+      if (value.includes("[REDACTED")) return full;
+      return `${nq}${name}${nq}${sep}${quote}${placeholder(value)}${quote}`;
     },
   );
 

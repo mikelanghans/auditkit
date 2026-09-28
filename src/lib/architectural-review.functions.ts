@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { decodeBase64Utf8 } from "./decode-blob";
-import { redactForPrompt } from "./secret-redaction";
+import { redactForPrompt, redactSourceFile } from "./secret-redaction";
 
 // Mirror the file-selection strategy used by AI Assist, but cap at ~20 files for
 // a single holistic pass that fits in one Claude call.
@@ -211,7 +211,7 @@ export const runArchitecturalReview = createServerFn({ method: "POST" })
         const it = f.checklist_item ?? {};
         const key = it.checklist_key ?? "(unknown)";
         const status = f.status ?? "unrated";
-        const notes = (f.notes ?? "").toString().replace(/\s+/g, " ").slice(0, 400);
+        const notes = redactSourceFile((f.notes ?? "").toString()).replace(/\s+/g, " ").slice(0, 400);
         return `- [${status}] ${it.category ?? "?"} :: ${it.title ?? key} (key=${key})${notes ? ` — ${notes}` : ""}`;
       })
       .join("\n") || "(no prior findings)";
