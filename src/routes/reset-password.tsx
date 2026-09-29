@@ -8,44 +8,75 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
-const resetAccessTokenStorageKey = "auditkit-reset-access-token";
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabasePublishableKey =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
-const authApiKey = supabasePublishableKey ?? "";
-
 export const Route = createFileRoute("/reset-password")({
   ssr: false,
   head: () => ({ meta: [{ title: "Reset password — AuditKit" }] }),
   component: ResetPasswordPage,
 });
 
+const MIN_PASSWORD_LENGTH = 8;
+const invalidLinkMessage =
+  "This reset link is invalid or expired. Request a new password reset email.";
+
+function readAuthParams() {
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
+  url.searchParams.forEach((value, key) => params.set(key, value));
+  return params;
+}
+
+/**
+ * Establish the recovery session from the email link, in the isolated reset
+ * client only. Nothing here touches the main app's stored login, and a link
+ * that is not a recovery link is refused rather than adopted.
+ */
+async function resolveRecoverySession(): Promise<Session | null> {
+  const params = readAuthParams();
+  const urlError = params.get("error_description") || params.get("error");
+  if (urlError) throw new Error(urlError.replace(/\+/g, " "));
+
+  const tokenHash = params.get("token_hash");
+  if (tokenHash) {
+    const { data, error } = await passwordResetClient.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: "recovery",
+    });
+    if (error) throw error;
+    return data.session;
+  }
+
+  const code = params.get("code");
+  if (code) {
+    const { data, error } = await passwordResetClient.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+    return data.session;
+  }
+
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  if (accessToken && refreshToken) {
+    if (params.get("type") !== "recovery") throw new Error(invalidLinkMessage);
+    const { data, error } = await passwordResetClient.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (error) throw error;
+    return data.session;
+  }
+
+  // detectSessionInUrl may already have consumed the fragment.
+  const { data } = await passwordResetClient.auth.getSession();
+  return data.session;
+}
+
 function ResetPasswordPage() {
   const navigate = useNavigate();
-  const invalidLinkMessage =
-    "This reset link is invalid or expired. Request a new password reset email.";
   const [statusMessage, setStatusMessage] = useState("Preparing secure password reset…");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
-  const sessionSetupPromiseRef = useRef<Promise<Session | null> | null>(null);
-  const recoveryAccessTokenRef = useRef<string | null>(null);
-
-  const rememberRecoveryAccessToken = useCallback((token?: string | null) => {
-    if (!token) return;
-    recoveryAccessTokenRef.current = token;
-    window.sessionStorage.setItem(resetAccessTokenStorageKey, token);
-  }, []);
-
-  const getRecoveryAccessToken = useCallback(() => {
-    return recoveryAccessTokenRef.current || window.sessionStorage.getItem(resetAccessTokenStorageKey);
-  }, []);
-
-  const clearRecoveryAccessToken = useCallback(() => {
-    recoveryAccessTokenRef.current = null;
-    window.sessionStorage.removeItem(resetAccessTokenStorageKey);
-  }, []);
+  const setupRef = useRef<Promise<Session | null> | null>(null);
 
   const cleanUrl = useCallback(() => {
     if (window.location.search || window.location.hash) {
@@ -53,121 +84,29 @@ function ResetPasswordPage() {
     }
   }, []);
 
-  const readAuthParams = useCallback(() => {
-    const url = new URL(window.location.href);
-    const params = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
-    url.searchParams.forEach((value, key) => params.set(key, value));
-    return params;
-  }, []);
-
-  const waitForStoredSession = useCallback(async (timeoutMs = 8000) => {
-    const startedAt = Date.now();
-
-    while (Date.now() - startedAt < timeoutMs) {
-      const { data } = await passwordResetClient.auth.getSession();
-      if (data.session) {
-        rememberRecoveryAccessToken(data.session.access_token);
-        return data.session;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-
-    return null;
-  }, [rememberRecoveryAccessToken]);
-
-  const resolveRecoverySession = useCallback(async () => {
-    const params = readAuthParams();
-    const urlError = params.get("error_description") || params.get("error");
-    const tokenHash = params.get("token_hash");
-    const code = params.get("code");
-    const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
-
-    if (urlError) throw new Error(urlError.replace(/\+/g, " "));
-
-    if (tokenHash) {
-      const { data, error } = await passwordResetClient.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: "recovery",
-      });
-      if (error) throw error;
-      rememberRecoveryAccessToken(data.session?.access_token);
-      return data.session;
-    }
-
-    if (code) {
-      const { data, error } = await passwordResetClient.auth.exchangeCodeForSession(code);
-      if (error) throw error;
-      rememberRecoveryAccessToken(data.session?.access_token);
-      return data.session;
-    }
-
-    if (accessToken && refreshToken) {
-      rememberRecoveryAccessToken(accessToken);
-      const { data, error } = await passwordResetClient.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-      if (error) throw error;
-      rememberRecoveryAccessToken(data.session?.access_token);
-      return data.session;
-    }
-
-    return waitForStoredSession();
-  }, [readAuthParams, rememberRecoveryAccessToken, waitForStoredSession]);
-
-  const ensureRecoverySession = useCallback(async () => {
-    if (!sessionSetupPromiseRef.current) {
-      sessionSetupPromiseRef.current = resolveRecoverySession();
-    }
-
-    try {
-      return await sessionSetupPromiseRef.current;
-    } catch (error) {
-      const session = await waitForStoredSession(1200);
-      if (session) return session;
-      sessionSetupPromiseRef.current = null;
-      throw error;
-    }
-  }, [resolveRecoverySession, waitForStoredSession]);
-
   useEffect(() => {
     let mounted = true;
-
-    ensureRecoverySession()
+    setupRef.current ??= resolveRecoverySession();
+    setupRef.current
       .then((session) => {
         if (!mounted) return;
+        cleanUrl();
         if (session) {
           setReady(true);
           setStatusMessage("Enter and confirm your new password below.");
-          cleanUrl();
         } else {
-          setStatusMessage("Enter and confirm your new password below.");
+          setStatusMessage(invalidLinkMessage);
         }
       })
-      .catch(async () => {
+      .catch(() => {
         if (!mounted) return;
-        const session = await waitForStoredSession(1200);
-        if (!mounted) return;
-        if (session) {
-          setReady(true);
-          setStatusMessage("Enter and confirm your new password below.");
-          cleanUrl();
-          return;
-        }
+        cleanUrl();
         setStatusMessage(invalidLinkMessage);
       });
 
     const { data: sub } = passwordResetClient.auth.onAuthStateChange((event, session) => {
-      if (!mounted) return;
-      if (
-        session &&
-        (event === "PASSWORD_RECOVERY" ||
-          event === "SIGNED_IN" ||
-          event === "TOKEN_REFRESHED" ||
-          event === "INITIAL_SESSION")
-      ) {
-        rememberRecoveryAccessToken(session.access_token);
+      if (!mounted || !session) return;
+      if (event === "PASSWORD_RECOVERY") {
         setReady(true);
         setStatusMessage("Enter and confirm your new password below.");
         cleanUrl();
@@ -178,56 +117,28 @@ function ResetPasswordPage() {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, [cleanUrl, ensureRecoverySession, invalidLinkMessage, waitForStoredSession]);
+  }, [cleanUrl]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 6) return toast.error("Password must be at least 6 characters.");
+    if (!ready) return toast.error(invalidLinkMessage);
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return toast.error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    }
     if (password !== confirm) return toast.error("Passwords do not match.");
     setLoading(true);
     try {
-      const session = await waitForStoredSession(1200);
-      const recoveryAccessToken = getRecoveryAccessToken() || readAuthParams().get("access_token");
-      if (!session && !recoveryAccessToken) {
+      const { error } = await passwordResetClient.auth.updateUser({ password });
+      if (error) {
         setLoading(false);
-        setStatusMessage(invalidLinkMessage);
-        return toast.error(invalidLinkMessage);
+        return toast.error(error.message || invalidLinkMessage);
       }
-
-      setReady(true);
-      let updateSucceeded = false;
-      let updateErrorMessage: string | undefined;
-
-      if (session) {
-        const { error } = await passwordResetClient.auth.updateUser({ password });
-        updateSucceeded = !error;
-        updateErrorMessage = error?.message;
-      }
-
-      if (!updateSucceeded && recoveryAccessToken) {
-        const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-          method: "PUT",
-          headers: {
-            apikey: authApiKey,
-            authorization: `Bearer ${recoveryAccessToken}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ password }),
-        });
-        if (response.ok) {
-          updateSucceeded = true;
-          updateErrorMessage = undefined;
-        } else {
-          const body = await response.json().catch(() => null);
-          updateErrorMessage = body?.msg || body?.message || updateErrorMessage;
-        }
-      }
-
+      // Drop the recovery session. The user signs in with the new password,
+      // which is what establishes the app login.
+      await passwordResetClient.auth.signOut({ scope: "local" }).catch(() => {});
       setLoading(false);
-      if (!updateSucceeded) return toast.error(updateErrorMessage || invalidLinkMessage);
-      clearRecoveryAccessToken();
-      toast.success("Password updated. You're signed in.");
-      navigate({ to: "/dashboard", replace: true });
+      toast.success("Password updated. Sign in with your new password.");
+      navigate({ to: "/auth", replace: true });
     } catch (error) {
       setLoading(false);
       setStatusMessage(invalidLinkMessage);
@@ -271,7 +182,7 @@ function ResetPasswordPage() {
             </div>
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || !ready}
               className="w-full bg-navy text-navy-foreground hover:bg-navy/90"
             >
               {loading ? "Updating…" : "Update password"}
