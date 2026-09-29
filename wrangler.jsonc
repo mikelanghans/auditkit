@@ -1,0 +1,23 @@
+// Cloudflare Workers config for AuditKit. Nitro merges this into the generated
+// .output/server/wrangler.json at build time (main/assets are set by the build).
+//
+// Only public, non-secret values belong here. Secrets are set with
+// `npx wrangler secret put NAME` or in the dashboard (Settings → Variables and
+// Secrets) and never committed. Build-time VITE_* values are set as build
+// variables in the Cloudflare dashboard so they can't be overwritten by .env.
+{
+  "name": "auditkit",
+  "compatibility_flags": ["nodejs_compat"],
+  // Reachable at auditkit.<account>.workers.dev for testing. The custom domain
+  // is attached in the dashboard once the domain's DNS is on Cloudflare.
+  "workers_dev": true,
+  // Keep variables added in the dashboard when deploying.
+  "keep_vars": true,
+  // Scans and AI calls need more than the free plan's 10 ms of CPU per request.
+  "limits": { "cpu_ms": 60000 },
+  "observability": { "enabled": true },
+  "vars": {
+    "SUPABASE_URL": "https://iczkayrpsdrliuqwowpe.supabase.co",
+    "PUBLIC_APP_URL": "https://auditkit.syncopateddynamics.com"
+  }
+}
