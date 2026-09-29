@@ -43,9 +43,7 @@ async function downloadReportPdf(el: HTMLElement | null, filename: string, win?:
 
   // Render one page-sized strip at a time. A single canvas of the whole report is
   // far larger than Safari/iOS allow, which makes the download silently fail.
-  const rect = el.getBoundingClientRect();
-  const elLeft = rect.left + window.scrollX;
-  const elTop = rect.top + window.scrollY;
+  // html2canvas-pro treats x/y as offsets relative to the element itself.
   const elW = el.scrollWidth;
   const elH = el.scrollHeight;
   const cssPxPerPt = elW / pageW;
@@ -60,8 +58,8 @@ async function downloadReportPdf(el: HTMLElement | null, filename: string, win?:
       scale,
       useCORS: true,
       backgroundColor: "#ffffff",
-      x: elLeft,
-      y: elTop + offset,
+      x: 0,
+      y: offset,
       width: elW,
       height: h,
       logging: false,
