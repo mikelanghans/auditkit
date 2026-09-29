@@ -3,6 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { decodeBase64Utf8 } from "./decode-blob";
 import { consumeQuota } from "./quota";
 import { redactForPrompt } from "./secret-redaction";
+import { UNTRUSTED_CONTENT_RULES, detectPromptInjection, wrapUntrustedFiles } from "./untrusted-content";
 
 // Per-batch budget sent to Claude (well under 200k-token context window)
 const BATCH_MAX_FILES = 40;
@@ -226,7 +227,8 @@ const SYSTEM_PROMPT =
   "(2) Do NOT fail an item when your own evidence shows the condition is satisfied. If your reasoning contains phrases like 'which is correct', 'is properly scoped', 'is server-side', or 'no client-side usage found', the suggested_status MUST be pass (or omit the item). " +
   "(3) Only return items where you found concrete code evidence; do not speculate about files you did not see. " +
   "(4) Confidence: high = direct violation with quoted code; medium = strong indirect signal; low = guess (omit low). " +
-  "Return ONLY a JSON array (no prose, no markdown fences) of findings with fields: checklist_key (exact key), suggested_status (pass|fail), confidence (high|medium), reasoning (one sentence), evidence (the specific code snippet or file:line that supports the finding).";
+  "Return ONLY a JSON array (no prose, no markdown fences) of findings with fields: checklist_key (exact key), suggested_status (pass|fail), confidence (high|medium), reasoning (one sentence), evidence (the specific code snippet or file:line that supports the finding). " +
+  UNTRUSTED_CONTENT_RULES;
 
 
 export const runAIAssist = createServerFn({ method: "POST" })
@@ -288,7 +290,7 @@ export const runAIAssist = createServerFn({ method: "POST" })
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
-      const codeBlob = batch.map((f) => `=== FILE: ${f.path} ===\n${f.content}`).join("\n\n");
+      const codeBlob = wrapUntrustedFiles(batch).text;
       const userPrompt =
         `Repository: ${parsed.owner}/${parsed.repo}@${repoData.branch}\n` +
         `Batch ${i + 1}/${batches.length} — files in this batch: ${batch.length}\n\n` +
@@ -356,6 +358,9 @@ export const runAIAssist = createServerFn({ method: "POST" })
       return { ok: false as const, error: `AI Assist could not review any files: ${batchErrors.join("; ")}` };
     }
     const incomplete = dropped.length > 0 || batchErrors.length > 0 || repoData.truncatedTree;
+    // Files that appear to address an AI reviewer. When any are present, no AI
+    // "pass" is auto-applied from this run, regardless of what the model said.
+    const injectionSuspected = detectPromptInjection(repoData.files);
 
     // Auto-apply high-confidence results, with two guards:
     //  1. Never overwrite a verdict an auditor or a deterministic scanner already
@@ -376,7 +381,7 @@ export const runAIAssist = createServerFn({ method: "POST" })
     for (const f of high) {
       const prev = existingById.get(f.checklist_item_id);
       const hasHumanOrScannerVerdict = !!prev?.status && !prev.ai_assisted;
-      if (hasHumanOrScannerVerdict || prev?.status === "resolved" || (incomplete && f.suggested_status === "pass")) {
+      if (hasHumanOrScannerVerdict || prev?.status === "resolved" || ((incomplete || injectionSuspected.length > 0) && f.suggested_status === "pass")) {
         heldForReview.push(f);
         continue;
       }
@@ -406,6 +411,7 @@ export const runAIAssist = createServerFn({ method: "POST" })
       // Surfaced so the auditor can state, on the record, which files had
       // secret values stripped before anything was sent to the model.
       redactedFiles: repoData.redactedPaths.length > 0 ? repoData.redactedPaths : undefined,
+      injectionSuspected: injectionSuspected.length > 0 ? injectionSuspected : undefined,
     };
   });
 
@@ -483,7 +489,7 @@ export const recheckAIAssistItem = createServerFn({ method: "POST" })
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
-      const codeBlob = batch.map((f) => `=== FILE: ${f.path} ===\n${f.content}`).join("\n\n");
+      const codeBlob = wrapUntrustedFiles(batch).text;
       const userPrompt =
         `Repository: ${parsed.owner}/${parsed.repo}@${repoData.branch}\n` +
         `Batch ${i + 1}/${batches.length} — files in this batch: ${batch.length}\n\n` +
@@ -539,6 +545,15 @@ export const recheckAIAssistItem = createServerFn({ method: "POST" })
         message: incomplete
           ? `No evidence found in the files that were reviewed, but ${dropped.length ? `${dropped.length} file(s) didn't fit` : ""}${dropped.length && batchErrors.length ? " and " : ""}${batchErrors.length ? `${batchErrors.length} batch(es) failed` : ""} — status unchanged.`
           : "No evidence found in the scanned files — status unchanged.",
+        partial: batchErrors.length > 0 ? batchErrors : undefined,
+      };
+    }
+    const injectionSuspected = detectPromptInjection(batches.flat());
+    if (injectionSuspected.length > 0 && best.suggested_status === "pass") {
+      return {
+        ok: true as const,
+        applied: false as const,
+        message: `The model suggested a pass, but ${injectionSuspected.length} file(s) contain text aimed at an AI reviewer (${injectionSuspected.slice(0, 3).join(", ")}${injectionSuspected.length > 3 ? ", …" : ""}), so the status was left unchanged. Review manually.`,
         partial: batchErrors.length > 0 ? batchErrors : undefined,
       };
     }

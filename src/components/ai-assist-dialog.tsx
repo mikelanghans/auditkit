@@ -18,6 +18,7 @@ export type AIAssistSummary = {
   failedBatches?: number;
   truncatedTree?: boolean;
   heldForReview?: number;
+  injectionSuspected?: string[];
   highApplied: number;
   mediumPending: AIAssistFinding[];
   at: string;
@@ -112,6 +113,7 @@ export function AIAssistDialog({
             failedBatches: res.partial?.length ?? 0,
             truncatedTree: !!res.truncatedTree,
             heldForReview: res.heldForReview,
+            injectionSuspected: res.injectionSuspected,
             highApplied: res.highApplied,
             mediumPending: res.mediumPending,
             at: new Date().toISOString(),
@@ -184,9 +186,21 @@ export function AIAssistReviewPanel({
           {" "}High-confidence passes were held for your review instead of auto-applied. Run a deeper scan for fuller coverage.
         </div>
       )}
+      {!!summary.injectionSuspected?.length && (
+        <div className="mb-3 rounded-md border border-red-500/40 bg-red-500/[0.06] p-2 text-xs text-red-800 dark:text-red-300">
+          {summary.injectionSuspected.length} file(s) contain text that appears aimed at an AI reviewer
+          (possible prompt injection), so no AI pass was auto-applied from this run:
+          <ul className="mt-1 list-disc pl-4 font-mono">
+            {summary.injectionSuspected.slice(0, 8).map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+          Check these files by hand. Deliberate instructions to an AI auditor are a finding in their own right.
+        </div>
+      )}
       {!!summary.heldForReview && (
         <p className="text-xs text-muted-foreground mb-3">
-          {summary.heldForReview} high-confidence suggestion(s) were not auto-applied because the item already has a verdict or the run was partial. They're listed below for review.
+          {summary.heldForReview} high-confidence suggestion(s) were not auto-applied because the item already has a verdict, the run was partial, or the repo contains text aimed at an AI reviewer. They're listed below for review.
         </p>
       )}
 
