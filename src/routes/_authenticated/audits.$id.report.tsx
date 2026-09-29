@@ -35,30 +35,43 @@ async function downloadReportPdf(el: HTMLElement | null, filename: string, win?:
     import("html2canvas-pro"),
     import("jspdf"),
   ]);
-  const canvas = await html2canvas(el, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: "#ffffff",
-    ignoreElements: (node) => node.classList?.contains("print:hidden"),
-  });
   const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
   const margin = 24;
   const pageW = pdf.internal.pageSize.getWidth() - margin * 2;
   const pageH = pdf.internal.pageSize.getHeight() - margin * 2;
-  const pxPerPt = canvas.width / pageW;
-  const sliceHpx = Math.floor(pageH * pxPerPt);
-  let y = 0;
+
+  // Render one page-sized strip at a time. A single canvas of the whole report is
+  // far larger than Safari/iOS allow, which makes the download silently fail.
+  const rect = el.getBoundingClientRect();
+  const elLeft = rect.left + window.scrollX;
+  const elTop = rect.top + window.scrollY;
+  const elW = el.scrollWidth;
+  const elH = el.scrollHeight;
+  const cssPxPerPt = elW / pageW;
+  const chunkH = Math.floor(pageH * cssPxPerPt);
+  const scale = Math.min(2, Math.sqrt(12_000_000 / (elW * chunkH)));
+
+  let offset = 0;
   let first = true;
-  while (y < canvas.height) {
-    const h = Math.min(sliceHpx, canvas.height - y);
-    const slice = document.createElement("canvas");
-    slice.width = canvas.width;
-    slice.height = h;
-    slice.getContext("2d")!.drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+  while (offset < elH) {
+    const h = Math.min(chunkH, elH - offset);
+    const canvas = await html2canvas(el, {
+      scale,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      x: elLeft,
+      y: elTop + offset,
+      width: elW,
+      height: h,
+      logging: false,
+      ignoreElements: (node) => node.classList?.contains("print:hidden"),
+    });
     if (!first) pdf.addPage();
-    pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, pageW, h / pxPerPt);
+    pdf.addImage(canvas.toDataURL("image/jpeg", 0.9), "JPEG", margin, margin, pageW, h / cssPxPerPt);
+    canvas.width = 0;
+    canvas.height = 0;
     first = false;
-    y += h;
+    offset += h;
   }
   const blob = pdf.output("blob");
   const url = URL.createObjectURL(blob);
