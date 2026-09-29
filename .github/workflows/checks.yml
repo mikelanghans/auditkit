@@ -1,0 +1,48 @@
+name: checks
+
+# Guards the scanner-integrity and security fixes. Lovable and local work both
+# commit to this repo; any change that undoes a fix fails here.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      # Tests run on Node's built-in TypeScript stripping (22.6+).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: npx tsc --noEmit -p .
+
+      - name: Security tests (SSRF guard, secret redaction)
+        run: npm run test:security
+
+      - name: Scanner tests (verdict integrity, access controls, AI Assist injection)
+        run: npm run test:scanners
+
+      - name: Build
+        run: bun run build
+        env:
+          # Placeholders so the client bundle builds. No real project is contacted.
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_placeholder
