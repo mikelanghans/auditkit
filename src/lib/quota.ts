@@ -17,8 +17,11 @@ export async function consumeQuota(supabase: SupabaseClient<any>, kind: QuotaKin
     console.error("[quota] check failed", { kind, message: error.message });
     return { ok: false, error: "Usage limits could not be checked, so this action was not run. Please try again shortly." };
   }
-  const r = (data ?? {}) as { allowed?: boolean; used?: number; limit?: number };
+  const r = (data ?? {}) as { allowed?: boolean; used?: number; limit?: number; reason?: string };
   if (r.allowed) return { ok: true };
+  if (r.reason === "not_owner_mfa") {
+    return { ok: false, error: "Sign in with two-factor verification to use AuditKit." };
+  }
   const what = kind === "llm" ? "AI requests" : kind === "code_audit" ? "deep code audits" : "scans";
   return {
     ok: false,

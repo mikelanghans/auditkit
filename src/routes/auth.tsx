@@ -63,7 +63,11 @@ function AuthPage() {
       },
     });
     setLoading(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      // The database refuses accounts that aren't on the owner allowlist.
+      if (/database error/i.test(error.message)) return toast.error("Sign-ups are closed.");
+      return toast.error(error.message);
+    }
     toast.success("Account created. You're signed in.");
     navigate({ to: "/dashboard", replace: true });
   }

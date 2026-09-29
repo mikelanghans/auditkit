@@ -696,6 +696,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      am_i_app_owner: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      is_app_owner_session: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
       begin_public_check: {
         Args: {
           p_ip_hash: string

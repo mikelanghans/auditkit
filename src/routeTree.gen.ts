@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as CheckRouteImport } from './routes/check'
+import { Route as MfaRouteImport } from './routes/mfa'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedLeadsRouteImport } from './routes/_authenticated/leads'
@@ -43,6 +44,11 @@ const AuthRoute = AuthRouteImport.update({
 const CheckRoute = CheckRouteImport.update({
   id: '/check',
   path: '/check',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MfaRoute = MfaRouteImport.update({
+  id: '/mfa',
+  path: '/mfa',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/check': typeof CheckRoute
+  '/mfa': typeof MfaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/leads': typeof AuthenticatedLeadsRoute
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/check': typeof CheckRoute
+  '/mfa': typeof MfaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/leads': typeof AuthenticatedLeadsRoute
@@ -152,6 +160,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/check': typeof CheckRoute
+  '/mfa': typeof MfaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/leads': typeof AuthenticatedLeadsRoute
@@ -171,6 +180,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/check'
+    | '/mfa'
     | '/reset-password'
     | '/dashboard'
     | '/leads'
@@ -188,6 +198,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/check'
+    | '/mfa'
     | '/reset-password'
     | '/dashboard'
     | '/leads'
@@ -206,6 +217,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/check'
+    | '/mfa'
     | '/reset-password'
     | '/_authenticated/dashboard'
     | '/_authenticated/leads'
@@ -225,6 +237,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   CheckRoute: typeof CheckRoute
+  MfaRoute: typeof MfaRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiPublicHooksCodeAuditRoute: typeof ApiPublicHooksCodeAuditRoute
   ApiPublicHooksThreatFeedRoute: typeof ApiPublicHooksThreatFeedRoute
@@ -258,6 +271,13 @@ declare module '@tanstack/react-router' {
       path: '/check'
       fullPath: '/check'
       preLoaderRoute: typeof CheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mfa': {
+      id: '/mfa'
+      path: '/mfa'
+      fullPath: '/mfa'
+      preLoaderRoute: typeof MfaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset-password': {
@@ -379,6 +399,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   CheckRoute: CheckRoute,
+  MfaRoute: MfaRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiPublicHooksCodeAuditRoute: ApiPublicHooksCodeAuditRoute,
   ApiPublicHooksThreatFeedRoute: ApiPublicHooksThreatFeedRoute,
