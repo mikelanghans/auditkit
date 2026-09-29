@@ -502,7 +502,7 @@ function FailedFindingCard({
                 </ul>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {item.description ?? "Click Explain to generate a plain-English summary."}
+                  {item.description ?? "No plain-English summary generated for this finding."}
                 </p>
               )}
             </DetailRow>
