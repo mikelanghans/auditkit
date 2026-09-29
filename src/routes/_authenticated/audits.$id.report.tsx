@@ -9,7 +9,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
-import { ExplainButton } from "@/components/explain-button";
+import { explanationBullets, useFindingExplanation } from "@/components/explain-button";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { listResolvedFindings } from "@/lib/finding-resolution.functions";
@@ -388,14 +388,21 @@ function FailedFindingCard({
   explanation: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [exp, setExp] = useState<string | null>(explanation);
+  // Generated as the card scrolls into view, so it's ready before it's opened
+  // and appears in the printed report.
+  const { ref, text: exp, loading: expLoading } = useFindingExplanation({
+    auditId,
+    checklistItemId: item.id,
+    cached: explanation,
+    whenVisible: true,
+  });
   const sev = (item.severity ?? "medium").toLowerCase();
   const bannerCls = SEVERITY_BANNER[sev] ?? SEVERITY_BANNER.medium;
   const label = SEVERITY_LABEL[sev] ?? "Risk";
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <Card className={cn("border-l-4 overflow-hidden", "border-l-status-fail")}>
+      <Card ref={ref} className={cn("border-l-4 overflow-hidden", "border-l-status-fail")}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
@@ -422,26 +429,18 @@ function FailedFindingCard({
             <div className="flex items-center gap-2 flex-wrap">
               <SeverityBadge severity={item.severity} />
               <span className="text-xs text-muted-foreground">{item.category}</span>
-              <div className="ml-auto print:hidden">
-                <ExplainButton
-                  auditId={auditId}
-                  checklistItemId={item.id}
-                  cached={exp}
-                  onCached={setExp}
-                />
-              </div>
             </div>
 
             <DetailRow label="Why should I care?">
               {exp ? (
                 <ul className="border-l-2 border-amber-500/40 pl-3 space-y-1.5 text-sm">
-                  {exp.split("\n").map((l) => l.trim()).filter(Boolean).map((l, i) => (
-                    <li key={i}>{l.replace(/^[-*•]\s*/, "")}</li>
+                  {explanationBullets(exp).map((l, i) => (
+                    <li key={i}>{l}</li>
                   ))}
                 </ul>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {item.description ?? "Click Explain to generate a plain-English summary."}
+                  {expLoading ? "Writing a plain-English explanation…" : (item.description ?? "")}
                 </p>
               )}
             </DetailRow>

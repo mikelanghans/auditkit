@@ -29,7 +29,7 @@ import { AIAssistDialog, AIAssistReviewPanel, type AIAssistSummary } from "@/com
 import { RepoLauncher, type SavedRepo } from "@/components/repo-launcher";
 import { ArchitecturalReviewSection } from "@/components/architectural-review-panel";
 import { FixPromptButton } from "@/components/fix-prompt-dialog";
-import { ExplainButton } from "@/components/explain-button";
+import { FindingExplanation } from "@/components/explain-button";
 import type { DepFinding } from "@/lib/dep-scan-core";
 import type { DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import { clearAllCachedRepoTokens } from "@/lib/repo-token-cache";
@@ -939,6 +939,20 @@ function ItemRow({
         </div>
       )}
       {status === "fail" && !missingNotes && (
+        <FindingExplanation
+          className="mt-3"
+          auditId={auditId}
+          checklistItemId={item.id}
+          cached={finding?.explanation ?? null}
+          fallback={item.description ?? null}
+          onCached={(text) => {
+            qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
+              (prev ?? []).map((f) => (f.checklist_item_id === item.id ? { ...f, explanation: text } : f)),
+            );
+          }}
+        />
+      )}
+      {status === "fail" && !missingNotes && (
         <div className="mt-3 flex items-start gap-3 flex-wrap">
           <FixPromptButton
             auditId={auditId}
@@ -957,20 +971,6 @@ function ItemRow({
               );
             }}
           />
-          <div className="pt-1">
-            <ExplainButton
-              auditId={auditId}
-              checklistItemId={item.id}
-              cached={finding?.explanation ?? null}
-              onCached={(text) => {
-                qc.setQueryData<Finding[]>(["findings", auditId], (prev) =>
-                  (prev ?? []).map((f) =>
-                    f.checklist_item_id === item.id ? { ...f, explanation: text } : f,
-                  ),
-                );
-              }}
-            />
-          </div>
           <ResolveButton
             auditId={auditId}
             checklistItemId={item.id}
