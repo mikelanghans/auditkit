@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { redactSourceFile } from "./secret-redaction";
 import { consumeQuota } from "./quota";
+import { playbookFor } from "./fix-playbooks";
 
 export type FixTarget = "lovable" | "cursor" | "claude";
 
@@ -29,7 +30,7 @@ const SYSTEM_PROMPTS: Record<FixTarget, string> = {
     "The prompt must: 1) Identify the exact file or component to change, 2) Describe the specific code change needed, " +
     "3) Include verification steps so the founder knows the fix worked, 4) Be written in plain language a non-security expert can understand, " +
     "5) Preserve the app's existing behavior and integrations without breaking legitimate functionality, " +
-    "6) Be under 220 words. " +
+    "6) Be under 220 words, or up to 380 words when a remediation playbook is provided. " +
     GROUNDING_RULE +
     " Do not include explanations or preamble — just the prompt text ready to paste.",
   cursor:
@@ -37,7 +38,7 @@ const SYSTEM_PROMPTS: Record<FixTarget, string> = {
     "Given a security finding, generate a single prompt the developer can paste into Cursor's composer. " +
     "The prompt must: 1) Reference the likely file paths and frameworks, 2) Specify exact code changes (imports, headers, config), " +
     "3) Note any tests or build commands to run, 4) Tell Cursor to return only modified files with diffs, " +
-    "5) Preserve unrelated integrations and existing behavior, 6) Be under 220 words. " +
+    "5) Preserve unrelated integrations and existing behavior, 6) Be under 220 words, or up to 380 words when a remediation playbook is provided. " +
     GROUNDING_RULE +
     " Output only the prompt text — no preamble.",
   claude:
@@ -45,10 +46,23 @@ const SYSTEM_PROMPTS: Record<FixTarget, string> = {
     "Given a security finding, generate a single prompt the developer can paste into Claude Code. " +
     "The prompt must: 1) Tell Claude which files to read first, 2) Specify the exact remediation with code, " +
     "3) Ask Claude to run the relevant tests/build, 4) Ask for a concise summary of changes, " +
-    "5) Preserve existing integrations and behavior, 6) Be under 220 words. " +
+    "5) Preserve existing integrations and behavior, 6) Be under 220 words, or up to 380 words when a remediation playbook is provided. " +
     GROUNDING_RULE +
     " Output only the prompt text — no preamble.",
 };
+
+// When the finding has a playbook, it is appended to the user message. Its
+// requirements override generic advice; conditional parts stay conditional.
+const PLAYBOOK_RULE =
+  " If the input includes a REMEDIATION PLAYBOOK, the prompt you write MUST follow every requirement in it " +
+  "(order of steps, what never to do, rollout and verification). Adapt it to the app described in the evidence, " +
+  'keep its conditional parts conditional ("if the app uses X"), and do not drop steps to save words.';
+for (const k of Object.keys(SYSTEM_PROMPTS) as FixTarget[]) SYSTEM_PROMPTS[k] += PLAYBOOK_RULE;
+
+function playbookSection(item: { checklist_key?: string | null; title?: string | null }): string {
+  const pb = playbookFor(item);
+  return pb ? `\n\nREMEDIATION PLAYBOOK (${pb.id}):\n${pb.text}\n` : "";
+}
 
 const COLUMN: Record<FixTarget, "lovable_prompt" | "cursor_prompt" | "claude_prompt"> = {
   lovable: "lovable_prompt",
@@ -85,7 +99,10 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
     }
 
     const { data: auditRow, error: aerr } = await supabase
-      .from("audits").select("id, created_by, built_with").eq("id", data.auditId).single();
+      .from("audits")
+      .select("id, created_by, built_with")
+      .eq("id", data.auditId)
+      .single();
     if (aerr || !auditRow || auditRow.created_by !== userId) {
       return { ok: false as const, error: "Audit not found or access denied." };
     }
@@ -96,10 +113,15 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
     if (data.adhoc) {
       const { data: adhocItem, error: aiErr } = await supabase
         .from("checklist_items")
-        .select("title, category, description, what_to_look_for")
-        .eq("id", data.checklistItemId).single();
+        .select("title, category, description, what_to_look_for, checklist_key")
+        .eq("id", data.checklistItemId)
+        .single();
       if (aiErr || !adhocItem) return { ok: false as const, error: "Checklist item not found." };
-      const evidence = redactSourceFile(String(data.adhoc.notes ?? "").slice(0, MAX_ADHOC_NOTES).trim());
+      const evidence = redactSourceFile(
+        String(data.adhoc.notes ?? "")
+          .slice(0, MAX_ADHOC_NOTES)
+          .trim(),
+      );
       const quota = await consumeQuota(supabase, "llm", 1);
       if (!quota.ok) return { ok: false as const, error: quota.error };
       const userMessage =
@@ -107,7 +129,8 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
         `Category: ${adhocItem.category}\n` +
         (adhocItem.description ? `Description: ${adhocItem.description}\n` : "") +
         (adhocItem.what_to_look_for ? `What to look for: ${adhocItem.what_to_look_for}\n` : "") +
-        `\nAI Assist evidence (unverified, from the client's code):\n${evidence || "(no evidence provided)"}`;
+        `\nAI Assist evidence (unverified, from the client's code):\n${evidence || "(no evidence provided)"}` +
+        playbookSection(adhocItem);
       return await callClaude(target, userMessage);
     }
     const builtWith = (auditRow as any).built_with as string | null;
@@ -120,7 +143,8 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       .maybeSingle();
     if (ferr) return { ok: false as const, error: ferr.message };
     if (!finding) return { ok: false as const, error: "Finding not found." };
-    if (finding.status !== "fail") return { ok: false as const, error: "Only failing findings can be remediated." };
+    if (finding.status !== "fail")
+      return { ok: false as const, error: "Only failing findings can be remediated." };
 
     const cached = (finding as any)[column] as string | null | undefined;
     if (!data.force && cached && cached.trim()) {
@@ -129,19 +153,27 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
 
     const { data: item, error: ierr } = await supabase
       .from("checklist_items")
-      .select("title, category, description, what_to_look_for")
-      .eq("id", data.checklistItemId).single();
+      .select("title, category, description, what_to_look_for, checklist_key")
+      .eq("id", data.checklistItemId)
+      .single();
     if (ierr || !item) return { ok: false as const, error: "Checklist item not found." };
 
-
     const BUILT_WITH_LABEL: Record<string, string> = {
-      lovable: "Lovable", cursor: "Cursor", claude_code: "Claude Code",
-      v0: "v0", bolt: "Bolt", windsurf: "Windsurf", replit: "Replit Agent",
-      chatgpt: "ChatGPT", other: "another AI tool", hand_coded: "hand-coded (no AI)",
+      lovable: "Lovable",
+      cursor: "Cursor",
+      claude_code: "Claude Code",
+      v0: "v0",
+      bolt: "Bolt",
+      windsurf: "Windsurf",
+      replit: "Replit Agent",
+      chatgpt: "ChatGPT",
+      other: "another AI tool",
+      hand_coded: "hand-coded (no AI)",
     };
-    const builtWithHint = builtWith && BUILT_WITH_LABEL[builtWith]
-      ? `\nApp origin: this codebase was built with ${BUILT_WITH_LABEL[builtWith]}. Tailor file paths, conventions, and phrasing to that toolchain when relevant.\n`
-      : "";
+    const builtWithHint =
+      builtWith && BUILT_WITH_LABEL[builtWith]
+        ? `\nApp origin: this codebase was built with ${BUILT_WITH_LABEL[builtWith]}. Tailor file paths, conventions, and phrasing to that toolchain when relevant.\n`
+        : "";
 
     const userMessage =
       `Finding title: ${item.title}\n` +
@@ -150,7 +182,8 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       (item.what_to_look_for ? `What to look for: ${item.what_to_look_for}\n` : "") +
       builtWithHint +
       // Notes can hold evidence pasted from the client's code or scan output.
-      `\nAuditor notes & evidence:\n${redactSourceFile((finding.notes ?? "").trim()) || "(no notes provided)"}`;
+      `\nAuditor notes & evidence:\n${redactSourceFile((finding.notes ?? "").trim()) || "(no notes provided)"}` +
+      playbookSection(item);
 
     const quota = await consumeQuota(supabase, "llm", 1);
     if (!quota.ok) return { ok: false as const, error: quota.error };
@@ -162,7 +195,14 @@ export const generateFixPrompt = createServerFn({ method: "POST" })
       .update({ [column]: result.prompt } as any)
       .eq("audit_id", data.auditId)
       .eq("checklist_item_id", data.checklistItemId);
-    if (uerr) return { ok: true as const, prompt: result.prompt, target, cached: false, warning: uerr.message };
+    if (uerr)
+      return {
+        ok: true as const,
+        prompt: result.prompt,
+        target,
+        cached: false,
+        warning: uerr.message,
+      };
 
     return { ok: true as const, prompt: result.prompt, target, cached: false };
   });
@@ -182,7 +222,7 @@ async function callClaude(target: FixTarget, userMessage: string) {
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5",
-        max_tokens: 1024,
+        max_tokens: 1500,
         system: SYSTEM_PROMPTS[target],
         messages: [{ role: "user", content: userMessage }],
       }),
@@ -197,7 +237,10 @@ async function callClaude(target: FixTarget, userMessage: string) {
   try {
     const body = JSON.parse(text);
     prompt = Array.isArray(body.content)
-      ? body.content.map((c: any) => c?.text ?? "").join("\n").trim()
+      ? body.content
+          .map((c: any) => c?.text ?? "")
+          .join("\n")
+          .trim()
       : "";
   } catch {
     return { ok: false as const, error: "Could not parse Claude response." };
@@ -205,4 +248,3 @@ async function callClaude(target: FixTarget, userMessage: string) {
   if (!prompt) return { ok: false as const, error: "Claude returned an empty response." };
   return { ok: true as const, prompt, target, cached: false };
 }
-
