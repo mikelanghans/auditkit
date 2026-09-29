@@ -9,7 +9,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ArrowLeft, Printer, Download, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
-import { ExplainButton } from "@/components/explain-button";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { listResolvedFindings } from "@/lib/finding-resolution.functions";
@@ -458,7 +457,7 @@ function FailedFindingCard({
   explanation: string | null;
 }) {
   const [open, setOpen] = useState(true);
-  const [exp, setExp] = useState<string | null>(explanation);
+  const exp = explanation;
   const sev = (item.severity ?? "medium").toLowerCase();
   const bannerCls = SEVERITY_BANNER[sev] ?? SEVERITY_BANNER.medium;
   const label = SEVERITY_LABEL[sev] ?? "Risk";
@@ -492,14 +491,6 @@ function FailedFindingCard({
             <div className="flex items-center gap-2 flex-wrap">
               <SeverityBadge severity={item.severity} />
               <span className="text-xs text-muted-foreground">{item.category}</span>
-              <div className="ml-auto print:hidden">
-                <ExplainButton
-                  auditId={auditId}
-                  checklistItemId={item.id}
-                  cached={exp}
-                  onCached={setExp}
-                />
-              </div>
             </div>
 
             <DetailRow label="Why should I care?">
@@ -511,7 +502,7 @@ function FailedFindingCard({
                 </ul>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {item.description ?? "Click Explain to generate a plain-English summary."}
+                  {item.description ?? "No plain-English summary generated for this finding."}
                 </p>
               )}
             </DetailRow>
