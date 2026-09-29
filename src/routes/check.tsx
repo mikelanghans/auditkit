@@ -66,6 +66,7 @@ function PublicCheckPage() {
   const [email, setEmail] = useState("");
   const [consent, setConsent] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [emailedTo, setEmailedTo] = useState<string | null>(null);
   const [report, setReport] = useState<{ findings: SecretFinding[]; coverageNote: string } | null>(
     null,
   );
@@ -77,6 +78,7 @@ function PublicCheckPage() {
     setError(null);
     setResult(null);
     setReport(null);
+    setEmailedTo(null);
     setRunning(true);
     try {
       const res = await start({ data: { url } });
@@ -97,6 +99,7 @@ function PublicCheckPage() {
     try {
       const res = await unlock({ data: { id: result.id, email, marketingConsent: consent } });
       if (!res.ok) setError(res.error);
+      else if (res.emailed) setEmailedTo(email.trim());
       else setReport({ findings: res.findings, coverageNote: res.coverageNote });
     } catch {
       setError("Couldn't load the report. Please try again.");
@@ -219,7 +222,14 @@ function PublicCheckPage() {
               </ul>
             )}
 
-            {!report && (
+            {emailedTo && (
+              <div className="rounded-lg border border-green-600/30 bg-green-600/[0.06] p-4 text-sm">
+                Your full report is on its way to <strong>{emailedTo}</strong>. If it isn&apos;t
+                there in a few minutes, check your spam folder.
+              </div>
+            )}
+
+            {!report && !emailedTo && (
               <form onSubmit={onUnlock} className="rounded-lg bg-muted/50 border p-4 space-y-3">
                 <p className="text-sm font-medium">
                   {s.total > 0
@@ -236,7 +246,11 @@ function PublicCheckPage() {
                     required
                   />
                   <Button type="submit" disabled={unlocking || !email} className="shrink-0">
-                    {unlocking ? <Loader2 className="h-4 w-4 animate-spin" /> : "Show report"}
+                    {unlocking ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Email me the report"
+                    )}
                   </Button>
                 </div>
                 <label className="flex items-start gap-2 text-xs text-muted-foreground">

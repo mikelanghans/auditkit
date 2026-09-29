@@ -52,5 +52,13 @@ export const getPublicReport = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    return unlockPublicReport(data, { db: supabaseAdmin as any });
+    const { emailConfigured, sendEmail } = await import("./email.server");
+    const mailer = emailConfigured()
+      ? {
+          send: sendEmail,
+          ownerEmail: process.env.OWNER_NOTIFY_EMAIL || null,
+          bookingUrl: process.env.SAFESHIP_BOOKING_URL || process.env.VITE_SAFESHIP_BOOKING_URL || null,
+        }
+      : null;
+    return unlockPublicReport(data, { db: supabaseAdmin as any, mailer });
   });

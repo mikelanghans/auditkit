@@ -16,6 +16,7 @@ import {
   type Severity,
 } from "./bundle-secrets";
 import { assertSafeOutboundUrl, SSRFBlockedError, safeFetch } from "./ssrf-guard";
+import { buildOwnerAlert, buildReportEmail, type OutgoingEmail } from "./public-check-email";
 
 export const PUBLIC_CHECK_UA =
   "AuditKit-PublicCheck/1.0 (security check requested by a site visitor)";
@@ -37,8 +38,22 @@ export type StartResult =
   | { ok: false; error: string };
 
 export type ReportResult =
-  | { ok: true; summary: PublicCheckSummary; findings: SecretFinding[]; coverageNote: string }
+  | {
+      ok: true;
+      emailed?: false;
+      summary: PublicCheckSummary;
+      findings: SecretFinding[];
+      coverageNote: string;
+    }
+  | { ok: true; emailed: true }
   | { ok: false; error: string };
+
+/** Optional email delivery. When present, the full report is only emailed. */
+export type ReportMailer = {
+  send: (msg: OutgoingEmail) => Promise<{ ok: true } | { ok: false; error: string }>;
+  ownerEmail?: string | null;
+  bookingUrl?: string | null;
+};
 
 // Minimal surface of the Supabase client we use, so tests can pass a fake.
 type Db = {
@@ -168,7 +183,7 @@ export function isValidEmail(email: string): boolean {
 
 export async function unlockPublicReport(
   input: { id: string; email: string; marketingConsent?: boolean },
-  deps: { db: Db },
+  deps: { db: Db; mailer?: ReportMailer | null },
 ): Promise<ReportResult> {
   if (!UUID_RE.test(String(input.id ?? "")))
     return { ok: false, error: "That report link isn't valid." };
@@ -176,30 +191,69 @@ export async function unlockPublicReport(
 
   const { data: row, error } = await deps.db
     .from("public_checks")
-    .select("id, status, summary, findings, email")
+    .select("id, url, status, summary, findings, email, report_sent_at")
     .eq("id", input.id)
     .maybeSingle();
   if (error || !row || row.status !== "done")
     return { ok: false, error: "That report isn't available." };
 
+  const email = input.email.trim().toLowerCase();
+  const consent = input.marketingConsent === true;
+  const { coverageNote = "", ...summaryRest } = (row.summary ?? {}) as PublicCheckSummary & {
+    coverageNote?: string;
+  };
+  const summary = summaryRest as PublicCheckSummary;
+  const findings = (row.findings ?? []) as SecretFinding[];
+
   if (!row.email) {
     await deps.db
       .from("public_checks")
-      .update({
-        email: input.email.trim().toLowerCase(),
-        email_captured_at: new Date().toISOString(),
-        marketing_consent: input.marketingConsent === true,
-      })
+      .update({ email, email_captured_at: new Date().toISOString(), marketing_consent: consent })
       .eq("id", input.id);
   }
 
-  const { coverageNote = "", ...summary } = (row.summary ?? {}) as PublicCheckSummary & {
-    coverageNote?: string;
-  };
-  return {
-    ok: true,
-    summary: summary as PublicCheckSummary,
-    findings: (row.findings ?? []) as SecretFinding[],
-    coverageNote,
-  };
+  const mailer = deps.mailer;
+  if (!mailer) {
+    // No email delivery configured (local development): show it on the page.
+    return { ok: true, summary, findings, coverageNote };
+  }
+
+  // One report email per check, to the first address given, so the form
+  // can't be used to send repeated mail to someone.
+  if (row.report_sent_at) return { ok: true, emailed: true };
+  const to = row.email ?? email;
+  const sent = await mailer.send(
+    buildReportEmail({ to, summary, findings, coverageNote, bookingUrl: mailer.bookingUrl }),
+  );
+  if (!sent.ok) {
+    console.error("[public-check] report email failed", sent.error);
+    return {
+      ok: false,
+      error: "We couldn't send the report email. Please check the address and try again.",
+    };
+  }
+  await deps.db
+    .from("public_checks")
+    .update({ report_sent_at: new Date().toISOString() })
+    .eq("id", input.id);
+
+  if (mailer.ownerEmail) {
+    const alert = await mailer.send(
+      buildOwnerAlert({
+        to: mailer.ownerEmail,
+        leadEmail: to,
+        summary,
+        findings,
+        url: String(row.url ?? ""),
+        marketingConsent: consent,
+      }),
+    );
+    if (alert.ok)
+      await deps.db
+        .from("public_checks")
+        .update({ owner_notified_at: new Date().toISOString() })
+        .eq("id", input.id);
+    else console.error("[public-check] owner alert failed", alert.error);
+  }
+  return { ok: true, emailed: true };
 }

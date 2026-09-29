@@ -135,3 +135,40 @@ test("public check: URL normalisation rejects credentials and bare words", () =>
   assert.equal(normalizePublicUrl("ftp://example.com"), null);
   assert.equal(normalizePublicUrl("example.com/#x")?.toString(), "https://example.com/");
 });
+
+test("public check: with email configured, the report is only emailed, once, and the owner is alerted", async () => {
+  const d = db();
+  site({
+    "https://app.example.com/": `<html><script src="/assets/index.js"></script></html>`,
+    "https://app.example.com/assets/index.js": `const s="${STRIPE_LIVE}"`,
+  });
+  const res: any = await runPublicCheck("https://app.example.com", { db: d.client() as any, ipHash: "m".repeat(64) });
+  const sent: any[] = [];
+  const mailer = { send: async (m: any) => (sent.push(m), { ok: true as const }), ownerEmail: "owner@example.com", bookingUrl: "https://book.example.com" };
+
+  const r1: any = await unlockPublicReport({ id: res.id, email: "lead@example.com" }, { db: d.client() as any, mailer });
+  assert.deepEqual(r1, { ok: true, emailed: true }); // nothing about findings in the response
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].to, "lead@example.com");
+  assert.match(sent[0].html, /Stripe live secret key/);
+  assert.ok(!sent[0].html.includes(STRIPE_LIVE));
+  assert.equal(sent[1].to, "owner@example.com");
+  assert.match(sent[1].subject, /^\[critical\] New \/check lead: app\.example\.com/);
+
+  // A second request (even to another address) sends nothing more.
+  const r2: any = await unlockPublicReport({ id: res.id, email: "victim@example.com" }, { db: d.client() as any, mailer });
+  assert.deepEqual(r2, { ok: true, emailed: true });
+  assert.equal(sent.length, 2);
+});
+
+test("report email escapes content taken from the scanned site", async () => {
+  const { buildReportEmail } = await import("../public-check-email.ts");
+  const m = buildReportEmail({
+    to: "a@b.co",
+    summary: { hostname: "x.com", counts: { critical: 1, high: 0, medium: 0, low: 0 }, total: 1, filesScanned: 1, filesFound: 1, complete: true, checkedAt: "" },
+    findings: [{ ruleId: "r", label: "L", severity: "critical", masked: "sk_…", urls: ['https://x.com/<script>alert(1)</script>.js'], occurrences: 1, advice: "a" }],
+    coverageNote: "",
+  });
+  assert.ok(!m.html.includes("<script>"));
+  assert.match(m.html, /&lt;script&gt;/);
+});

@@ -566,6 +566,8 @@ export type Database = {
           email_captured_at: string | null
           marketing_consent: boolean
           lead_status: string
+          owner_notified_at: string | null
+          report_sent_at: string | null
         }
         Insert: {
           id?: string
@@ -581,6 +583,8 @@ export type Database = {
           email_captured_at?: string | null
           marketing_consent?: boolean
           lead_status?: string
+          owner_notified_at?: string | null
+          report_sent_at?: string | null
         }
         Update: {
           id?: string
@@ -596,6 +600,8 @@ export type Database = {
           email_captured_at?: string | null
           marketing_consent?: boolean
           lead_status?: string
+          owner_notified_at?: string | null
+          report_sent_at?: string | null
         }
         Relationships: []
       }
