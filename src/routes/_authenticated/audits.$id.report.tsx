@@ -179,6 +179,15 @@ function ReportPage() {
     [security.score, risk, coverage],
   );
 
+  const failedItems = useMemo(() => {
+    const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    return (items.data ?? [])
+      .filter((it: any) => map.get(it.id)?.status === "fail")
+      .sort((a: any, b: any) =>
+        (order[(a.severity ?? "medium").toLowerCase()] ?? 2) - (order[(b.severity ?? "medium").toLowerCase()] ?? 2),
+      );
+  }, [items.data, map]);
+
   const scopeSnapshot = useMemo(() => {
     return grouped.map(([cat, list]) => {
       let pass = 0, fail = 0, na = 0, unanswered = 0;
@@ -244,6 +253,28 @@ function ReportPage() {
           coverage={coverage}
         />
 
+        {failedItems.length > 0 && (
+          <section className="mb-8">
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+              Issues ({failedItems.length})
+            </h2>
+            <div className="space-y-3">
+              {failedItems.map((it: any) => {
+                const f = map.get(it.id);
+                return (
+                  <FailedFindingCard
+                    key={it.id}
+                    auditId={id}
+                    item={it}
+                    notes={f?.notes ?? null}
+                    explanation={f?.explanation ?? null}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <ScopeSnapshot items={scopeSnapshot} score={security.score} />
 
         {grouped.map(([cat, list]) => (
@@ -252,17 +283,6 @@ function ReportPage() {
             <div className="space-y-3">
               {list.map((it: any) => {
                 const f = map.get(it.id);
-                if (f?.status === "fail") {
-                  return (
-                    <FailedFindingCard
-                      key={it.id}
-                      auditId={id}
-                      item={it}
-                      notes={f.notes}
-                      explanation={f.explanation}
-                    />
-                  );
-                }
                 return (
                   <PassFindingCard
                     key={it.id}
