@@ -60,7 +60,22 @@ async function downloadReportPdf(el: HTMLElement | null, filename: string) {
     first = false;
     y += h;
   }
-  pdf.save(filename);
+  const blob = pdf.output("blob");
+  const url = URL.createObjectURL(blob);
+  const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+  if (inIframe) {
+    // Embedded previews often block downloads — open the PDF in a new tab instead.
+    const win = window.open(url, "_blank");
+    if (!win) pdf.save(filename);
+  } else {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function ReportPage() {
