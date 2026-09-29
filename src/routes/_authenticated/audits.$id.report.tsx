@@ -401,7 +401,7 @@ function ExecutiveSummary({
         <RiskTile label="Critical" count={risk.critical} cls="bg-status-fail/[0.08] border-status-fail/40 text-status-fail" />
         <RiskTile label="High" count={risk.high} cls="bg-orange-500/[0.08] border-orange-500/40 text-orange-600 dark:text-orange-400" />
         <RiskTile label="Medium" count={risk.medium} cls="bg-status-na/[0.08] border-status-na/40 text-status-na" />
-        <RiskTile label="Low" count={risk.low} cls="bg-status-pass/[0.08] border-status-pass/40 text-status-pass" />
+        <RiskTile label="Low" count={risk.low} cls="bg-blue-500/[0.08] border-blue-500/40 text-blue-600 dark:text-blue-400" />
       </div>
 
       <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
@@ -433,7 +433,7 @@ const SEVERITY_BANNER: Record<string, string> = {
   critical: "bg-status-fail/15 text-status-fail border-status-fail/40",
   high: "bg-orange-500/15 text-orange-600 dark:text-orange-300 border-orange-500/40",
   medium: "bg-status-na/15 text-status-na border-status-na/40",
-  low: "bg-status-pass/15 text-status-pass border-status-pass/40",
+  low: "bg-blue-500/15 text-blue-600 dark:text-blue-300 border-blue-500/40",
 };
 const SEVERITY_LIKELIHOOD: Record<string, string> = {
   critical: "High",
@@ -649,12 +649,6 @@ function PassFindingCard({
         </div>
       </div>
 
-      <DetailRow label="Why it matters">
-        <p className="text-sm text-muted-foreground">
-          {item.description ?? "Maintaining this control reduces risk in the audited surface area."}
-        </p>
-      </DetailRow>
-
       <DetailRow label="Evidence">
         {notes ? (
           <EvidenceBlocks notes={notes} />
@@ -696,7 +690,7 @@ const ARCH_SEV_BANNER: Record<string, string> = {
   critical: "bg-status-fail/15 text-status-fail border-status-fail/40",
   high: "bg-orange-500/15 text-orange-600 dark:text-orange-300 border-orange-500/40",
   medium: "bg-status-na/15 text-status-na border-status-na/40",
-  low: "bg-status-pass/15 text-status-pass border-status-pass/40",
+  low: "bg-blue-500/15 text-blue-600 dark:text-blue-300 border-blue-500/40",
 };
 
 function ArchitecturalRiskSection({ findings }: { findings: ArchFinding[] }) {
