@@ -10,10 +10,10 @@
 
 type Playbook = { id: string; text: string };
 
-const WHERE_HEADERS = `Where to set response headers depends on the app. Tell the reader to check which case applies and use it:
+const WHERE_HEADERS = `Where to set response headers depends on the app. Inspect the project to determine which case applies:
 - Server-rendered app with a server entry (TanStack Start: src/server.ts or a global request middleware; Next.js: middleware or next.config headers; Express/Hono: middleware): set the header there on every HTML response.
 - Static single-page app (Vite build served as files): set it at the hosting layer (vercel.json "headers", Netlify or Cloudflare Pages "_headers" file, or the host's header settings).
-- If the host offers no way to set headers, say so plainly. Do not fall back to a <meta> tag for headers a meta tag can't express (HSTS, X-Frame-Options, frame-ancestors).
+- If the host offers no way to set headers, report that instead of inventing a workaround. Do not fall back to a <meta> tag for headers a meta tag can't express (HSTS, X-Frame-Options, frame-ancestors).
 Only change headers in production: the Lovable editor and similar tools show the app in an iframe, so framing restrictions must not apply to the preview.`;
 
 const CSP: Playbook = {
@@ -21,7 +21,7 @@ const CSP: Playbook = {
   text: `${WHERE_HEADERS}
 
 Content-Security-Policy requirements:
-1. First list every origin the app really loads from (scripts, styles, fonts, images, API and websocket targets) and show the list before writing the policy. Never guess origins.
+1. First find every origin the app really loads from (scripts, styles, fonts, images, API and websocket targets) by searching the code and config, and list them before writing the policy. Never guess origins.
 2. script-src must not contain 'unsafe-inline', 'unsafe-eval' or wildcards. Server-rendered frameworks (TanStack Start, Next.js, Remix) emit inline scripts on every page, so use a per-request nonce: generate a random value per request, put 'nonce-<value>' in script-src and the same nonce attribute on every inline script the framework renders. A static Vite build normally has no inline scripts, so script-src 'self' plus any listed origins is enough there.
 3. style-src 'self' 'unsafe-inline' is an acceptable trade-off for component libraries that inject styles; say that scripts are what matter.
 4. Always include: object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none' (or 'self' if the app frames itself).
@@ -69,7 +69,12 @@ Send Referrer-Policy: strict-origin-when-cross-origin. Use no-referrer instead i
     id: "permissions",
     text: `${WHERE_HEADERS}
 
-Permissions-Policy: first search the code for the browser features the app uses (getUserMedia/camera/microphone, geolocation, payment request, clipboard, fullscreen, USB/serial). Disable only features it does NOT use, e.g. camera=(), microphone=(), geolocation=(), payment=(), usb=(). Never disable a feature the app uses. Verify with curl -sI.`,
+Permissions-Policy requirements:
+1. First search the code and dependencies for browser features the app uses: camera/microphone (getUserMedia), geolocation, payments (Payment Request, Apple Pay / Google Pay, Stripe), passkeys / WebAuthn, fullscreen, autoplay or embedded video, clipboard, USB/serial. List what was found before changing anything.
+2. Disable only unused features, from this set: camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), midi=(), gyroscope=(), magnetometer=(), accelerometer=(), display-capture=(), xr-spatial-tracking=(), publickey-credentials-get=(). Do not add obsolete or unsupported names (battery, document-domain, ambient-light-sensor, navigation-override, speaker-selection).
+3. A feature the app uses is allowed only for the app and the specific provider it needs, e.g. payment=(self "https://js.stripe.com"). Never use *.
+4. Leave fullscreen, autoplay and encrypted-media alone if the app embeds video.
+5. Verify: the header is on the page response, and login (including passkeys), payments and any camera/video features still work.`,
   },
 };
 

@@ -25,14 +25,18 @@ const GROUNDING_RULE =
 
 const SYSTEM_PROMPTS: Record<FixTarget, string> = {
   lovable:
-    "You are a security remediation expert who writes precise, actionable prompts for Lovable, an AI-powered app builder. " +
-    "Given a security finding, generate a single clear prompt that a founder can paste directly into Lovable to fix the vulnerability. " +
-    "The prompt must: 1) Identify the exact file or component to change, 2) Describe the specific code change needed, " +
-    "3) Include verification steps so the founder knows the fix worked, 4) Be written in plain language a non-security expert can understand, " +
-    "5) Preserve the app's existing behavior and integrations without breaking legitimate functionality, " +
-    "6) Be under 220 words, or up to 380 words when a remediation playbook is provided. " +
+    "You are a security remediation expert who writes prompts that a founder pastes into Lovable, an AI app builder, to fix a security finding. " +
+    'Lovable is the one doing the work, so write the prompt as direct instructions TO Lovable, in the imperative ("Add…", "Find…", "Check…"). ' +
+    "Rules: 1) Lovable does all investigation: finding the right files, reading the code, working out what the app uses. Never ask the founder to locate files, read code, open DevTools, run commands, or edit anything by hand. " +
+    "2) Where the fix depends on what the app uses, tell Lovable to check the code first and list what it found before changing anything. " +
+    "3) Describe the exact change and the constraints (what must never be done, what must keep working). " +
+    "4) Steps only a person can do outside the code (for example rotating a key in a provider's dashboard or changing a hosting setting) go in as an instruction for Lovable to tell the founder at the end, e.g. \"When you're done, remind me to rotate the key in the Stripe dashboard.\" " +
+    '5) End with what Lovable should report back (the final values it set, what it kept enabled and why) and at most one simple check the founder can do in the app itself (e.g. "log in and complete a test payment"). ' +
+    "6) Tell Lovable not to change unrelated code. " +
+    '7) Plain text: no title or markdown headings, no "you need to", no explanation of the vulnerability. ' +
+    "8) Under 220 words, or up to 380 words when a remediation playbook is provided. " +
     GROUNDING_RULE +
-    " Do not include explanations or preamble — just the prompt text ready to paste.",
+    " Output only the prompt text, ready to paste.",
   cursor:
     "You are a security remediation expert who writes precise prompts for Cursor, an AI code editor. " +
     "Given a security finding, generate a single prompt the developer can paste into Cursor's composer. " +

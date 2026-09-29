@@ -68,3 +68,13 @@ test("fix prompt: items without a playbook are unchanged", async () => {
   const body = await generate({ title: "Database backups configured", category: "Database Security", checklist_key: null });
   assert.doesNotMatch(body.messages[0].content, /REMEDIATION PLAYBOOK/);
 });
+
+test("Lovable prompts are instructions to Lovable, not steps for the founder", async () => {
+  const body = await generate({ title: "Permissions-Policy header set", category: "Frontend Security", checklist_key: "permissions_policy" });
+  assert.match(body.system, /direct instructions TO Lovable/);
+  assert.match(body.system, /Never ask the founder to locate files/);
+  const user = body.messages[0].content as string;
+  assert.match(user, /publickey-credentials-get/);
+  assert.match(user, /Never use \*/);
+  assert.doesNotMatch(user, /Tell the reader/);
+});
