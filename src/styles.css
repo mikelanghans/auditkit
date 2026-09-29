@@ -133,6 +133,10 @@
   }
 }
 
+@page {
+  margin: 0.5in;
+}
+
 @media print {
   * {
     -webkit-print-color-adjust: exact;
