@@ -231,9 +231,16 @@ function ReportPage() {
           <Button
             disabled={downloading}
             onClick={async () => {
+              const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+              // Open the tab immediately while the click still counts, so popup blockers allow it.
+              const win = inIframe ? window.open("", "_blank") : null;
+              if (win) win.document.write("<p style='font-family:sans-serif;padding:24px'>Preparing PDF…</p>");
               setDownloading(true);
               try {
-                await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`);
+                await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`, win);
+              } catch (e) {
+                win?.close();
+                throw e;
               } finally {
                 setDownloading(false);
               }
