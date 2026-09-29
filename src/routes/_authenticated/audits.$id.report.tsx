@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_authenticated/audits/$id/report")({
   component: ReportPage,
 });
 
-async function downloadReportPdf(el: HTMLElement | null, filename: string) {
+async function downloadReportPdf(el: HTMLElement | null, filename: string, win?: Window | null) {
   if (!el) return;
   const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
     import("html2canvas-pro"),
@@ -62,11 +62,9 @@ async function downloadReportPdf(el: HTMLElement | null, filename: string) {
   }
   const blob = pdf.output("blob");
   const url = URL.createObjectURL(blob);
-  const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
-  if (inIframe) {
-    // Embedded previews often block downloads — open the PDF in a new tab instead.
-    const win = window.open(url, "_blank");
-    if (!win) pdf.save(filename);
+  if (win && !win.closed) {
+    // Embedded previews block downloads — show the PDF in the pre-opened tab.
+    win.location.href = url;
   } else {
     const a = document.createElement("a");
     a.href = url;
@@ -75,7 +73,7 @@ async function downloadReportPdf(el: HTMLElement | null, filename: string) {
     a.click();
     a.remove();
   }
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }
 
 function ReportPage() {
@@ -231,9 +229,16 @@ function ReportPage() {
           <Button
             disabled={downloading}
             onClick={async () => {
+              const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+              // Open the tab immediately while the click still counts, so popup blockers allow it.
+              const win = inIframe ? window.open("", "_blank") : null;
+              if (win) win.document.write("<p style='font-family:sans-serif;padding:24px'>Preparing PDF…</p>");
               setDownloading(true);
               try {
-                await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`);
+                await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`, win);
+              } catch (e) {
+                win?.close();
+                throw e;
               } finally {
                 setDownloading(false);
               }
