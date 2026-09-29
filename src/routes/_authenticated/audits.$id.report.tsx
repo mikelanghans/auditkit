@@ -98,7 +98,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
+        .select("id, title, status, started_at, completed_at, summary, website_url, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
