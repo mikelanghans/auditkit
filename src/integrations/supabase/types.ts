@@ -323,6 +323,153 @@ export type Database = {
         }
         Relationships: []
       }
+      code_audit_findings: {
+        Row: {
+          id: string
+          run_id: string
+          audit_id: string
+          created_at: string
+          fingerprint: string
+          verdict: string
+          severity: string | null
+          title: string
+          description: string | null
+          root_cause: string | null
+          trace: Json | null
+          evidence: Json | null
+          remediation: Json | null
+          blockers: Json | null
+          validation_plan: Json | null
+          raw: Json
+          review_state: string
+          include_in_report: boolean
+          checklist_item_id: string | null
+          reviewer_note: string | null
+        }
+        Insert: {
+          id?: string
+          run_id: string
+          audit_id: string
+          created_at?: string
+          fingerprint: string
+          verdict: string
+          severity?: string | null
+          title: string
+          description?: string | null
+          root_cause?: string | null
+          trace?: Json | null
+          evidence?: Json | null
+          remediation?: Json | null
+          blockers?: Json | null
+          validation_plan?: Json | null
+          raw: Json
+          review_state?: string
+          include_in_report?: boolean
+          checklist_item_id?: string | null
+          reviewer_note?: string | null
+        }
+        Update: {
+          id?: string
+          run_id?: string
+          audit_id?: string
+          created_at?: string
+          fingerprint?: string
+          verdict?: string
+          severity?: string | null
+          title?: string
+          description?: string | null
+          root_cause?: string | null
+          trace?: Json | null
+          evidence?: Json | null
+          remediation?: Json | null
+          blockers?: Json | null
+          validation_plan?: Json | null
+          raw?: Json
+          review_state?: string
+          include_in_report?: boolean
+          checklist_item_id?: string | null
+          reviewer_note?: string | null
+        }
+        Relationships: []
+      }
+      code_audit_runs: {
+        Row: {
+          id: string
+          audit_id: string
+          created_by: string
+          created_at: string
+          repo_url: string
+          git_ref: string | null
+          profile: string
+          budget_agents: number
+          status: string
+          runner_machine_id: string | null
+          started_at: string | null
+          finished_at: string | null
+          error: string | null
+          source_commit: string | null
+          agents_used: number | null
+          incomplete_reason: string | null
+          coverage: Json | null
+          report_md: string | null
+          findings_detail_md: string | null
+          needs_validation_md: string | null
+          confirmed_count: number
+          needs_validation_count: number
+          rejected_count: number
+        }
+        Insert: {
+          id?: string
+          audit_id: string
+          created_by: string
+          created_at?: string
+          repo_url: string
+          git_ref?: string | null
+          profile: string
+          budget_agents: number
+          status?: string
+          runner_machine_id?: string | null
+          started_at?: string | null
+          finished_at?: string | null
+          error?: string | null
+          source_commit?: string | null
+          agents_used?: number | null
+          incomplete_reason?: string | null
+          coverage?: Json | null
+          report_md?: string | null
+          findings_detail_md?: string | null
+          needs_validation_md?: string | null
+          confirmed_count?: number
+          needs_validation_count?: number
+          rejected_count?: number
+        }
+        Update: {
+          id?: string
+          audit_id?: string
+          created_by?: string
+          created_at?: string
+          repo_url?: string
+          git_ref?: string | null
+          profile?: string
+          budget_agents?: number
+          status?: string
+          runner_machine_id?: string | null
+          started_at?: string | null
+          finished_at?: string | null
+          error?: string | null
+          source_commit?: string | null
+          agents_used?: number | null
+          incomplete_reason?: string | null
+          coverage?: Json | null
+          report_md?: string | null
+          findings_detail_md?: string | null
+          needs_validation_md?: string | null
+          confirmed_count?: number
+          needs_validation_count?: number
+          rejected_count?: number
+        }
+        Relationships: []
+      }
       finding_audit_log: {
         Row: {
           after_status: string | null

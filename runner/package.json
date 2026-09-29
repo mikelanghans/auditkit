@@ -1,0 +1,11 @@
+{
+  "name": "auditkit-code-audit-runner",
+  "private": true,
+  "type": "module",
+  "description": "Runs Cloudflare's security-audit skill on one repository per Fly machine and posts results to AuditKit.",
+  "engines": { "node": ">=22.6" },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "undici": "^7.0.0"
+  }
+}

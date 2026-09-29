@@ -1,0 +1,19 @@
+#!/bin/sh
+# OS-enforced sandbox for running target-controlled code, as the
+# security-audit skill requires ("Universal execution safety"):
+#   no network (fresh net namespace, loopback only), empty allowlisted env,
+#   read-only root and target, run outputs and other agents' dirs hidden,
+#   writes only to the given scratch dir,
+#   CPU/memory/process/file-size/wall-clock limits.
+# Usage: sbx <scratch-dir> <command> [args...]
+set -eu
+SCRATCH="$1"; shift
+[ -d "$SCRATCH" ] || { echo "sbx: scratch dir missing: $SCRATCH" >&2; exit 2; }
+exec timeout --kill-after=5 120 \
+  prlimit --as=2147483648 --nproc=256 --fsize=104857600 --cpu=90 --nofile=1024 -- \
+  bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --tmpfs /home --tmpfs /root --tmpfs /app --tmpfs /work/out \
+        --bind "$SCRATCH" "$SCRATCH" --chdir "$SCRATCH" \
+        --unshare-all --die-with-parent --new-session \
+        --clearenv --setenv HOME "$SCRATCH" --setenv TMPDIR "$SCRATCH" --setenv PATH /usr/local/bin:/usr/bin:/bin \
+        --setenv LANG C.UTF-8 \
+        -- "$@"

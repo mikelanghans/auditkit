@@ -228,6 +228,8 @@ function ReportPage() {
 
         <ArchitecturalRiskSection findings={archFindings.data ?? []} />
 
+        <CodeAuditSection auditId={id} />
+
         <ResolvedFindingsAppendix auditId={id} />
       </div>
 
@@ -792,6 +794,69 @@ function ResolvedFindingsAppendix({ auditId }: { auditId: string }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+
+// Code-level findings from the deep code audit that the auditor chose to
+// include. Only confirmed and needs-validation records are shown.
+function CodeAuditSection({ auditId }: { auditId: string }) {
+  const { data } = useQuery({
+    queryKey: ["code-audit-report", auditId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("code_audit_findings")
+        .select("id, verdict, severity, title, description, root_cause, remediation, validation_plan")
+        .eq("audit_id", auditId)
+        .eq("include_in_report", true)
+        .neq("verdict", "rejected")
+        .neq("review_state", "dismissed");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+  const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, informational: 4 };
+  const sorted = [...rows].sort(
+    (a, b) =>
+      (a.verdict === "confirmed" ? 0 : 1) - (b.verdict === "confirmed" ? 0 : 1) ||
+      (rank[a.severity ?? ""] ?? 9) - (rank[b.severity ?? ""] ?? 9),
+  );
+  const fixText = (r: unknown): string | null => {
+    if (!r) return null;
+    if (typeof r === "string") return r;
+    const o = r as Record<string, unknown>;
+    const v = o.strategy ?? o.summary ?? o.fix ?? o.description;
+    return typeof v === "string" ? v : null;
+  };
+  return (
+    <section className="mb-8 break-inside-avoid">
+      <h2 className="text-lg font-semibold border-b pb-2 mb-1">Code-level findings</h2>
+      <p className="text-xs text-muted-foreground mb-3">
+        From a source-code review of the application. Confirmed findings were verified independently; findings that need
+        validation depend on a deployment fact to be checked with your team.
+      </p>
+      <div className="space-y-3">
+        {sorted.map((r) => (
+          <Card key={r.id} className="p-4 space-y-1.5 break-inside-avoid">
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="font-semibold uppercase tracking-wide">
+                {r.verdict === "confirmed" ? r.severity ?? "confirmed" : "needs validation"}
+              </span>
+            </div>
+            <div className="font-semibold">{r.title}</div>
+            {r.description && <p className="text-sm whitespace-pre-wrap">{r.description}</p>}
+            {fixText(r.remediation) && (
+              <p className="text-sm">
+                <span className="font-medium">Fix: </span>
+                {fixText(r.remediation)}
+              </p>
+            )}
+          </Card>
+        ))}
       </div>
     </section>
   );

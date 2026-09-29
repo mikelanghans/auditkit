@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, CircleHelp, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw, ChevronDown, ClipboardCheck, History, RotateCcw } from "lucide-react";
+import { ArrowLeft, FileText, Check, X, Minus, CheckCircle2, CircleHelp, Shield, Radar, Loader2, Github, Filter, Circle, Sparkles, GitBranch, Package, ExternalLink, Brain, Bot, RefreshCw, ChevronDown, ClipboardCheck, History, RotateCcw, FileSearch } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 import { Badge } from "@/components/ui/badge";
@@ -314,6 +314,9 @@ function AuditView() {
         <div className="flex items-center gap-2 flex-wrap">
           <Link to="/audits/$id/activity" params={{ id }}>
             <Button variant="outline"><History className="h-4 w-4 mr-1" /> Activity</Button>
+          </Link>
+          <Link to="/audits/$id/code-audit" params={{ id }}>
+            <Button variant="outline"><FileSearch className="h-4 w-4 mr-1" /> Code audit</Button>
           </Link>
           <Link to="/audits/$id/report" params={{ id }}>
             <Button variant="outline"><FileText className="h-4 w-4 mr-1" /> Report</Button>

@@ -1,0 +1,7 @@
+# Deep-audit runner. No services: AuditKit starts one machine per job through
+# the Machines API and the machine is destroyed when the job exits.
+app = "auditkit-code-audit-runner"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"

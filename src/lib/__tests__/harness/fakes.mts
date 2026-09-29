@@ -28,6 +28,7 @@ class Query implements PromiseLike<any> {
   constructor(db: FakeDb, table: string) { this.db = db; this.table = table; }
   select() { return this; }
   eq(k: string, v: unknown) { this.filters.push((r) => r[k] === v); return this; }
+  neq(k: string, v: unknown) { this.filters.push((r) => r[k] !== v); return this; }
   in(k: string, vals: unknown[]) { this.filters.push((r) => vals.includes(r[k])); return this; }
   limit(n: number) { this.limitN = n; return this; }
   order() { return this; }
@@ -44,8 +45,13 @@ class Query implements PromiseLike<any> {
       return { data: null, error: null };
     }
     if (this.op === "insert") {
-      for (const p of Array.isArray(this.payload) ? this.payload : [this.payload]) rows.push({ id: `${this.table}-${rows.length + 1}`, ...p });
-      return { data: null, error: null };
+      const inserted: Row[] = [];
+      for (const p of Array.isArray(this.payload) ? this.payload : [this.payload]) {
+        const row = { id: `00000000-0000-4000-8000-${String(rows.length + 1).padStart(12, "0")}`, ...p };
+        rows.push(row);
+        inserted.push(row);
+      }
+      return { data: inserted, error: null };
     }
     const matched = rows.filter((r) => this.filters.every((f) => f(r)));
     if (this.op === "update") { matched.forEach((r) => Object.assign(r, this.payload)); return { data: null, error: null }; }

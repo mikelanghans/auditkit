@@ -3,7 +3,7 @@
 // concurrent requests can't race past the limit.
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type QuotaKind = "llm" | "scan";
+export type QuotaKind = "llm" | "scan" | "code_audit";
 
 export type QuotaResult = { ok: true } | { ok: false; error: string };
 
@@ -19,7 +19,7 @@ export async function consumeQuota(supabase: SupabaseClient<any>, kind: QuotaKin
   }
   const r = (data ?? {}) as { allowed?: boolean; used?: number; limit?: number };
   if (r.allowed) return { ok: true };
-  const what = kind === "llm" ? "AI requests" : "scans";
+  const what = kind === "llm" ? "AI requests" : kind === "code_audit" ? "deep code audits" : "scans";
   return {
     ok: false,
     error: `Daily limit reached for ${what} (${r.used ?? "?"} of ${r.limit ?? "?"} used today). The limit resets at midnight UTC.`,

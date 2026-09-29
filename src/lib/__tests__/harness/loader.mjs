@@ -7,6 +7,7 @@ const srcRoot = path.resolve(here, "../../..");
 const stubs = {
   "@tanstack/react-start": pathToFileURL(path.join(here, "stub-start.mjs")).href,
   "@/integrations/supabase/auth-middleware": pathToFileURL(path.join(here, "stub-auth.mjs")).href,
+  "@/integrations/supabase/client.server": pathToFileURL(path.join(here, "stub-admin.mjs")).href,
 };
 
 function withTs(p) {

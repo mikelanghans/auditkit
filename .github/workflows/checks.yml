@@ -37,8 +37,15 @@ jobs:
       - name: Security tests (SSRF guard, secret redaction)
         run: npm run test:security
 
-      - name: Scanner tests (verdict integrity, access controls, AI Assist injection)
+      - name: Scanner tests (verdict integrity, access controls, AI Assist injection, public check, code audit)
         run: npm run test:scanners
+
+      - name: Runner syntax
+        run: |
+          node --check runner/run-job.mjs
+          node --check runner/egress-proxy.mjs
+          sh -n runner/sbx
+          sh -n runner/lockdown.sh
 
       - name: Build
         run: bun run build
