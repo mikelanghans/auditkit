@@ -98,7 +98,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
+        .select("id, title, status, started_at, completed_at, summary, website_url, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
@@ -252,7 +252,17 @@ function ReportPage() {
               if (win) win.document.write("<p style='font-family:sans-serif;padding:24px'>Preparing PDF…</p>");
               setDownloading(true);
               try {
-                await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`, win);
+                const dateStr = (audit.data?.completed_at || audit.data?.started_at || new Date().toISOString()).slice(0, 10);
+                const rawUrl = audit.data?.website_url || "";
+                const domain = (() => {
+                  try {
+                    return new URL(rawUrl.includes("://") ? rawUrl : `https://${rawUrl}`).hostname.replace(/^www\./, "");
+                  } catch {
+                    return rawUrl.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] || "report";
+                  }
+                })();
+                const safeDomain = domain.replace(/[^a-z0-9.-]/gi, "-");
+                await downloadReportPdf(reportRef.current, `security-audit-${dateStr}-${safeDomain}.pdf`, win);
               } catch (e: any) {
                 win?.close();
                 toast.error(e?.message ? `Could not create PDF: ${e.message}` : "Could not create PDF");
