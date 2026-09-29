@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, Download, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Printer, Download, ChevronDown, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { format } from "date-fns";
@@ -209,9 +209,14 @@ function ReportPage() {
     const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     return (items.data ?? [])
       .filter((it: any) => map.get(it.id)?.status === "fail")
-      .sort((a: any, b: any) =>
-        (order[(a.severity ?? "medium").toLowerCase()] ?? 2) - (order[(b.severity ?? "medium").toLowerCase()] ?? 2),
-      );
+      .sort((a: any, b: any) => {
+        const sevDiff =
+          (order[(a.severity ?? "medium").toLowerCase()] ?? 2) -
+          (order[(b.severity ?? "medium").toLowerCase()] ?? 2);
+        if (sevDiff !== 0) return sevDiff;
+        // Same severity: keep checklist order so numbering is stable.
+        return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+      });
   }, [items.data, map]);
 
   const scopeSnapshot = useMemo(() => {
@@ -292,7 +297,7 @@ function ReportPage() {
               Issues ({failedItems.length})
             </h2>
             <div className="space-y-3">
-              {failedItems.map((it: any) => {
+              {failedItems.map((it: any, idx: number) => {
                 const f = map.get(it.id);
                 return (
                   <FailedFindingCard
@@ -301,6 +306,7 @@ function ReportPage() {
                     item={it}
                     notes={f?.notes ?? null}
                     explanation={f?.explanation ?? null}
+                    priority={idx + 1}
                   />
                 );
               })}
@@ -483,12 +489,13 @@ const SEVERITY_IMPACT: Record<string, string> = {
 };
 
 function FailedFindingCard({
-  auditId, item, notes, explanation,
+  auditId, item, notes, explanation, priority,
 }: {
   auditId: string;
   item: any;
   notes: string | null;
   explanation: string | null;
+  priority: number;
 }) {
   const [open, setOpen] = useState(true);
   const exp = explanation;
@@ -508,9 +515,15 @@ function FailedFindingCard({
               "hover:brightness-105",
             )}
           >
-            <Siren className="h-5 w-5 shrink-0" />
+            <span
+              className="shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-full bg-foreground/10 border border-current/40 text-xs font-bold"
+              title={`Priority ${priority}`}
+            >
+              {priority}
+            </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-widest">Priority {priority}</span>
                 <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
                 <span className="text-[10px] uppercase tracking-widest opacity-70">· Auto detected</span>
               </div>
