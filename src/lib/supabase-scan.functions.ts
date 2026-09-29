@@ -398,6 +398,92 @@ async function scanBundleForSecret(appUrl: string, secret: string): Promise<{ ok
   }
 }
 
+type BucketListing = { bucket: string; anon: "listable" | "blocked" | "error"; anonCount: number; serviceCount: number | null; detail?: string };
+
+/**
+ * Can an anonymous visitor list the files in each bucket? A bucket can be
+ * private and still leak through a permissive SELECT policy on
+ * storage.objects. An empty result from anon only means "blocked" if the
+ * service role can see files there; otherwise the bucket may just be empty.
+ */
+async function probeStorageListing(projectUrl: string, anonKey: string, serviceRoleKey: string, buckets: string[]): Promise<BucketListing[]> {
+  const list = async (bucket: string, key: string) => {
+    const r = await timedFetch(`${projectUrl}/storage/v1/object/list/${encodeURIComponent(bucket)}`, {
+      method: "POST",
+      headers: { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({ prefix: "", limit: 5, offset: 0 }),
+    });
+    const body = (await r.json().catch(() => null)) as unknown;
+    return { status: r.status, items: Array.isArray(body) ? body.length : null };
+  };
+  return pMap(buckets.slice(0, 20), 4, async (bucket) => {
+    try {
+      const a = await list(bucket, anonKey);
+      const s = await list(bucket, serviceRoleKey).catch(() => ({ status: 0, items: null }));
+      const serviceCount = s.status >= 200 && s.status < 300 ? s.items : null;
+      if (a.status >= 200 && a.status < 300 && (a.items ?? 0) > 0) {
+        return { bucket, anon: "listable" as const, anonCount: a.items ?? 0, serviceCount };
+      }
+      if ((a.status >= 200 && a.status < 300) || (a.status >= 400 && a.status < 500)) {
+        return { bucket, anon: "blocked" as const, anonCount: 0, serviceCount };
+      }
+      return { bucket, anon: "error" as const, anonCount: 0, serviceCount, detail: `HTTP ${a.status}` };
+    } catch (e: any) {
+      return { bucket, anon: "error" as const, anonCount: 0, serviceCount: null, detail: e?.message ?? "request failed" };
+    }
+  });
+}
+
+type DefinerFn = { name: string; args: string };
+
+/**
+ * SECURITY DEFINER functions run with their owner's rights and skip RLS. If
+ * the anon role can execute one in an API-exposed schema, anyone can call it
+ * through /rest/v1/rpc. Supabase grants EXECUTE to anon on new functions by
+ * default, so this is common.
+ */
+async function fetchAnonCallableDefiners(projectRef: string, pat: string): Promise<{ ok: boolean; rows?: DefinerFn[]; error?: string }> {
+  const query = `
+    select p.proname as name, pg_get_function_identity_arguments(p.oid) as args
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prokind = 'f'
+      and p.prosecdef
+      and p.prorettype <> 'trigger'::regtype
+      and has_function_privilege('anon', p.oid, 'EXECUTE')
+    order by 1;`;
+  try {
+    const r = await timedFetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${pat}`, "content-type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    if (!r.ok) return { ok: false, error: `Management API HTTP ${r.status}` };
+    const rows = (await r.json()) as any[];
+    return { ok: true, rows: (rows ?? []).map((x) => ({ name: String(x.name), args: String(x.args ?? "") })) };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch failed" };
+  }
+}
+
+async function fetchEdgeFunctions(projectRef: string, pat: string): Promise<{ ok: boolean; rows?: { slug: string; verifyJwt: boolean | null }[]; error?: string }> {
+  try {
+    const r = await timedFetch(`https://api.supabase.com/v1/projects/${projectRef}/functions`, {
+      headers: { authorization: `Bearer ${pat}` },
+    });
+    if (!r.ok) return { ok: false, error: `Management API HTTP ${r.status}` };
+    const rows = (await r.json()) as any[];
+    if (!Array.isArray(rows)) return { ok: false, error: "unexpected response" };
+    return {
+      ok: true,
+      rows: rows.map((f) => ({ slug: String(f.slug ?? f.name), verifyJwt: typeof f.verify_jwt === "boolean" ? f.verify_jwt : null })),
+    };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch failed" };
+  }
+}
+
 export const runSupabaseScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: SupabaseScanInput) => input)
@@ -490,9 +576,14 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     let authConfig: { ok: boolean; data?: Record<string, unknown>; error?: string } | null = null;
     if (pat && projectRef) authConfig = await fetchManagementAuth(projectRef, pat);
 
-    // 4) Storage buckets
+    // 4) Storage buckets, and whether anon can list their files
     const buckets = await listBuckets(projectUrl, serviceRoleKey);
     const publicBuckets = buckets.buckets.filter((b) => b.public);
+    const listing = buckets.ok ? await probeStorageListing(projectUrl, anonKey, serviceRoleKey, buckets.buckets.map((b) => b.name)) : null;
+
+    // 4b) Database functions and edge functions (Management API only)
+    const definers = pat && projectRef ? await fetchAnonCallableDefiners(projectRef, pat) : null;
+    const edgeFns = pat && projectRef ? await fetchEdgeFunctions(projectRef, pat) : null;
 
     // 5) Bundle scan for service role exposure
     let bundle: Awaited<ReturnType<typeof scanBundleForSecret>> | null = null;
@@ -740,6 +831,114 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
           };
     }
 
+    // Can anonymous visitors list storage files?
+    let storageListCheck: CheckResult;
+    if (!buckets.ok || !listing) {
+      storageListCheck = { status: "inconclusive", notes: `Could not enumerate storage buckets: ${buckets.error ?? "unknown error"}.` };
+    } else if (buckets.buckets.length === 0) {
+      storageListCheck = { status: "pass", notes: "The project has no storage buckets." };
+    } else {
+      const listable = listing.filter((l) => l.anon === "listable");
+      const errored = listing.filter((l) => l.anon === "error");
+      const untestable = listing.filter((l) => l.anon === "blocked" && l.serviceCount === 0);
+      const unprobed = buckets.buckets.length - listing.length;
+      if (listable.length > 0) {
+        storageListCheck = {
+          status: "fail",
+          notes: `Anyone can list the files in ${listable.length} bucket(s) using only the public anon key:\n\n${listable
+            .map((l) => `• ${l.bucket} (anon saw ${l.anonCount}+ file${l.anonCount === 1 ? "" : "s"})`)
+            .join("\n")}\n\nTighten the SELECT policy on storage.objects so anon (and other users) can only list their own files.`,
+        };
+      } else if (errored.length > 0 || unprobed > 0) {
+        storageListCheck = {
+          status: "inconclusive",
+          notes: `No bucket was listable by anon, but ${errored.length + unprobed} bucket(s) could not be tested, so this is not a pass:\n${errored
+            .map((l) => `• ${l.bucket} (${l.detail})`)
+            .join("\n")}${unprobed > 0 ? `\n• ${unprobed} bucket(s) beyond the 20-bucket limit` : ""}`,
+        };
+      } else {
+        storageListCheck = {
+          status: "pass",
+          notes: `Anon could not list files in any of ${listing.length} bucket(s).${
+            untestable.length
+              ? ` ${untestable.length} bucket(s) are empty (${untestable.map((l) => l.bucket).join(", ")}), so their policies could only be tested once files exist.`
+              : ""
+          }`,
+        };
+      }
+    }
+
+    // SECURITY DEFINER functions callable by anon
+    let definerCheck: CheckResult;
+    if (!definers) {
+      definerCheck = {
+        status: "inconclusive",
+        notes: "Not checked. Listing database functions that anonymous visitors can call requires a Management API PAT.",
+      };
+    } else if (!definers.ok || !definers.rows) {
+      definerCheck = { status: "inconclusive", notes: `Could not list database functions: ${definers.error ?? "unknown error"}.` };
+    } else if (definers.rows.length > 0) {
+      definerCheck = {
+        status: "fail",
+        notes: `${definers.rows.length} SECURITY DEFINER function(s) in the public schema can be called by anyone through /rest/v1/rpc using the anon key. They run with the owner's privileges and skip RLS:\n\n${definers.rows
+          .slice(0, 30)
+          .map((f) => `• ${f.name}(${f.args})`)
+          .join("\n")}\n\nFor each: REVOKE EXECUTE ... FROM anon, PUBLIC (grant only to authenticated where needed), and make sure the function checks auth.uid() itself.`,
+      };
+    } else {
+      definerCheck = { status: "pass", notes: "No SECURITY DEFINER function in the public schema is executable by the anon role." };
+    }
+
+    // Edge functions with JWT verification turned off
+    let edgeFnCheck: CheckResult;
+    if (!edgeFns) {
+      edgeFnCheck = { status: "inconclusive", notes: "Not checked. Listing edge functions requires a Management API PAT." };
+    } else if (!edgeFns.ok || !edgeFns.rows) {
+      edgeFnCheck = { status: "inconclusive", notes: `Could not list edge functions: ${edgeFns.error ?? "unknown error"}.` };
+    } else if (edgeFns.rows.length === 0) {
+      edgeFnCheck = { status: "pass", notes: "The project has no edge functions." };
+    } else {
+      const open = edgeFns.rows.filter((f) => f.verifyJwt === false);
+      const unknown = edgeFns.rows.filter((f) => f.verifyJwt === null);
+      if (open.length > 0 || unknown.length > 0) {
+        edgeFnCheck = {
+          status: "inconclusive",
+          notes: `${open.length} edge function(s) accept requests without a Supabase login (verify_jwt off)${unknown.length ? `, and ${unknown.length} didn't report the setting` : ""}:\n\n${[...open, ...unknown]
+            .map((f) => `• ${f.slug}`)
+            .join("\n")}\n\nThat's right for webhooks, but each one must verify its caller itself (a signature check or its own auth). Review each function's code before marking this item.`,
+        };
+      } else {
+        edgeFnCheck = { status: "pass", notes: `All ${edgeFns.rows.length} edge function(s) require a valid Supabase JWT.` };
+      }
+    }
+
+    // Password policy: authoritative from the auth config when a PAT is given.
+    let passwordLengthCheck: CheckResult = authBehavior.passwordPolicy;
+    let leakedPasswordCheck: CheckResult;
+    const cfg = authConfig?.ok ? authConfig.data : undefined;
+    if (cfg && typeof cfg["password_min_length"] === "number") {
+      const n = cfg["password_min_length"] as number;
+      passwordLengthCheck =
+        n >= 8
+          ? { status: "pass", notes: `Minimum password length is ${n} (from the project's auth config).` }
+          : { status: "fail", notes: `Minimum password length is only ${n}. Set it to at least 8 under Authentication → Sign In / Providers → Email.` };
+    }
+    if (!cfg) {
+      leakedPasswordCheck = {
+        status: "inconclusive",
+        notes: pat ? "Could not read the auth configuration from the Management API." : "Not checked. Reading this setting requires a Management API PAT.",
+      };
+    } else if (typeof cfg["password_hibp_enabled"] !== "boolean") {
+      leakedPasswordCheck = { status: "inconclusive", notes: "The auth configuration did not include password_hibp_enabled." };
+    } else {
+      leakedPasswordCheck = cfg["password_hibp_enabled"]
+        ? { status: "pass", notes: "Leaked-password protection is on: passwords found in known breaches are rejected." }
+        : {
+            status: "fail",
+            notes: "Leaked-password protection is off, so users can sign up with passwords already exposed in breaches. Turn it on under Authentication → Sign In / Providers → Email (requires a paid Supabase plan).",
+          };
+    }
+
     // ---- Persist findings by title (only items that exist in the checklist) ----
     const titleToResult: Record<string, CheckResult | null> = {
       "RLS enabled on all tables": rlsCheck,
@@ -747,7 +946,11 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       "No direct table access without auth check": anonScope,
       "No unauthenticated endpoints returning user data": anonScope,
       "Anon role cannot write to tables": writeAccessCheck,
-      "Minimum password length enforced": authBehavior.passwordPolicy,
+      "Minimum password length enforced": passwordLengthCheck,
+      "Leaked password protection enabled": leakedPasswordCheck,
+      "Storage files can't be listed without auth": storageListCheck,
+      "No SECURITY DEFINER functions callable without auth": definerCheck,
+      "Edge functions verify their callers": edgeFnCheck,
       "Email confirmation required for signup": emailConfirmCheck,
       "No public storage buckets": bucketCheck,
       "Email enumeration not possible": authBehavior.enumeration,
