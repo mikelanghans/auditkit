@@ -50,7 +50,7 @@ const PAYLOADS: { label: string; payload: string }[] = [
  */
 async function timedFetch(url: string, init: RequestInit, timeoutMs = TIMEOUT_MS): Promise<{ res: Response; ms: number }> {
   const start = Date.now();
-  const res = await safeFetch(url, init, { timeoutMs });
+  const res = await safeFetch(url, init, { timeoutMs, maxBodyBytes: 2_000_000 });
   return { res, ms: Date.now() - start };
 }
 

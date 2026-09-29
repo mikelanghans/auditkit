@@ -6,7 +6,11 @@
  * IPs, or cloud metadata endpoints (e.g. 169.254.169.254).
  *
  * Resolves the hostname via DNS-over-HTTPS (Cloudflare, falling back to Google)
- * and rejects if any resolved address is private.
+ * and rejects if any resolved address is private, if public DNS has no address
+ * for it, or if the lookup could not be completed (fail closed).
+ *
+ * safeFetch also bounds the response: the timeout covers reading the body, and
+ * bodies over maxBodyBytes error instead of being read in full.
  *
  * IMPORTANT: validating a URL is not enough on its own. HTTP redirects are the
  * standard bypass — an attacker-controlled public host can 302 to
@@ -41,30 +45,14 @@ function allowUnresolvedHosts(): boolean {
   }
 }
 
-/**
- * A hostname that is clearly a public FQDN: at least two labels, an alphabetic
- * TLD of 2+ chars, and none of the blocked internal suffixes. Used only as a
- * last resort when every DoH resolver is unreachable, so that a blocked-egress
- * environment does not make every scan fail. Private IP literals, `localhost`,
- * `*.local`, `*.internal` and friends are still rejected before this point.
- */
-function looksPublicFqdn(host: string): boolean {
-  const labels = host.toLowerCase().split(".");
-  if (labels.length < 2) return false;
-  if (labels.some((l) => l.length === 0)) return false;
-  const tld = labels[labels.length - 1];
-  return /^[a-z]{2,}$/.test(tld);
-}
-
-
-/** IPv4 literals matching private/loopback/link-local/metadata ranges. */
+/** IPv4 literals matching private/loopback/link-local/metadata/reserved ranges. */
 function isPrivateIPv4(ip: string): boolean {
   const parts = ip.split(".").map((n) => Number(n));
   if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
-    // Not a valid IPv4 — treat as not-an-ipv4 (caller will still hostname-resolve).
-    return false;
+    // Not something we can classify. Treat it as unsafe rather than guessing.
+    return true;
   }
-  const [a, b] = parts;
+  const [a, b, c] = parts;
   if (a === 10) return true; // 10.0.0.0/8
   if (a === 127) return true; // loopback
   if (a === 0) return true; // 0.0.0.0/8
@@ -72,20 +60,92 @@ function isPrivateIPv4(ip: string): boolean {
   if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
   if (a === 192 && b === 168) return true; // 192.168.0.0/16
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
-  if (a >= 224) return true; // multicast + reserved
+  if (a === 192 && b === 0 && c === 0) return true; // IETF protocol assignments 192.0.0.0/24
+  if (a === 192 && b === 0 && c === 2) return true; // TEST-NET-1
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18.0.0/15
+  if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3
+  if (a >= 224) return true; // multicast + reserved + broadcast
   return false;
 }
 
-/** IPv6 literals matching loopback/link-local/ULA/IPv4-mapped private. */
+/**
+ * Parse an IPv6 literal (optionally bracketed, optionally with a trailing
+ * dotted IPv4 part or zone id) into eight 16-bit groups. Returns null when the
+ * text is not a valid IPv6 address.
+ */
+export function parseIPv6(input: string): number[] | null {
+  let s = input.toLowerCase().replace(/^\[|\]$/g, "");
+  const zone = s.indexOf("%");
+  if (zone >= 0) s = s.slice(0, zone);
+
+  let tail: number[] = [];
+  const dotted = /^(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(s);
+  if (dotted) {
+    const p = dotted[2].split(".").map(Number);
+    if (p.some((n) => n > 255)) return null;
+    tail = [(p[0] << 8) | p[1], (p[2] << 8) | p[3]];
+    s = dotted[1].endsWith("::") ? dotted[1] : dotted[1].slice(0, -1);
+  }
+
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const groups = (h: string) =>
+    h === ""
+      ? []
+      : h.split(":").map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : Number.NaN));
+  const head = groups(halves[0]);
+  const rest = halves.length === 2 ? groups(halves[1]) : [];
+  if ([...head, ...rest].some((n) => Number.isNaN(n))) return null;
+
+  const need = 8 - tail.length;
+  let body: number[];
+  if (halves.length === 2) {
+    const fill = need - head.length - rest.length;
+    if (fill < 1) return null;
+    body = [...head, ...new Array(fill).fill(0), ...rest];
+  } else {
+    if (head.length !== need) return null;
+    body = head;
+  }
+  return [...body, ...tail];
+}
+
+function v4At(g: number[], i: number, xor = 0): string {
+  const hi = g[i] ^ xor;
+  const lo = g[i + 1] ^ xor;
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+}
+
+/**
+ * IPv6 literals that are loopback, link-local, ULA, multicast, reserved, or
+ * that embed an IPv4 address in a private range. WHATWG URL serialises
+ * `[::ffff:127.0.0.1]` as `::ffff:7f00:1`, so embedded IPv4 has to be decoded
+ * from the groups rather than matched as dotted text.
+ */
 function isPrivateIPv6(ip: string): boolean {
-  const lower = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  if (lower === "::1" || lower === "::") return true;
-  if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true; // link-local
-  if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true; // unique local fc00::/7
-  if (lower.startsWith("ff")) return true; // multicast
-  // IPv4-mapped: ::ffff:a.b.c.d
-  const v4mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (v4mapped) return isPrivateIPv4(v4mapped[1]);
+  const g = parseIPv6(ip);
+  if (!g) return true; // unparseable: fail closed
+  const zeros = (n: number) => g.slice(0, n).every((x) => x === 0);
+
+  if (zeros(5) && g[5] === 0xffff) return isPrivateIPv4(v4At(g, 6)); // ::ffff:a.b.c.d (mapped)
+  if (zeros(4) && g[4] === 0xffff && g[5] === 0) return isPrivateIPv4(v4At(g, 6)); // ::ffff:0:a.b.c.d
+  if (g[0] === 0) return true; // ::/8 reserved: ::, ::1, IPv4-compatible ::a.b.c.d
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    return isPrivateIPv4(v4At(g, 6)); // NAT64 well-known prefix 64:ff9b::/96
+  }
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return true; // local-use NAT64 64:ff9b:1::/48
+  if (g[0] === 0x2002) return isPrivateIPv4(v4At(g, 1)); // 6to4 2002::/16
+  if (g[0] === 0x2001 && g[1] === 0) {
+    // Teredo 2001::/32: server IPv4 in groups 2-3, client IPv4 obfuscated in 6-7.
+    return isPrivateIPv4(v4At(g, 2)) || isPrivateIPv4(v4At(g, 6, 0xffff));
+  }
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return true; // documentation
+  if (g[0] === 0x0100 && g[1] === 0 && g[2] === 0 && g[3] === 0) return true; // discard 100::/64
+  if ((g[0] & 0xffc0) === 0xfe80) return true; // link-local fe80::/10
+  if ((g[0] & 0xffc0) === 0xfec0) return true; // deprecated site-local fec0::/10
+  if ((g[0] & 0xfe00) === 0xfc00) return true; // unique local fc00::/7
+  if ((g[0] & 0xff00) === 0xff00) return true; // multicast
   return false;
 }
 
@@ -98,7 +158,7 @@ function isIPAddress(host: string): boolean {
 function isPrivateIPLiteral(host: string): boolean {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return isPrivateIPv4(host);
   if (host.includes(":")) return isPrivateIPv6(host);
-  return false;
+  return true; // not an address we recognise: fail closed
 }
 
 function isBlockedHostname(host: string): boolean {
@@ -197,20 +257,26 @@ export async function assertSafeOutboundUrl(raw: string): Promise<void> {
   // Resolve hostname to verify no record points at a private range.
   const [a, aaaa] = await Promise.all([dohResolve(host, "A"), dohResolve(host, "AAAA")]);
 
-  if (a === null && aaaa === null) {
-    // Every resolver was unusable (blocked egress, throttling, etc.). We cannot
-    // prove the host is external. Allow only names that are unmistakably public
-    // FQDNs — internal-looking hosts and IP literals were already rejected above.
-    if (allowUnresolvedHosts() || looksPublicFqdn(host)) return;
+  if (a === null || aaaa === null) {
+    // At least one record type could not be looked up by any resolver. The
+    // runtime may connect over the family we could not see, so we cannot prove
+    // the host is external. Fail closed.
+    if (allowUnresolvedHosts()) return;
     throw new SSRFBlockedError(
-      `Could not verify ${host} via DNS-over-HTTPS (all resolvers unavailable). ` +
+      `Could not verify ${host} via DNS-over-HTTPS (resolvers unavailable for ` +
+        `${a === null && aaaa === null ? "A and AAAA" : a === null ? "A" : "AAAA"} records). ` +
         `Refusing to send the request. If outbound DoH is blocked in this environment, ` +
         `set AUDITKIT_ALLOW_UNRESOLVED_HOSTS=true to override.`,
     );
   }
 
-
-  const addrs = [...(a ?? []), ...(aaaa ?? [])];
+  const addrs = [...a, ...aaaa];
+  if (addrs.length === 0) {
+    // Public DNS says the name has no addresses. If the runtime's own resolver
+    // can still reach it, it is an internal-only name, which is exactly what
+    // this guard exists to block.
+    throw new SSRFBlockedError(`Blocked: ${host} has no public A/AAAA records.`);
+  }
   for (const ip of addrs) {
     if (isPrivateIPLiteral(ip)) {
       throw new SSRFBlockedError(`Blocked: ${host} resolves to private address ${ip}`);
@@ -247,7 +313,103 @@ export type SafeFetchOptions = {
    * redirect can never walk the request off the intended provider.
    */
   allowHosts?: string[];
+  /**
+   * Largest response body the caller may read, in bytes. A body that goes past
+   * it errors instead of being silently cut short, so a scanner can report the
+   * check as inconclusive rather than judging a partial page. Default 16 MB.
+   */
+  maxBodyBytes?: number;
 };
+
+export const DEFAULT_MAX_BODY_BYTES = 16 * 1024 * 1024;
+
+export class ResponseTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ResponseTooLargeError";
+  }
+}
+
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+/**
+ * Wrap a response so its body is read under the same deadline as the request
+ * and cannot grow past maxBytes. `finish` clears the deadline once the body is
+ * fully read, errors, or is cancelled.
+ */
+function guardBody(
+  res: Response,
+  maxBytes: number,
+  ctl: AbortController,
+  timeoutMs: number,
+  finish: () => void,
+): Response {
+  if (!res.body || NULL_BODY_STATUSES.has(res.status) || res.status < 200 || res.status > 599) {
+    finish();
+    return res;
+  }
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    finish();
+    ctl.abort();
+    throw new ResponseTooLargeError(
+      `Response body is ${declared} bytes, over the ${maxBytes}-byte limit for this request.`,
+    );
+  }
+  const reader = res.body.getReader();
+  let total = 0;
+  // Race every read against the deadline. Aborting the fetch should end the
+  // body stream by itself, but not every runtime (or stream) honours that.
+  const timedOut = new Promise<never>((_, reject) => {
+    const fire = () =>
+      reject(new Error(`Timed out reading the response body after ${timeoutMs}ms.`));
+    if (ctl.signal.aborted) fire();
+    else ctl.signal.addEventListener("abort", fire, { once: true });
+  });
+  timedOut.catch(() => {});
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { value, done } = await Promise.race([reader.read(), timedOut]);
+        if (done) {
+          finish();
+          controller.close();
+          return;
+        }
+        total += value.byteLength;
+        if (total > maxBytes) {
+          finish();
+          ctl.abort();
+          reader.cancel().catch(() => {});
+          controller.error(
+            new ResponseTooLargeError(
+              `Response body exceeded the ${maxBytes}-byte limit for this request.`,
+            ),
+          );
+          return;
+        }
+        controller.enqueue(value);
+      } catch (e) {
+        finish();
+        reader.cancel().catch(() => {});
+        controller.error(
+          ctl.signal.aborted && !(e instanceof ResponseTooLargeError)
+            ? new Error(`Timed out reading the response body after ${timeoutMs}ms.`)
+            : e,
+        );
+      }
+    },
+    cancel(reason) {
+      finish();
+      return reader.cancel(reason).catch(() => {});
+    },
+  });
+  return new Response(stream, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
+}
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -270,10 +432,19 @@ export async function safeFetch(
   init: RequestInit = {},
   opts: SafeFetchOptions = {},
 ): Promise<Response> {
-  const { timeoutMs = 15_000, maxRedirects = 5, allowHosts } = opts;
+  const {
+    timeoutMs = 15_000,
+    maxRedirects = 5,
+    allowHosts,
+    maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
+  } = opts;
 
+  // One deadline covers every hop *and* reading the final body. It is cleared
+  // when the body finishes, not when the headers arrive.
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  let handedOff = false;
+  const finish = () => clearTimeout(timer);
   const externalSignal = init.signal;
   if (externalSignal) {
     if (externalSignal.aborted) ctl.abort();
@@ -307,7 +478,12 @@ export async function safeFetch(
       });
 
       const location = res.headers.get("location");
-      if (!REDIRECT_STATUSES.has(res.status) || !location) return res;
+      if (!REDIRECT_STATUSES.has(res.status) || !location) {
+        handedOff = true;
+        return guardBody(res, maxBodyBytes, ctl, timeoutMs, finish);
+      }
+      // Not reading this hop's body; release the connection.
+      res.body?.cancel().catch(() => {});
 
       if (hop === maxRedirects) {
         throw new SSRFBlockedError(
@@ -346,6 +522,6 @@ export async function safeFetch(
     // Unreachable — the loop either returns or throws.
     throw new SSRFBlockedError(`Blocked: redirect handling failed for ${rawUrl}.`);
   } finally {
-    clearTimeout(timer);
+    if (!handedOff) clearTimeout(timer);
   }
 }

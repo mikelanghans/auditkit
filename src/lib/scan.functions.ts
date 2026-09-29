@@ -12,6 +12,9 @@ type ScanStatus = "pass" | "fail" | "warn" | "inconclusive";
 type CheckResult = { key: string; status: ScanStatus; notes: string };
 
 const TIMEOUT_MS = 10_000;
+// Bodies from the client's site are capped. A bigger one errors and the check
+// that needed it is reported as inconclusive instead of judged on part of it.
+const MAX_FETCH_BYTES = 8_000_000;
 
 /**
  * Routed through safeFetch so every redirect hop is re-validated. The target is
@@ -19,7 +22,7 @@ const TIMEOUT_MS = 10_000;
  * bypass rather than a theoretical one.
  */
 async function timedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS });
+  return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS, maxBodyBytes: MAX_FETCH_BYTES });
 }
 
 function normalizeUrl(raw: string): string {
@@ -176,7 +179,7 @@ const SENSITIVE_VITE_KEYWORDS = ["SECRET", "KEY", "TOKEN", "PASSWORD", "PRIVATE"
 // "sensitive" would put a false critical in every Supabase app's report.
 const PUBLIC_BY_DESIGN_VITE = /^VITE_[A-Z0-9_]*(PUBLISHABLE_KEY|ANON_KEY|_URL|PROJECT_ID)$/;
 const MAX_BUNDLES = 15;
-const MAX_BUNDLE_BYTES = 2_000_000;
+const MAX_BUNDLE_BYTES = MAX_FETCH_BYTES;
 
 type BundleCoverage = { complete: boolean; summary: string };
 

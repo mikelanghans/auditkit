@@ -43,7 +43,7 @@ type CheckResult = { status: "pass" | "fail" | "na" | "inconclusive"; notes: str
  * hostile project URL cannot walk those keys off to another host.
  */
 async function timedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS });
+  return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS, maxBodyBytes: 8_000_000 });
 }
 
 function normalizeProjectUrl(raw: string): string | null {

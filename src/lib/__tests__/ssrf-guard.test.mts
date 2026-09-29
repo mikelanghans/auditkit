@@ -1,4 +1,4 @@
-import { safeFetch, SSRFBlockedError, assertSafeOutboundUrl } from "../ssrf-guard.ts";
+import { safeFetch, SSRFBlockedError, ResponseTooLargeError, assertSafeOutboundUrl } from "../ssrf-guard.ts";
 
 let fail = 0;
 const check = (name, cond, extra = "") => {
@@ -118,14 +118,26 @@ try {
   check("fails closed when DoH unavailable", e instanceof SSRFBlockedError, e.message);
 }
 
-// 9b. Clearly public FQDNs are allowed through when every resolver is down
+// 9b. Public-looking FQDNs no longer get a pass when every resolver is down
 try {
   await assertSafeOutboundUrl("https://unknown.example.com/");
-  check("public FQDN allowed when DoH unavailable", true);
+  check("public-looking FQDN still fails closed when DoH unavailable", false, "allowed through");
 } catch (e) {
-  check("public FQDN allowed when DoH unavailable", false, e.message);
+  check("public-looking FQDN still fails closed when DoH unavailable", e instanceof SSRFBlockedError, e.message);
 }
 
+// 9c. A lookups fail but AAAA answers public: runtime could connect over IPv4, so block
+globalThis.fetch = async (url) => {
+  const u = new URL(String(url));
+  if (u.searchParams.get("type") === "A") return new Response("nope", { status: 500 });
+  return new Response(JSON.stringify({ Status: 0, Answer: [{ data: "2606:4700::1111", type: 28 }] }), { status: 200 });
+};
+try {
+  await assertSafeOutboundUrl("https://half.example.com/");
+  check("blocks when only one record family could be checked", false, "allowed through");
+} catch (e) {
+  check("blocks when only one record family could be checked", e instanceof SSRFBlockedError, e.message);
+}
 
 // 10. Escape hatch re-opens it deliberately
 process.env.AUDITKIT_ALLOW_UNRESOLVED_HOSTS = "true";
@@ -136,6 +148,110 @@ try {
   check("escape hatch allows unresolved host", false, e.message);
 }
 delete process.env.AUDITKIT_ALLOW_UNRESOLVED_HOSTS;
+
+// 11. Empty public DNS answer (NXDOMAIN / NODATA) is blocked
+stubFetch({});
+try {
+  await assertSafeOutboundUrl("https://only-internal.corp.example/");
+  check("blocks name with no public A/AAAA records", false, "allowed through");
+} catch (e) {
+  check("blocks name with no public A/AAAA records", e instanceof SSRFBlockedError, e.message);
+}
+
+// 12. IPv6 literals that embed private IPv4 (URL serialises them in hex)
+const blockedV6 = [
+  "http://[::ffff:127.0.0.1]/",
+  "http://[::ffff:169.254.169.254]/",
+  "http://[::ffff:10.0.0.1]/",
+  "http://[::127.0.0.1]/",
+  "http://[::ffff:0:127.0.0.1]/",
+  "http://[64:ff9b::169.254.169.254]/",
+  "http://[2002:a9fe:a9fe::1]/",
+  "http://[2001:0:4136:e378:8000:63bf:80ff:fffe]/", // Teredo, client 127.0.0.1
+  "http://[fe90::1]/",
+  "http://[fec0::1]/",
+  "http://[fd00::1]/",
+  "http://[::1]/",
+  "http://[::]/",
+  "http://[2001:db8::1]/",
+];
+for (const u of blockedV6) {
+  try {
+    await assertSafeOutboundUrl(u);
+    check(`blocks ${u}`, false, `allowed (hostname ${new URL(u).hostname})`);
+  } catch (e) {
+    check(`blocks ${u}`, e instanceof SSRFBlockedError, e.message);
+  }
+}
+for (const u of ["http://[2606:4700:4700::1111]/", "http://[::ffff:93.184.216.34]/", "http://[2002:5db8:d822::1]/"]) {
+  try {
+    await assertSafeOutboundUrl(u);
+    check(`allows public ${u}`, true);
+  } catch (e) {
+    check(`allows public ${u}`, false, e.message);
+  }
+}
+
+// 13. Hostname whose AAAA record is an IPv4-mapped private address
+globalThis.fetch = async (url) => {
+  const u = new URL(String(url));
+  const type = u.searchParams.get("type");
+  const Answer = type === "A" ? [{ data: "93.184.216.34", type: 1 }] : [{ data: "::ffff:a9fe:a9fe", type: 28 }];
+  return new Response(JSON.stringify({ Status: 0, Answer }), { status: 200 });
+};
+try {
+  await assertSafeOutboundUrl("https://sneaky.example.com/");
+  check("blocks host whose AAAA maps to 169.254.169.254", false, "allowed through");
+} catch (e) {
+  check("blocks host whose AAAA maps to 169.254.169.254", e instanceof SSRFBlockedError, e.message);
+}
+
+// 14. Body size cap: streamed body past the limit errors instead of being read in full
+stubFetch({
+  "https://good.example/big": () =>
+    new Response(new ReadableStream({
+      start(c) { for (let i = 0; i < 20; i++) c.enqueue(new Uint8Array(1024)); c.close(); },
+    }), { status: 200 }),
+});
+res = await safeFetch("https://good.example/big", {}, { maxBodyBytes: 4096 });
+try {
+  await res.text();
+  check("body over maxBodyBytes errors", false, "read in full");
+} catch (e) {
+  check("body over maxBodyBytes errors", e instanceof ResponseTooLargeError, e.message);
+}
+
+// 15. Declared Content-Length over the cap is refused before reading
+stubFetch({ "https://good.example/declared": () => new Response("x", { status: 200, headers: { "content-length": "999999999" } }) });
+try {
+  await safeFetch("https://good.example/declared", {}, { maxBodyBytes: 4096 });
+  check("declared oversize body refused", false, "no error");
+} catch (e) {
+  check("declared oversize body refused", e instanceof ResponseTooLargeError, e.message);
+}
+
+// 16. Deadline covers the body: headers arrive, body never finishes
+stubFetch({
+  "https://good.example/slow": () =>
+    new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode("partial")); } }), { status: 200 }),
+});
+{
+  const started = Date.now();
+  res = await safeFetch("https://good.example/slow", {}, { timeoutMs: 300 });
+  const body = res.text();
+  const outcome = await Promise.race([
+    body.then(() => "resolved", (e) => `rejected: ${e.message}`),
+    new Promise((r) => setTimeout(() => r("hung"), 3000)),
+  ]);
+  // A stub stream does not observe the abort signal, so a rejection comes from
+  // our wrapper cancelling it; real fetch bodies abort directly.
+  check("stalled body read is cut off by the deadline", outcome !== "hung" && outcome !== "resolved", `${outcome} after ${Date.now() - started}ms`);
+}
+
+// 17. Normal bodies still read fine
+stubFetch({ "https://good.example/ok": () => new Response("hello world", { status: 200 }) });
+res = await safeFetch("https://good.example/ok", {}, { maxBodyBytes: 4096 });
+check("small body reads normally", (await res.text()) === "hello world");
 
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAILURE(S)`);
 process.exit(fail === 0 ? 0 : 1);
