@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test:security": "node --experimental-strip-types src/lib/__tests__/ssrf-guard.test.mts && node --experimental-strip-types src/lib/__tests__/secret-redaction.test.mts",
-    "test:scanners": "node --experimental-strip-types --no-warnings --import ./src/lib/__tests__/harness/register.mjs --test src/lib/__tests__/verdict-integrity.test.mts src/lib/__tests__/access-controls.test.mts src/lib/__tests__/ai-assist-injection.test.mts"
+    "test:scanners": "node --experimental-strip-types --no-warnings --import ./src/lib/__tests__/harness/register.mjs --test src/lib/__tests__/verdict-integrity.test.mts src/lib/__tests__/access-controls.test.mts src/lib/__tests__/ai-assist-injection.test.mts src/lib/__tests__/public-check.test.mts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

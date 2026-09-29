@@ -9,22 +9,28 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedThreatFeedRouteImport } from './routes/_authenticated/threat-feed'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as CheckRouteImport } from './routes/check'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedLeadsRouteImport } from './routes/_authenticated/leads'
+import { Route as AuthenticatedThreatFeedRouteImport } from './routes/_authenticated/threat-feed'
 import { Route as AuthenticatedClientsIndexRouteImport } from './routes/_authenticated/clients.index'
 import { Route as AuthenticatedClientsIdRouteImport } from './routes/_authenticated/clients.$id'
 import { Route as AuthenticatedAuditsIdIndexRouteImport } from './routes/_authenticated/audits.$id.index'
-import { Route as ApiPublicHooksThreatFeedRouteImport } from './routes/api/public/hooks/threat-feed'
-import { Route as AuthenticatedAuditsIdReportRouteImport } from './routes/_authenticated/audits.$id.report'
 import { Route as AuthenticatedAuditsIdActivityRouteImport } from './routes/_authenticated/audits.$id.activity'
+import { Route as AuthenticatedAuditsIdReportRouteImport } from './routes/_authenticated/audits.$id.report'
+import { Route as ApiPublicHooksThreatFeedRouteImport } from './routes/api/public/hooks/threat-feed'
 
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -32,23 +38,29 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
+const CheckRoute = CheckRouteImport.update({
+  id: '/check',
+  path: '/check',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedThreatFeedRoute = AuthenticatedThreatFeedRouteImport.update({
-  id: '/threat-feed',
-  path: '/threat-feed',
-  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedLeadsRoute = AuthenticatedLeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedThreatFeedRoute = AuthenticatedThreatFeedRouteImport.update({
+  id: '/threat-feed',
+  path: '/threat-feed',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedClientsIndexRoute =
@@ -68,11 +80,11 @@ const AuthenticatedAuditsIdIndexRoute =
     path: '/audits/$id/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const ApiPublicHooksThreatFeedRoute =
-  ApiPublicHooksThreatFeedRouteImport.update({
-    id: '/api/public/hooks/threat-feed',
-    path: '/api/public/hooks/threat-feed',
-    getParentRoute: () => rootRouteImport,
+const AuthenticatedAuditsIdActivityRoute =
+  AuthenticatedAuditsIdActivityRouteImport.update({
+    id: '/audits/$id/activity',
+    path: '/audits/$id/activity',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAuditsIdReportRoute =
   AuthenticatedAuditsIdReportRouteImport.update({
@@ -80,18 +92,20 @@ const AuthenticatedAuditsIdReportRoute =
     path: '/audits/$id/report',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAuditsIdActivityRoute =
-  AuthenticatedAuditsIdActivityRouteImport.update({
-    id: '/audits/$id/activity',
-    path: '/audits/$id/activity',
-    getParentRoute: () => AuthenticatedRouteRoute,
+const ApiPublicHooksThreatFeedRoute =
+  ApiPublicHooksThreatFeedRouteImport.update({
+    id: '/api/public/hooks/threat-feed',
+    path: '/api/public/hooks/threat-feed',
+    getParentRoute: () => rootRouteImport,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/check': typeof CheckRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/leads': typeof AuthenticatedLeadsRoute
   '/threat-feed': typeof AuthenticatedThreatFeedRoute
   '/clients/$id': typeof AuthenticatedClientsIdRoute
   '/clients/': typeof AuthenticatedClientsIndexRoute
@@ -103,8 +117,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/check': typeof CheckRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/leads': typeof AuthenticatedLeadsRoute
   '/threat-feed': typeof AuthenticatedThreatFeedRoute
   '/clients/$id': typeof AuthenticatedClientsIdRoute
   '/clients': typeof AuthenticatedClientsIndexRoute
@@ -118,8 +134,10 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/check': typeof CheckRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/leads': typeof AuthenticatedLeadsRoute
   '/_authenticated/threat-feed': typeof AuthenticatedThreatFeedRoute
   '/_authenticated/clients/$id': typeof AuthenticatedClientsIdRoute
   '/_authenticated/clients/': typeof AuthenticatedClientsIndexRoute
@@ -133,8 +151,10 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/check'
     | '/reset-password'
     | '/dashboard'
+    | '/leads'
     | '/threat-feed'
     | '/clients/$id'
     | '/clients/'
@@ -146,8 +166,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/check'
     | '/reset-password'
     | '/dashboard'
+    | '/leads'
     | '/threat-feed'
     | '/clients/$id'
     | '/clients'
@@ -160,8 +182,10 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/check'
     | '/reset-password'
     | '/_authenticated/dashboard'
+    | '/_authenticated/leads'
     | '/_authenticated/threat-feed'
     | '/_authenticated/clients/$id'
     | '/_authenticated/clients/'
@@ -175,24 +199,18 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  CheckRoute: typeof CheckRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiPublicHooksThreatFeedRoute: typeof ApiPublicHooksThreatFeedRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -202,25 +220,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/threat-feed': {
-      id: '/_authenticated/threat-feed'
-      path: '/threat-feed'
-      fullPath: '/threat-feed'
-      preLoaderRoute: typeof AuthenticatedThreatFeedRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/check': {
+      id: '/check'
+      path: '/check'
+      fullPath: '/check'
+      preLoaderRoute: typeof CheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/leads': {
+      id: '/_authenticated/leads'
+      path: '/leads'
+      fullPath: '/leads'
+      preLoaderRoute: typeof AuthenticatedLeadsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/threat-feed': {
+      id: '/_authenticated/threat-feed'
+      path: '/threat-feed'
+      fullPath: '/threat-feed'
+      preLoaderRoute: typeof AuthenticatedThreatFeedRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/clients/': {
@@ -244,12 +283,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAuditsIdIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/api/public/hooks/threat-feed': {
-      id: '/api/public/hooks/threat-feed'
-      path: '/api/public/hooks/threat-feed'
-      fullPath: '/api/public/hooks/threat-feed'
-      preLoaderRoute: typeof ApiPublicHooksThreatFeedRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/audits/$id/activity': {
+      id: '/_authenticated/audits/$id/activity'
+      path: '/audits/$id/activity'
+      fullPath: '/audits/$id/activity'
+      preLoaderRoute: typeof AuthenticatedAuditsIdActivityRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/audits/$id/report': {
       id: '/_authenticated/audits/$id/report'
@@ -258,18 +297,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAuditsIdReportRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/audits/$id/activity': {
-      id: '/_authenticated/audits/$id/activity'
-      path: '/audits/$id/activity'
-      fullPath: '/audits/$id/activity'
-      preLoaderRoute: typeof AuthenticatedAuditsIdActivityRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/api/public/hooks/threat-feed': {
+      id: '/api/public/hooks/threat-feed'
+      path: '/api/public/hooks/threat-feed'
+      fullPath: '/api/public/hooks/threat-feed'
+      preLoaderRoute: typeof ApiPublicHooksThreatFeedRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedLeadsRoute: typeof AuthenticatedLeadsRoute
   AuthenticatedThreatFeedRoute: typeof AuthenticatedThreatFeedRoute
   AuthenticatedClientsIdRoute: typeof AuthenticatedClientsIdRoute
   AuthenticatedClientsIndexRoute: typeof AuthenticatedClientsIndexRoute
@@ -280,6 +320,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedLeadsRoute: AuthenticatedLeadsRoute,
   AuthenticatedThreatFeedRoute: AuthenticatedThreatFeedRoute,
   AuthenticatedClientsIdRoute: AuthenticatedClientsIdRoute,
   AuthenticatedClientsIndexRoute: AuthenticatedClientsIndexRoute,
@@ -295,6 +336,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  CheckRoute: CheckRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiPublicHooksThreatFeedRoute: ApiPublicHooksThreatFeedRoute,
 }

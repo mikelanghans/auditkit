@@ -127,10 +127,10 @@ test("website scan: secrets in a JS bundle fail bundle_secrets; public Supabase 
 test("website scan: more bundles than the scan limit is inconclusive, not pass", async () => {
   const db = scanDb();
   const c = ctx(db);
-  const scripts = Array.from({ length: 16 }, (_, i) => `/assets/c${i}.js`);
+  const scripts = Array.from({ length: 31 }, (_, i) => `/assets/c${i}.js`);
   stubFetch((url) => {
     if (url === "https://app.example.com") return text(page(scripts), 200, SEC_HEADERS);
-    if (/\/assets\/c15\.js$/.test(url)) return text("VITE_STRIPE_SECRET_KEY", 200);
+    if (/\/assets\/c30\.js$/.test(url)) return text("VITE_STRIPE_SECRET_KEY", 200);
     if (/\/assets\/c\d+\.js$/.test(url)) return text("console.log(1)", 200);
     return text("not found", 404);
   });

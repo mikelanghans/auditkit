@@ -3,6 +3,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
 import { consumeQuota } from "./quota";
+import { collectBundles, type BundleCoverage } from "./bundle-collect";
+import { scanForSecrets } from "./bundle-secrets";
 
 
 // "warn" = advisory, left for manual review and not written.
@@ -127,35 +129,33 @@ function checkSensitiveUrlParams(body: string, base: string): CheckResult {
 }
 
 function checkBundleSecrets(sources: { url: string; body: string }[], coverage: BundleCoverage): CheckResult {
-  const patterns: Array<[RegExp, string]> = [
-    [/sk_live_[A-Za-z0-9]{16,}/g, "Stripe live secret key"],
-    [/sk_test_[A-Za-z0-9]{16,}/g, "Stripe test secret key"],
-    [/AKIA[0-9A-Z]{16}/g, "AWS access key"],
-    [/AIza[0-9A-Za-z\-_]{35}/g, "Google API key"],
-    [/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "JWT-like token"],
-    [/service_role[^A-Za-z0-9]{0,5}[:=][^,\n]{20,}/gi, "service_role reference"],
-  ];
-  const hits: string[] = [];
-  for (const { url, body } of sources) {
-    for (const [re, label] of patterns) {
-      const matches = body.match(re);
-      if (matches) hits.push(`${label} (${matches.length} match${matches.length > 1 ? "es" : ""}) in ${url}`);
-    }
+  // Public-by-design keys (Supabase anon/publishable, Stripe publishable) are
+  // not findings. Values are masked; the full secret never reaches the notes.
+  const findings = scanForSecrets(sources);
+  const serious = findings.filter((f) => f.severity !== "low");
+  const describe = (list: typeof findings) =>
+    list
+      .map((f) => `- [${f.severity}] ${f.label}: ${f.masked} (in ${f.urls.join(", ")})\n  ${f.advice}`)
+      .join("\n");
+  if (serious.length > 0) {
+    return {
+      key: "bundle_secrets",
+      status: "fail",
+      notes: `Secrets found in client-side code served to every visitor:\n${describe(findings)}`,
+    };
   }
-  if (hits.length > 0) {
-    return { key: "bundle_secrets", status: "fail", notes: `Possible secret patterns detected in client-side code:\n- ${hits.join("\n- ")}` };
-  }
+  const lowNote = findings.length ? `\n\nWorth checking (usually fine when restricted):\n${describe(findings)}` : "";
   if (!coverage.complete) {
     return {
       key: "bundle_secrets",
       status: "inconclusive",
-      notes: `No secret patterns found in what could be scanned, but the scan was incomplete, so this is not a pass.\n\n${coverage.summary}`,
+      notes: `No secrets found in what could be scanned, but the scan was incomplete, so this is not a pass.\n\n${coverage.summary}${lowNote}`,
     };
   }
   return {
     key: "bundle_secrets",
     status: "pass",
-    notes: `No obvious secret patterns detected in the HTML and ${sources.length - 1} JS bundle(s).`,
+    notes: `No secret keys found in the HTML and ${sources.length - 1} JavaScript file(s).${lowNote}`,
   };
 }
 
@@ -178,54 +178,7 @@ const SENSITIVE_VITE_KEYWORDS = ["SECRET", "KEY", "TOKEN", "PASSWORD", "PRIVATE"
 // Values that are designed to be public in a browser bundle. Flagging these as
 // "sensitive" would put a false critical in every Supabase app's report.
 const PUBLIC_BY_DESIGN_VITE = /^VITE_[A-Z0-9_]*(PUBLISHABLE_KEY|ANON_KEY|_URL|PROJECT_ID)$/;
-const MAX_BUNDLES = 15;
-const MAX_BUNDLE_BYTES = MAX_FETCH_BYTES;
-
-type BundleCoverage = { complete: boolean; summary: string };
-
-function extractScriptUrls(html: string, base: string): string[] {
-  const urls = new Set<string>();
-  const re = /<script\b[^>]*\bsrc=["']([^"']+\.[mc]?js(?:\?[^"']*)?)["']/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    try {
-      urls.add(new URL(m[1], base + "/").toString());
-    } catch {
-      /* ignore */
-    }
-  }
-  return Array.from(urls);
-}
-
-/**
- * Fetch the page's JS bundles once, for both bundle checks. Tracks what could
- * NOT be scanned, because "we didn't see it" must never be reported as "clean".
- */
-async function collectBundles(base: string, html: string): Promise<{ sources: { url: string; body: string }[]; coverage: BundleCoverage }> {
-  const allUrls = extractScriptUrls(html, base);
-  const scriptUrls = allUrls.slice(0, MAX_BUNDLES);
-  const sources: { url: string; body: string }[] = [{ url: base, body: html }];
-  const skipped: string[] = [];
-  for (const url of scriptUrls) {
-    try {
-      await assertSafeOutboundUrl(url);
-      const r = await timedFetch(url, { headers: { "user-agent": "AuditKit-Scanner/1.0" } });
-      if (!r.ok) {
-        skipped.push(`${url} (HTTP ${r.status})`);
-        continue;
-      }
-      const text = (await r.text()).slice(0, MAX_BUNDLE_BYTES);
-      sources.push({ url, body: text });
-    } catch (e: any) {
-      skipped.push(`${url} (${e?.message ?? "fetch failed"})`);
-    }
-  }
-  const overCap = allUrls.length - scriptUrls.length;
-  const lines: string[] = [`Scanned the HTML and ${sources.length - 1} of ${allUrls.length} referenced JS bundle(s).`];
-  if (skipped.length) lines.push(`Could not fetch ${skipped.length}:\n${skipped.slice(0, 15).map((u) => `- ${u}`).join("\n")}`);
-  if (overCap > 0) lines.push(`${overCap} bundle(s) beyond the ${MAX_BUNDLES}-file scan limit were not fetched.`);
-  return { sources, coverage: { complete: skipped.length === 0 && overCap === 0, summary: lines.join("\n\n") } };
-}
+const MAX_BUNDLES = 30;
 
 function checkViteExposure(sources: { url: string; body: string }[], coverage: BundleCoverage): CheckResult {
 
@@ -337,7 +290,7 @@ export const runAutoScan = createServerFn({ method: "POST" })
       results.push(checkCors(h));
       results.push(checkSensitiveUrlParams(body, base));
       results.push(checkDebugMode(body, h));
-      const bundles = await collectBundles(base, body);
+      const bundles = await collectBundles(base, body, { maxBundles: MAX_BUNDLES, timeoutMs: TIMEOUT_MS, maxBytesPerFile: MAX_FETCH_BYTES });
       results.push(checkBundleSecrets(bundles.sources, bundles.coverage));
       results.push(checkViteExposure(bundles.sources, bundles.coverage));
     } else {
