@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Printer, Download, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { ExplainButton } from "@/components/explain-button";
@@ -30,8 +30,44 @@ export const Route = createFileRoute("/_authenticated/audits/$id/report")({
   component: ReportPage,
 });
 
+async function downloadReportPdf(el: HTMLElement | null, filename: string) {
+  if (!el) return;
+  const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+    import("html2canvas-pro"),
+    import("jspdf"),
+  ]);
+  const canvas = await html2canvas(el, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: "#ffffff",
+    ignoreElements: (node) => node.classList?.contains("print:hidden"),
+  });
+  const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+  const margin = 24;
+  const pageW = pdf.internal.pageSize.getWidth() - margin * 2;
+  const pageH = pdf.internal.pageSize.getHeight() - margin * 2;
+  const pxPerPt = canvas.width / pageW;
+  const sliceHpx = Math.floor(pageH * pxPerPt);
+  let y = 0;
+  let first = true;
+  while (y < canvas.height) {
+    const h = Math.min(sliceHpx, canvas.height - y);
+    const slice = document.createElement("canvas");
+    slice.width = canvas.width;
+    slice.height = h;
+    slice.getContext("2d")!.drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+    if (!first) pdf.addPage();
+    pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, pageW, h / pxPerPt);
+    first = false;
+    y += h;
+  }
+  pdf.save(filename);
+}
+
 function ReportPage() {
   const { id } = Route.useParams();
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const audit = useQuery({
     queryKey: ["audit", id],
@@ -165,12 +201,28 @@ function ReportPage() {
         <Link to="/audits/$id" params={{ id }} className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4 mr-1" /> Back to audit
         </Link>
-        <Button onClick={() => window.print()} className="bg-navy text-navy-foreground hover:bg-navy/90">
-          <Printer className="h-4 w-4 mr-1" /> Print / Save PDF
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => window.print()}>
+            <Printer className="h-4 w-4 mr-1" /> Print
+          </Button>
+          <Button
+            disabled={downloading}
+            onClick={async () => {
+              setDownloading(true);
+              try {
+                await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`);
+              } finally {
+                setDownloading(false);
+              }
+            }}
+            className="bg-navy text-navy-foreground hover:bg-navy/90"
+          >
+            <Download className="h-4 w-4 mr-1" /> {downloading ? "Preparing…" : "Download PDF"}
+          </Button>
+        </div>
       </div>
 
-      <div className="bg-card border rounded-xl p-8 print:border-0 print:p-0">
+      <div ref={reportRef} className="bg-card border rounded-xl p-8 print:border-0 print:p-0">
         <header className="border-b pb-6 mb-6">
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Security Audit Report</p>
           <h1 className="text-3xl font-semibold tracking-tight mt-1">{audit.data?.title}</h1>
