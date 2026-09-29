@@ -437,7 +437,7 @@ function FailedFindingCard({
   notes: string | null;
   explanation: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [exp, setExp] = useState<string | null>(explanation);
   const sev = (item.severity ?? "medium").toLowerCase();
   const bannerCls = SEVERITY_BANNER[sev] ?? SEVERITY_BANNER.medium;
