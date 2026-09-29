@@ -475,6 +475,27 @@ export type Database = {
           },
         ]
       }
+      usage_counters: {
+        Row: {
+          count: number
+          day: string
+          kind: string
+          user_id: string
+        }
+        Insert: {
+          count?: number
+          day: string
+          kind: string
+          user_id: string
+        }
+        Update: {
+          count?: number
+          day?: string
+          kind?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -501,6 +522,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      consume_quota: {
+        Args: { p_amount?: number; p_kind: string }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -513,7 +538,7 @@ export type Database = {
       app_role: "admin" | "auditor"
       audit_status: "draft" | "in_progress" | "completed"
       engagement_type: "prospect" | "one_time" | "retainer"
-      finding_status: "pass" | "fail" | "na" | "resolved"
+      finding_status: "pass" | "fail" | "na" | "resolved" | "inconclusive"
       severity: "critical" | "high" | "medium" | "low"
     }
     CompositeTypes: {
@@ -645,7 +670,7 @@ export const Constants = {
       app_role: ["admin", "auditor"],
       audit_status: ["draft", "in_progress", "completed"],
       engagement_type: ["prospect", "one_time", "retainer"],
-      finding_status: ["pass", "fail", "na", "resolved"],
+      finding_status: ["pass", "fail", "na", "resolved", "inconclusive"],
       severity: ["critical", "high", "medium", "low"],
     },
   },
