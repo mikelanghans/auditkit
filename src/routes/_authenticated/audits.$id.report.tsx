@@ -10,6 +10,7 @@ import { ArrowLeft, Printer, Download, ChevronDown, Siren, ShieldCheck, ShieldAl
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { listResolvedFindings } from "@/lib/finding-resolution.functions";
 import {
@@ -249,9 +250,9 @@ function ReportPage() {
               setDownloading(true);
               try {
                 await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`, win);
-              } catch (e) {
+              } catch (e: any) {
                 win?.close();
-                throw e;
+                toast.error(e?.message ? `Could not create PDF: ${e.message}` : "Could not create PDF");
               } finally {
                 setDownloading(false);
               }
