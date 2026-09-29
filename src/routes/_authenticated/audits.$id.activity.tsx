@@ -20,7 +20,7 @@ export const Route = createFileRoute("/_authenticated/audits/$id/activity")({
   head: () => ({ meta: [{ title: "Activity Log — AuditKit" }] }),
   component: ActivityLogPage,
   errorComponent: ({ error }) => (
-    <div className="p-6 text-sm text-destructive">Failed to load activity: {error.message}</div>
+    <div className="p-6 text-sm text-destructive">Failed to load activity: {error instanceof Error ? error.message : String(error)}</div>
   ),
   notFoundComponent: () => <div className="p-6 text-sm text-muted-foreground">Audit not found.</div>,
 });
