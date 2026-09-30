@@ -180,10 +180,16 @@ async function dohResolveVia(
     const r = await fetch(`${endpoint}?name=${encodeURIComponent(name)}&type=${type}`, {
       headers: { accept: "application/dns-json" },
       signal: ctl.signal,
-      redirect: "error",
+      // Cloudflare Workers rejects redirect: "error" outright (a TypeError on
+      // every call), which made every resolver look unavailable. "manual"
+      // works everywhere; a redirect response is simply treated as unusable.
+      redirect: "manual",
     });
-    // null = resolver unusable (throttled / errored); [] = resolver answered "no such record".
-    if (!r.ok) return null;
+    // null = resolver unusable (throttled / errored / redirected); [] = resolver answered "no such record".
+    if (!r.ok) {
+      await r.body?.cancel().catch(() => {});
+      return null;
+    }
     const json = (await r.json()) as { Answer?: { data: string; type: number }[]; Status?: number };
     if (typeof json.Status === "number" && json.Status !== 0 && json.Status !== 3) return null;
     const wanted = type === "A" ? 1 : 28;
