@@ -8,6 +8,7 @@ import { upsertScanFinding } from "./finding-writer";
 import { consumeQuota } from "./quota";
 import { gitignoreIgnoresEnv, isEnvFilePath } from "./repo-hygiene";
 import { checkXss, findXssSinks, xssCandidatePaths, type XssHit } from "./xss-scan";
+import { parseGithubRepo, judgeSiteMatch, siteHost } from "./github-repo";
 
 
 const TIMEOUT_MS = 15_000;
@@ -34,14 +35,7 @@ async function timedFetch(url: string, init: RequestInit = {}): Promise<Response
   return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS, allowHosts: GITHUB_HOSTS });
 }
 
-function parseRepo(raw: string): { owner: string; repo: string } | null {
-  const m = raw
-    .trim()
-    .replace(/\.git$/, "")
-    .match(/(?:github\.com[/:])?([^/\s]+)\/([^/?#\s]+)/i);
-  if (!m) return null;
-  return { owner: m[1], repo: m[2] };
-}
+const parseRepo = parseGithubRepo;
 
 function ghHeaders(token: string): Record<string, string> {
   return {
@@ -286,12 +280,18 @@ export const runRepoScan = createServerFn({ method: "POST" })
       };
     }
 
+    // Is this the audited website's repo? Collected while reading files below.
+    const auditHost = siteHost(data.appUrl);
+    let repoMentionsHost = false;
+    let xssFilesRead = false;
+
     // ---- XSS: raw-HTML rendering in the source ----
     let xssCheck: { status: "pass" | "fail" | "inconclusive"; notes: string };
     if (!treePaths) {
       xssCheck = { status: "inconclusive", notes: "Not checked: the repository file listing could not be fetched." };
     } else {
       const { pick, total } = xssCandidatePaths(treePaths, MAX_XSS_FILES);
+      xssFilesRead = true;
       let failed = 0;
       const hits: XssHit[] = [];
       await pMap(pick, 8, async (path) => {
@@ -305,7 +305,9 @@ export const runRepoScan = createServerFn({ method: "POST" })
             failed++;
             return;
           }
-          hits.push(...findXssSinks(path, await r.text()));
+          const body = await r.text();
+          if (auditHost && body.toLowerCase().includes(auditHost)) repoMentionsHost = true;
+          hits.push(...findXssSinks(path, body));
         } catch {
           failed++;
         }
@@ -313,6 +315,35 @@ export const runRepoScan = createServerFn({ method: "POST" })
       hits.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
       xssCheck = checkXss(hits, { scanned: pick.length - failed, total: treeWasTruncated ? total + 1 : total, failed });
     }
+
+    // ---- Does this repo belong to the audited website? ----
+    let cname: string | null = null;
+    const cnamePath = treePaths?.find((p) => /^(public\/|docs\/|static\/)?CNAME$/.test(p));
+    if (cnamePath && auditHost && !repoMentionsHost) {
+      const r = await timedFetch(
+        `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/contents/${cnamePath}?ref=${encodeURIComponent(defaultBranch)}`,
+        { headers: { ...headers, accept: "application/vnd.github.raw" } },
+      ).catch(() => null);
+      if (r?.ok) cname = (await r.text()).trim();
+    }
+    let searchHits: number | null = null;
+    if (auditHost && !repoMentionsHost && !cname && xssFilesRead) {
+      const r = await timedFetch(
+        `https://api.github.com/search/code?q=${encodeURIComponent(`"${auditHost}" repo:${parsed.owner}/${parsed.repo}`)}&per_page=1`,
+        { headers },
+      ).catch(() => null);
+      if (r?.ok) {
+        const j = await r.json().catch(() => null);
+        if (typeof j?.total_count === "number") searchHits = j.total_count;
+      }
+    }
+    const siteMatch = judgeSiteMatch({
+      siteUrl: data.appUrl,
+      homepage: (meta as any)?.homepage ?? null,
+      cname,
+      texts: repoMentionsHost && auditHost ? [auditHost] : [],
+      searchHits,
+    });
 
     // ---- Persist findings by checklist title ----
     const titleToResult: Record<string, { status: "pass" | "fail" | "inconclusive"; notes: string }> = {
@@ -337,7 +368,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
         written.push({ title, status: res.status, matched: false });
         continue;
       }
-      const note = `[Repo scan ${stamp}]\nRepo: ${parsed.owner}/${parsed.repo}\n\n${res.notes}`;
+      const note = `[Repo scan ${stamp}]\nRepo: ${parsed.owner}/${parsed.repo}${siteMatch.match === "no" ? `\n⚠ ${siteMatch.note}` : ""}\n\n${res.notes}`;
       const w = await upsertScanFinding(supabase, {
         audit_id: data.auditId,
         checklist_item_id: itemId,
@@ -420,6 +451,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
       dep,
       aiEndpoints,
       aiDetectError,
+      siteMatch,
     };
   });
 

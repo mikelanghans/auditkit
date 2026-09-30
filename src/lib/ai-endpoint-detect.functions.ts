@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { GITHUB_HOSTS, safeFetch } from "./ssrf-guard";
+import { parseGithubRepo } from "./github-repo";
 
 const TIMEOUT_MS = 15_000;
 const MAX_FILES_TO_FETCH = 40;
@@ -25,11 +26,7 @@ export type DetectedEndpoint = {
   partialUrl: boolean;
 };
 
-function parseRepo(raw: string): { owner: string; repo: string } | null {
-  const m = raw.trim().replace(/\.git$/, "").match(/(?:github\.com[/:])?([^/\s]+)\/([^/?#\s]+)/i);
-  if (!m) return null;
-  return { owner: m[1], repo: m[2] };
-}
+const parseRepo = parseGithubRepo;
 
 function ghHeaders(token: string): Record<string, string> {
   return {

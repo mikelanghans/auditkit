@@ -1158,6 +1158,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
     <RepoLauncher
       trigger={{ label: hasRun ? "Re-scan Repo" : "Scan Repo", icon: <GitBranch className="h-4 w-4 mr-1" /> }}
       clientId={clientId}
+      websiteUrl={appUrl}
       savedRepos={savedRepos}
       title="Scan GitHub repo"
       description={<>Two-phase scan: (1) last 100 commits on the default branch for committed <code>.env</code> files and known secret patterns; (2) <code>package.json</code> dependencies checked against the npm advisory database.</>}
@@ -1180,6 +1181,9 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
             `Repo scan complete — ${passes} pass, ${fails} fail`,
             { id: loadingToastId, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}${aiDesc}` },
           );
+          if (res.siteMatch?.match === "no") {
+            toast.warning(`Is ${res.repo} the right repo?`, { description: res.siteMatch.note, duration: 15000 });
+          }
           onRepoResult({
             passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString(),
             dep: dep

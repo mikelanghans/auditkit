@@ -32,6 +32,7 @@ export function RepoLauncher({
   onSaved,
   buttonClassName,
   extraControls,
+  websiteUrl,
 }: {
   trigger: { label: string; icon: ReactNode; variant?: "outline" | "default" | "ghost"; className?: string };
   clientId: string | null;
@@ -48,6 +49,8 @@ export function RepoLauncher({
   buttonClassName?: string;
   /** Optional controls (e.g. scan depth selector) rendered above the picker / form. */
   extraControls?: ReactNode;
+  /** The audited website. A repo saved from here is linked to it, so it's only offered for that site. */
+  websiteUrl?: string | null;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -140,36 +143,29 @@ export function RepoLauncher({
     }
     const rurl = repoUrl.trim();
     const tok = token.trim();
-    let savedRepoRow: SavedRepo = {
-      id: "",
-      label: label.trim() || deriveLabel(rurl),
-      repo_url: rurl,
-    };
+    // Scan first; only a repo GitHub actually found is saved for the client,
+    // so a typo never becomes a saved repo.
+    const ok = await runWith(rurl, tok);
+    if (!ok) return;
     if (saveForClient && clientId) {
-      // The PAT is deliberately NOT persisted here. Only the repo reference is
-      // stored; the token lives in sessionStorage via setCachedRepoToken below
-      // and is re-prompted when that expires. Nothing ever read the old
-      // client_repos.github_token column back, so writing it stored live client
-      // credentials at rest in exchange for no functionality at all.
+      // The PAT is deliberately NOT persisted. Only the repo reference is
+      // stored; the token lives in sessionStorage via setCachedRepoToken.
       const { data: inserted, error } = await supabase.from("client_repos").insert({
         client_id: clientId,
-        label: savedRepoRow.label,
+        label: label.trim() || deriveLabel(rurl),
         repo_url: rurl,
+        website_url: websiteUrl || null,
       }).select("id, label, repo_url").single();
       if (error) {
-        toast.error(`Could not save repo: ${error.message}`);
-        return;
+        toast.error(`Scan finished, but the repo couldn't be saved: ${error.message}`);
+      } else if (inserted) {
+        setCachedRepoToken((inserted as SavedRepo).id, tok);
+        qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
+        onSaved?.();
       }
-      savedRepoRow = inserted as SavedRepo;
-      qc.invalidateQueries({ queryKey: ["client-repos", clientId] });
-      onSaved?.();
     }
-    if (savedRepoRow.id) setCachedRepoToken(savedRepoRow.id, tok);
-    const ok = await runWith(rurl, tok);
-    if (ok) {
-      reset();
-      setOpen(false);
-    }
+    reset();
+    setOpen(false);
   };
 
 

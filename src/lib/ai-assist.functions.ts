@@ -4,6 +4,7 @@ import { decodeBase64Utf8 } from "./decode-blob";
 import { consumeQuota } from "./quota";
 import { redactForPrompt } from "./secret-redaction";
 import { UNTRUSTED_CONTENT_RULES, detectPromptInjection, wrapUntrustedFiles } from "./untrusted-content";
+import { parseGithubRepo } from "./github-repo";
 
 // Per-batch budget sent to Claude (well under 200k-token context window)
 const BATCH_MAX_FILES = 40;
@@ -38,15 +39,7 @@ export type AIAssistFinding = {
   evidence: string;
 };
 
-function parseRepo(raw: string): { owner: string; repo: string } | null {
-  try {
-    const u = new URL(raw.trim());
-    if (!/github\.com$/i.test(u.hostname)) return null;
-    const [owner, repo] = u.pathname.replace(/^\/+|\/+$/g, "").split("/");
-    if (!owner || !repo) return null;
-    return { owner, repo: repo.replace(/\.git$/, "") };
-  } catch { return null; }
-}
+const parseRepo = parseGithubRepo;
 
 async function gh<T = any>(url: string, token: string): Promise<T> {
   const res = await fetch(url, {

@@ -3,6 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { decodeBase64Utf8 } from "./decode-blob";
 import { consumeQuota } from "./quota";
 import { redactForPrompt, redactSourceFile } from "./secret-redaction";
+import { parseGithubRepo } from "./github-repo";
 
 // Mirror the file-selection strategy used by AI Assist, but cap at ~20 files for
 // a single holistic pass that fits in one Claude call.
@@ -34,15 +35,7 @@ export type ArchitecturalFindingRow = {
 };
 
 
-function parseRepo(raw: string): { owner: string; repo: string } | null {
-  try {
-    const u = new URL(raw.trim());
-    if (!/github\.com$/i.test(u.hostname)) return null;
-    const [owner, repo] = u.pathname.replace(/^\/+|\/+$/g, "").split("/");
-    if (!owner || !repo) return null;
-    return { owner, repo: repo.replace(/\.git$/, "") };
-  } catch { return null; }
-}
+const parseRepo = parseGithubRepo;
 
 async function gh<T = any>(url: string, token: string): Promise<T> {
   const res = await fetch(url, {
