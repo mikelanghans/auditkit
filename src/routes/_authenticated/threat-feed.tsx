@@ -53,7 +53,11 @@ function ThreatFeed() {
     onSuccess: (r: any) => {
       if (r?.ok === false) toast.error(r.error ?? "Failed.");
       else {
-        toast.success(`Fetched ${r.fetched}, added ${r.inserted}, skipped ${r.skipped}.`);
+        toast.success(
+          r.fetched === 0
+            ? `No new advisories for tracked packages since ${new Date(r.since).toLocaleDateString()}.`
+            : `Found ${r.fetched} advisories since ${new Date(r.since).toLocaleDateString()}: ${r.inserted} added, ${r.skipped} already here${r.deferred ? `, ${r.deferred} left for the next run` : ""}${r.errors ? `, ${r.errors} failed` : ""}.`,
+        );
         threatLR.mark();
       }
       qc.invalidateQueries({ queryKey: ["threat-feed"] });

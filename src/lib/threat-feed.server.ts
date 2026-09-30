@@ -50,6 +50,10 @@ async function fetchGithubAdvisories(sinceIso: string): Promise<RawAdvisory[]> {
   url.searchParams.set("direction", "desc");
   url.searchParams.set("per_page", "100");
   url.searchParams.set("published", `>=${sinceIso.slice(0, 10)}`);
+  // Ask GitHub for the tracked packages directly. Filtering the 100 newest
+  // advisories across all ecosystems missed most of them.
+  url.searchParams.set("ecosystem", "npm");
+  url.searchParams.set("affects", TRACKED_PACKAGES.join(","));
 
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) {
@@ -175,15 +179,44 @@ async function classifyWithClaude(a: RawAdvisory): Promise<Classification | null
   } catch { return null; }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Most advisories classified per run, so one run can't take minutes or spend much. */
+const MAX_CLASSIFY_PER_RUN = 25;
+
+/**
+ * Where to start looking. A fixed 24-hour window lost everything published on
+ * a day the job didn't run (and returned nothing on a fresh install), so start
+ * from the newest item already stored, minus a day of overlap: 14 days back
+ * on an empty feed, never more than 30.
+ */
+export function computeLookback(newestStored: string | null, now = Date.now()): string {
+  const floor = now - 30 * DAY_MS;
+  if (!newestStored) return new Date(now - 14 * DAY_MS).toISOString();
+  const t = Date.parse(newestStored);
+  const start = Number.isNaN(t) ? now - DAY_MS : Math.min(t - DAY_MS, now - DAY_MS);
+  return new Date(Math.max(start, floor)).toISOString();
+}
+
+async function lookbackStart(db: any): Promise<string> {
+  const { data } = await db
+    .from("threat_feed_items")
+    .select("created_at")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  return computeLookback(data?.[0]?.created_at ?? null);
+}
+
 export async function runThreatFeed(): Promise<{
   ok: true;
   fetched: number;
   inserted: number;
   skipped: number;
   errors: number;
+  deferred: number;
+  since: string;
 }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const since = await lookbackStart(supabaseAdmin);
 
   const [gh, nvd] = await Promise.all([
     fetchGithubAdvisories(since).catch((e) => { console.error("[threat-feed] gh", e); return [] as RawAdvisory[]; }),
@@ -201,7 +234,9 @@ export async function runThreatFeed(): Promise<{
       .in("external_id", all.map((a) => a.external_id));
     for (const row of data ?? []) existing.add(`${row.source}:${row.external_id}`);
   }
-  const fresh = all.filter((a) => !existing.has(`${a.source}:${a.external_id}`));
+  const unseen = all.filter((a) => !existing.has(`${a.source}:${a.external_id}`));
+  // The rest are picked up on the next run (they stay unseen until stored).
+  const fresh = unseen.slice(0, MAX_CLASSIFY_PER_RUN);
 
   let inserted = 0;
   let errors = 0;
@@ -234,5 +269,5 @@ export async function runThreatFeed(): Promise<{
     }
   }
 
-  return { ok: true, fetched: all.length, inserted, skipped: all.length - fresh.length, errors };
+  return { ok: true, fetched: all.length, inserted, skipped: all.length - unseen.length, errors, deferred: unseen.length - fresh.length, since };
 }
