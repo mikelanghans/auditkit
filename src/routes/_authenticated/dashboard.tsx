@@ -84,15 +84,14 @@ function Dashboard() {
     },
   });
 
-  // Latest audit per client (status priority gives in_progress preference of newest)
-  const latestAuditByClient = useMemo(() => {
+  // Latest audit per client *and website*. Each website is scored on its own
+  // audits only; a client with several sites gets one row per site.
+  const latestAuditBySite = useMemo(() => {
     const m = new Map<string, any>();
     for (const a of audits.data ?? []) {
-      const prev = m.get(a.client_id);
-      if (!prev) { m.set(a.client_id, a); continue; }
-      const prevTs = new Date(prev.started_at).getTime();
-      const curTs = new Date(a.started_at).getTime();
-      if (curTs > prevTs) m.set(a.client_id, a);
+      const key = `${a.client_id}|${siteKey(a.website_url)}`;
+      const prev = m.get(key);
+      if (!prev || new Date(a.started_at).getTime() > new Date(prev.started_at).getTime()) m.set(key, a);
     }
     return m;
   }, [audits.data]);
@@ -109,21 +108,33 @@ function Dashboard() {
 
   const rows = useMemo(() => {
     const itemList = (items.data ?? []) as { id: string; severity: string | null }[];
-    return (clients.data ?? []).map((c: any) => {
-      const latest = latestAuditByClient.get(c.id);
-      const statusMap = latest ? findingsByAudit.get(latest.id) ?? new Map() : new Map();
-      const score = computeSecurityScore(itemList, statusMap as Map<string, any>);
-      const risk = latest ? failuresBySeverity(itemList, statusMap as Map<string, any>) : { critical: 0, high: 0, medium: 0, low: 0 };
-      const lastScanAt: string | null = latest?.completed_at ?? latest?.started_at ?? null;
-      return {
-        client: c,
-        latest,
-        score,
-        risk,
-        lastScanAt,
+    const out: any[] = [];
+    for (const c of (clients.data ?? []) as any[]) {
+      // The client's websites, plus any site an audit was run against that has
+      // since been removed from the client, so no audit becomes unreachable.
+      const sites: { key: string; url: string | null }[] = [];
+      const seen = new Set<string>();
+      const add = (url: string | null | undefined) => {
+        const key = siteKey(url);
+        if (seen.has(key)) return;
+        seen.add(key);
+        sites.push({ key, url: url ?? null });
       };
-    });
-  }, [clients.data, items.data, latestAuditByClient, findingsByAudit]);
+      for (const w of (c.websites ?? []) as string[]) add(w);
+      for (const a of audits.data ?? []) if (a.client_id === c.id) add(a.website_url);
+      if (sites.length === 0) sites.push({ key: "", url: null });
+
+      for (const site of sites) {
+        const latest = latestAuditBySite.get(`${c.id}|${site.key}`);
+        const statusMap = latest ? findingsByAudit.get(latest.id) ?? new Map() : new Map();
+        const score = computeSecurityScore(itemList, statusMap as Map<string, any>);
+        const risk = latest ? failuresBySeverity(itemList, statusMap as Map<string, any>) : { critical: 0, high: 0, medium: 0, low: 0 };
+        const lastScanAt: string | null = latest?.completed_at ?? latest?.started_at ?? null;
+        out.push({ client: c, site: site.url, siteKey: site.key, latest, score, risk, lastScanAt });
+      }
+    }
+    return out;
+  }, [clients.data, audits.data, items.data, latestAuditBySite, findingsByAudit]);
 
   const filtered = useMemo(() => {
     const f = filter === "all" ? rows : rows.filter((r) => r.client.engagement_type === filter);
@@ -168,7 +179,7 @@ function Dashboard() {
 
       <section className="space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h2 className="text-lg font-semibold">Clients</h2>
+          <h2 className="text-lg font-semibold">Clients &amp; websites</h2>
           <div className="flex items-center gap-2 flex-wrap">
             <ToggleGroup type="single" value={filter} onValueChange={(v) => v && setFilter(v as Filter)} className="flex-wrap">
               <ToggleGroupItem value="all" className="text-xs">All</ToggleGroupItem>
@@ -196,7 +207,7 @@ function Dashboard() {
         ) : (
           <div className="grid gap-3">
             {filtered.map((r) => (
-              <ClientRow key={r.client.id} row={r} />
+              <ClientRow key={`${r.client.id}|${r.siteKey}`} row={r} />
             ))}
           </div>
         )}
@@ -205,10 +216,22 @@ function Dashboard() {
   );
 }
 
+/** Compare websites by host and path, ignoring scheme, "www.", case and trailing slash. */
+function siteKey(url: string | null | undefined): string {
+  if (!url) return "";
+  const raw = url.trim();
+  try {
+    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return `${u.hostname.toLowerCase().replace(/^www\./, "")}${u.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return raw.toLowerCase().replace(/\/+$/, "");
+  }
+}
+
 function ClientRow({ row }: { row: any }) {
-  const { client, latest, score, risk, lastScanAt } = row;
+  const { client, site, latest, score, risk, lastScanAt } = row;
   const tone = gradeTone(score.grade);
-  const primaryUrl = (client.websites && client.websites[0]) || latest?.website_url || null;
+  const primaryUrl: string | null = site;
   const engagement = (client.engagement_type ?? "prospect") as EngagementType;
   return (
     <Card className="p-4">
@@ -257,7 +280,7 @@ function ClientRow({ row }: { row: any }) {
 
         <div className="md:col-span-2 flex md:justify-end">
           {latest ? (
-            <Link to="/audits/$id" params={{ id: latest.id }}>
+            <Link to="/audits/$id" params={{ id: latest.id }} aria-label={`View audit for ${primaryUrl ?? client.name}`}>
               <Button size="sm" variant="outline">
                 View Audit <ArrowRight className="h-3.5 w-3.5 ml-1" />
               </Button>

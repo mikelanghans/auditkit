@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
+import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
 import { consumeQuota } from "./quota";
 import { collectBundles, type BundleCoverage } from "./bundle-collect";
@@ -305,16 +305,16 @@ export const runAutoScan = createServerFn({ method: "POST" })
       .eq("id", data.auditId)
       .single();
     if (aerr) throw new Error(aerr.message);
-    const fromAudit = (audit as any)?.website_url as string | null | undefined;
-    const fromClient = ((audit as any)?.client?.websites as string[] | undefined)?.[0];
-    const appUrl = fromAudit || fromClient;
-    if (!appUrl) throw new Error("This audit has no website set. Add a website to the client and select it on the audit.");
+    // Only the audit's own website. Falling back to the client's first site
+    // mixed one site's results into another site's audit.
+    const appUrl = (audit as any)?.website_url as string | null | undefined;
+    if (!appUrl) throw new Error("This audit has no website set. Each audit covers one website: create a new audit for the site you want to scan.");
     const base = normalizeUrl(appUrl);
     try {
       await assertSafeOutboundUrl(base);
     } catch (e) {
       if (e instanceof SSRFBlockedError) {
-        throw new Error(`Refusing to probe internal/private destination: ${e.message}`);
+        throw new Error(describeBlockedUrl(e));
       }
       throw e;
     }
