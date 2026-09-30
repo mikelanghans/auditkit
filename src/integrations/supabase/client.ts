@@ -14,7 +14,10 @@ function createSupabaseClient() {
       ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
       ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
     ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Set them in the server environment (Cloudflare: Worker → Settings → Variables and secrets; locally: .env / .env.local).`;
+    const where = typeof window === 'undefined'
+      ? 'Set them as Worker runtime variables/secrets (Cloudflare: Worker → Settings → Variables and secrets; locally: .env / .env.local).'
+      : 'The browser build is missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY. Add them as build variables (Cloudflare: Worker → Settings → Build → Variables and secrets) and rebuild.';
+    const message = `Missing Supabase environment variable(s) in the ${typeof window === 'undefined' ? 'server' : 'browser'}: ${missing.join(', ')}. ${where}`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
   }

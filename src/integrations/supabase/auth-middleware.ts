@@ -9,15 +9,18 @@ import type { Database } from './types'
 export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server(
   async ({ next }) => {
     
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+    // Runtime variables first; the build-time VITE_ values are the same public
+    // project URL and publishable key, so they are a safe fallback.
+    const SUPABASE_URL = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+    const SUPABASE_PUBLISHABLE_KEY =
+      process.env.SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
     if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
       const missing = [
         ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
         ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
       ];
-      const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Set them in the server environment (Cloudflare: Worker → Settings → Variables and secrets; locally: .env / .env.local).`;
+      const message = `Missing Supabase environment variable(s) on the server: ${missing.join(', ')}. Set them as Worker runtime variables/secrets (Cloudflare: Worker → Settings → Variables and secrets; locally: .env / .env.local).`;
       const available = Object.keys(((globalThis as any).__env__ ?? {}) as object).sort().join(', ');
       console.error(`[Supabase] ${message} Bindings available: ${available || '(none)'}`);
       throw new Error(message);
