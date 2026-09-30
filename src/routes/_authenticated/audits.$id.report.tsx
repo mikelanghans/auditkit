@@ -6,11 +6,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, Download, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Printer, Download, ChevronDown, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { explanationBullets, useFindingExplanation } from "@/components/explain-button";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { listResolvedFindings } from "@/lib/finding-resolution.functions";
 import {
@@ -30,38 +31,62 @@ export const Route = createFileRoute("/_authenticated/audits/$id/report")({
   component: ReportPage,
 });
 
-async function downloadReportPdf(el: HTMLElement | null, filename: string) {
+async function downloadReportPdf(el: HTMLElement | null, filename: string, win?: Window | null) {
   if (!el) return;
   const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
     import("html2canvas-pro"),
     import("jspdf"),
   ]);
-  const canvas = await html2canvas(el, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: "#ffffff",
-    ignoreElements: (node) => node.classList?.contains("print:hidden"),
-  });
   const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
   const margin = 24;
   const pageW = pdf.internal.pageSize.getWidth() - margin * 2;
   const pageH = pdf.internal.pageSize.getHeight() - margin * 2;
-  const pxPerPt = canvas.width / pageW;
-  const sliceHpx = Math.floor(pageH * pxPerPt);
-  let y = 0;
+
+  // Render one page-sized strip at a time. A single canvas of the whole report is
+  // far larger than Safari/iOS allow, which makes the download silently fail.
+  // html2canvas-pro treats x/y as offsets relative to the element itself.
+  const elW = el.scrollWidth;
+  const elH = el.scrollHeight;
+  const cssPxPerPt = elW / pageW;
+  const chunkH = Math.floor(pageH * cssPxPerPt);
+  const scale = Math.min(2, Math.sqrt(12_000_000 / (elW * chunkH)));
+
+  let offset = 0;
   let first = true;
-  while (y < canvas.height) {
-    const h = Math.min(sliceHpx, canvas.height - y);
-    const slice = document.createElement("canvas");
-    slice.width = canvas.width;
-    slice.height = h;
-    slice.getContext("2d")!.drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+  while (offset < elH) {
+    const h = Math.min(chunkH, elH - offset);
+    const canvas = await html2canvas(el, {
+      scale,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      x: 0,
+      y: offset,
+      width: elW,
+      height: h,
+      logging: false,
+      ignoreElements: (node) => node.classList?.contains("print:hidden"),
+    });
     if (!first) pdf.addPage();
-    pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, pageW, h / pxPerPt);
+    pdf.addImage(canvas.toDataURL("image/jpeg", 0.9), "JPEG", margin, margin, pageW, h / cssPxPerPt);
+    canvas.width = 0;
+    canvas.height = 0;
     first = false;
-    y += h;
+    offset += h;
   }
-  pdf.save(filename);
+  const blob = pdf.output("blob");
+  const url = URL.createObjectURL(blob);
+  if (win && !win.closed) {
+    // Embedded previews block downloads — show the PDF in the pre-opened tab.
+    win.location.href = url;
+  } else {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }
 
 function ReportPage() {
@@ -74,7 +99,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
+        .select("id, title, status, started_at, completed_at, summary, website_url, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
@@ -185,9 +210,14 @@ function ReportPage() {
     const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     return (items.data ?? [])
       .filter((it: any) => map.get(it.id)?.status === "fail")
-      .sort((a: any, b: any) =>
-        (order[(a.severity ?? "medium").toLowerCase()] ?? 2) - (order[(b.severity ?? "medium").toLowerCase()] ?? 2),
-      );
+      .sort((a: any, b: any) => {
+        const sevDiff =
+          (order[(a.severity ?? "medium").toLowerCase()] ?? 2) -
+          (order[(b.severity ?? "medium").toLowerCase()] ?? 2);
+        if (sevDiff !== 0) return sevDiff;
+        // Same severity: keep checklist order so numbering is stable.
+        return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+      });
   }, [items.data, map]);
 
   const scopeSnapshot = useMemo(() => {
@@ -219,9 +249,26 @@ function ReportPage() {
           <Button
             disabled={downloading}
             onClick={async () => {
+              const inIframe = (() => { try { return window.self !== window.top; } catch { return true; } })();
+              // Open the tab immediately while the click still counts, so popup blockers allow it.
+              const win = inIframe ? window.open("", "_blank") : null;
+              if (win) win.document.write("<p style='font-family:sans-serif;padding:24px'>Preparing PDF…</p>");
               setDownloading(true);
               try {
-                await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`);
+                const dateStr = (audit.data?.completed_at || audit.data?.started_at || new Date().toISOString()).slice(0, 10);
+                const rawUrl = audit.data?.website_url || "";
+                const domain = (() => {
+                  try {
+                    return new URL(rawUrl.includes("://") ? rawUrl : `https://${rawUrl}`).hostname.replace(/^www\./, "");
+                  } catch {
+                    return rawUrl.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] || "report";
+                  }
+                })();
+                const safeDomain = domain.replace(/[^a-z0-9.-]/gi, "-");
+                await downloadReportPdf(reportRef.current, `security-audit-${dateStr}-${safeDomain}.pdf`, win);
+              } catch (e: any) {
+                win?.close();
+                toast.error(e?.message ? `Could not create PDF: ${e.message}` : "Could not create PDF");
               } finally {
                 setDownloading(false);
               }
@@ -261,7 +308,7 @@ function ReportPage() {
               Issues ({failedItems.length})
             </h2>
             <div className="space-y-3">
-              {failedItems.map((it: any) => {
+              {failedItems.map((it: any, idx: number) => {
                 const f = map.get(it.id);
                 return (
                   <FailedFindingCard
@@ -270,6 +317,7 @@ function ReportPage() {
                     item={it}
                     notes={f?.notes ?? null}
                     explanation={f?.explanation ?? null}
+                    priority={idx + 1}
                   />
                 );
               })}
@@ -454,12 +502,13 @@ const SEVERITY_IMPACT: Record<string, string> = {
 };
 
 function FailedFindingCard({
-  auditId, item, notes, explanation,
+  auditId, item, notes, explanation, priority,
 }: {
   auditId: string;
   item: any;
   notes: string | null;
   explanation: string | null;
+  priority: number;
 }) {
   const [open, setOpen] = useState(true);
   // Generated as the card scrolls into view, so it's ready before it's opened
@@ -486,9 +535,15 @@ function FailedFindingCard({
               "hover:brightness-105",
             )}
           >
-            <Siren className="h-5 w-5 shrink-0" />
+            <span
+              className="shrink-0 inline-flex items-center justify-center h-7 w-7 rounded-full bg-foreground/10 border border-current/40 text-xs font-bold"
+              title={`Priority ${priority}`}
+            >
+              {priority}
+            </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-widest">Priority {priority}</span>
                 <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
                 <span className="text-[10px] uppercase tracking-widest opacity-70">· Auto detected</span>
               </div>

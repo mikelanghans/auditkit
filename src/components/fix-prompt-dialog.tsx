@@ -1,9 +1,9 @@
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sparkles, Copy, Check, ExternalLink, Loader2, Wand2 } from "lucide-react";
+import { Sparkles, Copy, Check, CheckCircle2, ExternalLink, Loader2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { generateFixPrompt, type FixTarget } from "@/lib/fix-prompt.functions";
 
@@ -49,6 +49,13 @@ export function FixPromptButton({
   const [loading, setLoading] = useState<FixTarget | null>(null);
   const [copied, setCopied] = useState<FixTarget | null>(null);
 
+  useEffect(() => {
+    if (cached) setPrompts(cached);
+  }, [cached]);
+
+  const generatedTargets = TARGETS.filter((target) => Boolean(prompts[target.id]));
+  const hasGeneratedPrompt = generatedTargets.length > 0;
+
   const loadIfNeeded = async (target: FixTarget) => {
     if (prompts[target]) return;
     setLoading(target);
@@ -92,7 +99,7 @@ export function FixPromptButton({
     }
   };
 
-  const meta = TARGETS.find((t) => t.id === active)!;
+  const meta = TARGETS.find((t) => t.id === active) ?? TARGETS[0];
 
   return (
     <>
@@ -102,12 +109,21 @@ export function FixPromptButton({
           size="sm"
           variant="outline"
           onClick={openDialog}
-          className={buttonClassName ?? "border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"}
+          className={buttonClassName ?? (hasGeneratedPrompt
+            ? "border-status-pass/50 bg-status-pass/10 text-status-pass hover:bg-status-pass/15 hover:text-status-pass"
+            : "border-purple-500/40 text-purple-600 hover:bg-purple-500/5 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300")}
         >
-          <Wand2 className="h-3.5 w-3.5 mr-1.5" /> {buttonLabel ?? "Generate Fix"}
+          {hasGeneratedPrompt
+            ? <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+            : <Wand2 className="h-3.5 w-3.5 mr-1.5" />}
+          {buttonLabel ?? (hasGeneratedPrompt ? "Fix Generated" : "Generate Fix")}
         </Button>
         <span className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-          <Sparkles className="h-2.5 w-2.5" /> AI Generated · Lovable · Cursor · Claude
+          {hasGeneratedPrompt ? (
+            <><CheckCircle2 className="h-2.5 w-2.5 text-status-pass" /> Ready for {generatedTargets.map((target) => target.label).join(" · ")}</>
+          ) : (
+            <><Sparkles className="h-2.5 w-2.5" /> AI assisted · Lovable · Cursor · Claude</>
+          )}
         </span>
       </div>
 

@@ -37,8 +37,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   ] as const;
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="bg-navy text-navy-foreground border-b border-black/10">
+    <div className="min-h-screen bg-background print:min-h-0 print:bg-transparent">
+      <header className="bg-navy text-navy-foreground border-b border-black/10 print:hidden">
         <div className="mx-auto max-w-7xl px-6 h-14 flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center gap-2 font-semibold tracking-tight">
             <ShieldCheck className="h-5 w-5" />
@@ -74,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-7xl px-6 py-8 print:max-w-none print:p-0">{children}</main>
     </div>
   );
 }

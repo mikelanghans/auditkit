@@ -12,6 +12,18 @@ export type FixTarget = "lovable" | "cursor" | "claude";
 // fabricated CSP allowlist either widens the attack surface or breaks the live app.
 // So the model must ground its output only in the finding evidence, and stay generic
 // where it lacks real data rather than guessing a "typical" stack.
+// Extra guidance applied whenever the finding concerns Content-Security-Policy.
+const CSP_RULE =
+  "If the finding is about a Content-Security-Policy header, the prompt MUST also: " +
+  "(a) say the header belongs in the server code that responds to every page request (e.g. the SSR/server entry), not vague 'deployment settings'; " +
+  "(b) include these directives in the example policy: default-src 'self'; script-src; style-src; img-src; font-src; connect-src; " +
+  "object-src 'none'; base-uri 'self'; frame-ancestors 'none' (or 'self'); form-action 'self'; " +
+  "(c) forbid script-src 'unsafe-inline' and wildcards, but instruct that any inline scripts the framework needs for hydration " +
+  "must be allowed via per-request nonces or SHA-256 hashes instead — warn that banning unsafe-inline without nonces/hashes can blank the page; " +
+  "(d) note style-src may keep 'unsafe-inline' if inline styles are required (lower risk); " +
+  "(e) roll out safely: ship first as Content-Security-Policy-Report-Only, check the browser console for violations, adjust the allowlist, " +
+  "then switch to the enforcing Content-Security-Policy header. Word budget for CSP prompts may extend to 300 words.";
+
 const GROUNDING_RULE =
   "CRITICAL — do not fabricate. Base the prompt ONLY on the finding evidence provided. " +
   "Never invent, assume, or name specific third-party services, providers, integrations, " +
@@ -21,7 +33,9 @@ const GROUNDING_RULE =
   "pre-filled list of origins; instead instruct the reader to inventory the origins their app " +
   "genuinely loads (scripts, styles, fonts, API/connect targets) and allowlist only those, " +
   "and warn that an over-broad or guessed policy can break the app. If you are unsure what the " +
-  "app uses, say so and keep the instruction generic rather than naming providers.";
+  "app uses, say so and keep the instruction generic rather than naming providers. " +
+  CSP_RULE;
+
 
 const SYSTEM_PROMPTS: Record<FixTarget, string> = {
   lovable:
