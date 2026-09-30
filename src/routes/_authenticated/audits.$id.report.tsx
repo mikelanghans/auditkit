@@ -1,12 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Printer, Download, ChevronDown, Siren, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { explanationBullets, useFindingExplanation } from "@/components/explain-button";
@@ -30,8 +30,44 @@ export const Route = createFileRoute("/_authenticated/audits/$id/report")({
   component: ReportPage,
 });
 
+async function downloadReportPdf(el: HTMLElement | null, filename: string) {
+  if (!el) return;
+  const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+    import("html2canvas-pro"),
+    import("jspdf"),
+  ]);
+  const canvas = await html2canvas(el, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: "#ffffff",
+    ignoreElements: (node) => node.classList?.contains("print:hidden"),
+  });
+  const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+  const margin = 24;
+  const pageW = pdf.internal.pageSize.getWidth() - margin * 2;
+  const pageH = pdf.internal.pageSize.getHeight() - margin * 2;
+  const pxPerPt = canvas.width / pageW;
+  const sliceHpx = Math.floor(pageH * pxPerPt);
+  let y = 0;
+  let first = true;
+  while (y < canvas.height) {
+    const h = Math.min(sliceHpx, canvas.height - y);
+    const slice = document.createElement("canvas");
+    slice.width = canvas.width;
+    slice.height = h;
+    slice.getContext("2d")!.drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+    if (!first) pdf.addPage();
+    pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, pageW, h / pxPerPt);
+    first = false;
+    y += h;
+  }
+  pdf.save(filename);
+}
+
 function ReportPage() {
   const { id } = Route.useParams();
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
 
   const audit = useQuery({
     queryKey: ["audit", id],
@@ -145,6 +181,15 @@ function ReportPage() {
     [security.score, risk, coverage],
   );
 
+  const failedItems = useMemo(() => {
+    const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    return (items.data ?? [])
+      .filter((it: any) => map.get(it.id)?.status === "fail")
+      .sort((a: any, b: any) =>
+        (order[(a.severity ?? "medium").toLowerCase()] ?? 2) - (order[(b.severity ?? "medium").toLowerCase()] ?? 2),
+      );
+  }, [items.data, map]);
+
   const scopeSnapshot = useMemo(() => {
     return grouped.map(([cat, list]) => {
       let pass = 0, fail = 0, na = 0, unanswered = 0;
@@ -167,12 +212,28 @@ function ReportPage() {
         <Link to="/audits/$id" params={{ id }} className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4 mr-1" /> Back to audit
         </Link>
-        <Button onClick={() => window.print()} className="bg-navy text-navy-foreground hover:bg-navy/90">
-          <Printer className="h-4 w-4 mr-1" /> Print / Save PDF
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => window.print()}>
+            <Printer className="h-4 w-4 mr-1" /> Print
+          </Button>
+          <Button
+            disabled={downloading}
+            onClick={async () => {
+              setDownloading(true);
+              try {
+                await downloadReportPdf(reportRef.current, `audit-report-${id}.pdf`);
+              } finally {
+                setDownloading(false);
+              }
+            }}
+            className="bg-navy text-navy-foreground hover:bg-navy/90"
+          >
+            <Download className="h-4 w-4 mr-1" /> {downloading ? "Preparing…" : "Download PDF"}
+          </Button>
+        </div>
       </div>
 
-      <div className="bg-card border rounded-xl p-8 print:border-0 print:p-0">
+      <div ref={reportRef} className="bg-card border rounded-xl p-8 print:border-0 print:p-0">
         <header className="border-b pb-6 mb-6">
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Security Audit Report</p>
           <h1 className="text-3xl font-semibold tracking-tight mt-1">{audit.data?.title}</h1>
@@ -194,6 +255,28 @@ function ReportPage() {
           coverage={coverage}
         />
 
+        {failedItems.length > 0 && (
+          <section className="mb-8">
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+              Issues ({failedItems.length})
+            </h2>
+            <div className="space-y-3">
+              {failedItems.map((it: any) => {
+                const f = map.get(it.id);
+                return (
+                  <FailedFindingCard
+                    key={it.id}
+                    auditId={id}
+                    item={it}
+                    notes={f?.notes ?? null}
+                    explanation={f?.explanation ?? null}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <ScopeSnapshot items={scopeSnapshot} score={security.score} />
 
         {grouped.map(([cat, list]) => (
@@ -202,17 +285,6 @@ function ReportPage() {
             <div className="space-y-3">
               {list.map((it: any) => {
                 const f = map.get(it.id);
-                if (f?.status === "fail") {
-                  return (
-                    <FailedFindingCard
-                      key={it.id}
-                      auditId={id}
-                      item={it}
-                      notes={f.notes}
-                      explanation={f.explanation}
-                    />
-                  );
-                }
                 return (
                   <PassFindingCard
                     key={it.id}
@@ -334,7 +406,7 @@ function ExecutiveSummary({
         <RiskTile label="Critical" count={risk.critical} cls="bg-status-fail/[0.08] border-status-fail/40 text-status-fail" />
         <RiskTile label="High" count={risk.high} cls="bg-orange-500/[0.08] border-orange-500/40 text-orange-600 dark:text-orange-400" />
         <RiskTile label="Medium" count={risk.medium} cls="bg-status-na/[0.08] border-status-na/40 text-status-na" />
-        <RiskTile label="Low" count={risk.low} cls="bg-status-pass/[0.08] border-status-pass/40 text-status-pass" />
+        <RiskTile label="Low" count={risk.low} cls="bg-blue-500/[0.08] border-blue-500/40 text-blue-600 dark:text-blue-400" />
       </div>
 
       <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
@@ -366,7 +438,7 @@ const SEVERITY_BANNER: Record<string, string> = {
   critical: "bg-status-fail/15 text-status-fail border-status-fail/40",
   high: "bg-orange-500/15 text-orange-600 dark:text-orange-300 border-orange-500/40",
   medium: "bg-status-na/15 text-status-na border-status-na/40",
-  low: "bg-status-pass/15 text-status-pass border-status-pass/40",
+  low: "bg-blue-500/15 text-blue-600 dark:text-blue-300 border-blue-500/40",
 };
 const SEVERITY_LIKELIHOOD: Record<string, string> = {
   critical: "High",
@@ -389,7 +461,7 @@ function FailedFindingCard({
   notes: string | null;
   explanation: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   // Generated as the card scrolls into view, so it's ready before it's opened
   // and appears in the printed report.
   const { ref, text: exp, loading: expLoading } = useFindingExplanation({
@@ -591,12 +663,6 @@ function PassFindingCard({
         </div>
       </div>
 
-      <DetailRow label="Why it matters">
-        <p className="text-sm text-muted-foreground">
-          {item.description ?? "Maintaining this control reduces risk in the audited surface area."}
-        </p>
-      </DetailRow>
-
       <DetailRow label="Evidence">
         {notes ? (
           <EvidenceBlocks notes={notes} />
@@ -642,7 +708,7 @@ const ARCH_SEV_BANNER: Record<string, string> = {
   critical: "bg-status-fail/15 text-status-fail border-status-fail/40",
   high: "bg-orange-500/15 text-orange-600 dark:text-orange-300 border-orange-500/40",
   medium: "bg-status-na/15 text-status-na border-status-na/40",
-  low: "bg-status-pass/15 text-status-pass border-status-pass/40",
+  low: "bg-blue-500/15 text-blue-600 dark:text-blue-300 border-blue-500/40",
 };
 
 function ArchitecturalRiskSection({ findings }: { findings: ArchFinding[] }) {

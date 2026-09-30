@@ -229,7 +229,9 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 function csvEscape(value: unknown): string {
-  const s = value == null ? "" : String(value);
+  let s = value == null ? "" : String(value);
+  // Neutralize spreadsheet formula injection (=, +, -, @, tab, CR).
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
