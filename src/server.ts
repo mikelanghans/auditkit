@@ -76,8 +76,23 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
   });
 }
 
+// Cloudflare passes variables and secrets as the `env` binding object. Most of
+// the app reads configuration from process.env, which Workers only partly
+// populates, so copy string bindings across on each request. Nitro also keeps
+// the current bindings on globalThis.__env__. No-op in local dev.
+function exposeBindingsToProcessEnv(env: unknown) {
+  const source = (env && typeof env === "object" ? env : (globalThis as any).__env__) as
+    | Record<string, unknown>
+    | undefined;
+  if (!source || typeof process === "undefined" || !process.env) return;
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === "string" && process.env[key] !== value) process.env[key] = value;
+  }
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    exposeBindingsToProcessEnv(env);
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

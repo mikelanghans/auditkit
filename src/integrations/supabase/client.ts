@@ -14,7 +14,7 @@ function createSupabaseClient() {
       ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
       ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
     ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
+    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Set them in the server environment (Cloudflare: Worker → Settings → Variables and secrets; locally: .env / .env.local).`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
   }
