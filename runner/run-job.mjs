@@ -96,6 +96,7 @@ async function supervise() {
     }
   };
   const fail = async (error) => {
+    console.error(`[runner] failed: ${error}`);
     await post({ runId: job.runId, event: "failed", error: String(error).slice(0, 1500) });
     process.exit(1);
   };

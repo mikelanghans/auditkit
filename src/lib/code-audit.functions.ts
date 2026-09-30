@@ -4,6 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { consumeQuota } from "./quota";
 import { PROFILE_BUDGETS, type CodeAuditProfile } from "./code-audit-contract";
+import { GITHUB_HOSTS, safeFetch } from "./ssrf-guard";
 
 export type StartCodeAuditInput = {
   auditId: string;
@@ -34,6 +35,47 @@ export function normalizeGithubRepo(raw: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Check, before paying for a machine, that the runner will be able to clone
+ * the repo: public without a token, or readable with the token given.
+ */
+export async function checkRepoAccess(
+  repoUrl: string,
+  token: string | null,
+): Promise<{ ok: true; private: boolean } | { ok: false; error: string }> {
+  const [owner, repo] = new URL(repoUrl).pathname.replace(/^\/+/, "").split("/");
+  const headers: Record<string, string> = {
+    accept: "application/vnd.github+json",
+    "user-agent": "AuditKit-CodeAudit/1.0",
+    "x-github-api-version": "2022-11-28",
+  };
+  if (token) headers.authorization = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await safeFetch(`https://api.github.com/repos/${owner}/${repo}`, { headers }, { timeoutMs: 10_000, allowHosts: GITHUB_HOSTS });
+  } catch (e: any) {
+    return { ok: false, error: `Couldn't reach GitHub to check access to ${owner}/${repo}: ${e?.message ?? "request failed"}. Try again.` };
+  }
+  if (res.status === 401) return { ok: false, error: "GitHub rejected that token (expired, revoked or mistyped)." };
+  if (res.status === 404 || res.status === 403) {
+    await res.body?.cancel().catch(() => {});
+    return {
+      ok: false,
+      error: token
+        ? `That token can't see ${owner}/${repo}. Give it access to this repository with Contents: Read-only.`
+        : `${owner}/${repo} is private (or doesn't exist). Add a GitHub token with read access to it.`,
+    };
+  }
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    return { ok: false, error: `GitHub returned HTTP ${res.status} when checking ${owner}/${repo}. Try again.` };
+  }
+  const meta = (await res.json().catch(() => ({}))) as { private?: boolean; permissions?: { pull?: boolean } };
+  if (token && meta.permissions && meta.permissions.pull === false)
+    return { ok: false, error: `That token can't read ${owner}/${repo}'s code. Give it Contents: Read-only.` };
+  return { ok: true, private: meta.private === true };
 }
 
 export const startCodeAudit = createServerFn({ method: "POST" })
@@ -79,6 +121,10 @@ export const startCodeAudit = createServerFn({ method: "POST" })
         error: "The deep-audit runner isn't configured yet (see runner/README.md).",
       };
     }
+
+    // Fail here, not minutes later on a paid machine, if the repo can't be cloned.
+    const access = await checkRepoAccess(repoUrl, token);
+    if (!access.ok) return { ok: false as const, error: access.error };
 
     const quota = await consumeQuota(supabase, "code_audit", 1);
     if (!quota.ok) return { ok: false as const, error: quota.error };

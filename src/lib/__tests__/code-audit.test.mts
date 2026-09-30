@@ -168,6 +168,7 @@ test("start: dispatches one Fly machine with the job encrypted, and records the 
       flyBody = String(init.body);
       return json({ id: "m-123" });
     }
+    if (url === "https://api.github.com/repos/o/r") return json({ private: true, permissions: { pull: true } });
     return undefined;
   });
   const res: any = await startCodeAudit({
@@ -285,4 +286,42 @@ test("stop: only the owner's open run; destroys the machine and marks it failed"
   assert.equal(db.rows("code_audit_runs")[0].status, "failed");
   res = await stopCodeAudit({ data: { runId: RUN }, context: ctx(db) } as any);
   assert.match(res.error, /already finished/);
+});
+
+test("start: checks GitHub access first, so a private repo without a token never starts a machine", async () => {
+  setRunnerEnv(true);
+  const { startCodeAudit, checkRepoAccess } = await import("../code-audit.functions.ts");
+  let machines = 0;
+  let authSeen: string | null = null;
+  stubFetch((url, init) => {
+    if (url.startsWith("https://api.machines.dev/")) {
+      machines++;
+      return json({ id: "m" });
+    }
+    if (url === "https://api.github.com/repos/o/private") {
+      authSeen = new Headers(init.headers as any).get("authorization");
+      return authSeen ? json({ private: true, permissions: { pull: true } }) : json({ message: "Not Found" }, 404);
+    }
+    if (url === "https://api.github.com/repos/o/public") return json({ private: false });
+    if (url === "https://api.github.com/repos/o/other") return json({ message: "Not Found" }, 404);
+    return undefined;
+  });
+  let r: any = await checkRepoAccess("https://github.com/o/private", null);
+  assert.match(r.error, /private.*token/);
+  r = await checkRepoAccess("https://github.com/o/private", "github_pat_0123456789abcdef");
+  assert.equal(r.ok, true);
+  assert.equal(authSeen, "Bearer github_pat_0123456789abcdef");
+  r = await checkRepoAccess("https://github.com/o/other", "github_pat_0123456789abcdef");
+  assert.match(r.error, /can't see o\/other/);
+  assert.equal((await checkRepoAccess("https://github.com/o/public", null)).ok, true);
+
+  const db = new FakeDb({ audits: [{ id: AUDIT, created_by: USER }], code_audit_runs: [] });
+  const res: any = await startCodeAudit({
+    data: { auditId: AUDIT, repoUrl: "https://github.com/o/private", profile: "quick", clientConsent: true },
+    context: ctx(db),
+  } as any);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /token/);
+  assert.equal(machines, 0);
+  assert.equal(db.rows("code_audit_runs").length, 0);
 });

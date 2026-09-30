@@ -204,7 +204,7 @@ function CodeAuditPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="tok">GitHub token (private repos)</Label>
+            <Label htmlFor="tok">GitHub token (required for private repos)</Label>
             <Input
               id="tok"
               type="password"
