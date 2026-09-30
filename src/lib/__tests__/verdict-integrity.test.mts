@@ -245,7 +245,7 @@ const REPO_TITLES = [".env files in .gitignore", "No secrets in git history", "D
 function repoDb() {
   return new FakeDb({
     audits: [{ id: AUDIT, created_by: USER }],
-    checklist_items: REPO_TITLES.map((t, i) => ({ id: `rp${i}`, title: t })),
+    checklist_items: REPO_TITLES.map((t, i) => ({ id: `rp${i}`, title: t, checklist_key: i === 2 ? "dep_vulns" : null })),
   });
 }
 type RepoOpts = { tree?: any; gitignore?: string | null; detail?: (sha: string) => Response; manifests?: Record<string, any>; advisories?: () => Response };

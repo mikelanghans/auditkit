@@ -301,10 +301,11 @@ export async function runDepScan(args: {
   const notes = summaryLines.join("\n");
 
   // Persist to "Dependency vulnerabilities scanned" checklist item if present.
+  // By key: the checklist once had two items with this title.
   const { data: items } = await supabase
     .from("checklist_items")
     .select("id, title")
-    .eq("title", "Dependency vulnerabilities scanned")
+    .eq("checklist_key", "dep_vulns")
     .limit(1);
   const itemId = items?.[0]?.id;
   if (itemId) {

@@ -142,7 +142,57 @@ const STORAGE_LIST: Playbook = {
 3. Verify: listing the bucket with only the anon key returns nothing, and a signed-in user sees only their own files.`,
 };
 
+const SOURCE_MAPS: Playbook = {
+  id: "source-maps",
+  text: `Source map requirements:
+1. Turn off production source maps in the build config (Vite: build.sourcemap = false, or "hidden" only if maps are uploaded privately to an error tracker and deleted from the output).
+2. Make sure no .map files are left in the deployed output folder.
+3. Redeploy, then verify: requesting <bundle>.js.map returns 404 or the app page, not JSON.`,
+};
+
+const EXPOSED_FILES: Playbook = {
+  id: "exposed-files",
+  text: `Exposed file requirements (order matters):
+1. If an .env file was served, rotate every secret it contained first; it is already public.
+2. Remove .env*, .git and .DS_Store from the deployed output; check the build copies only the build folder (e.g. dist) and that the host's publish directory is that folder, not the repo root.
+3. Add them to .gitignore and, where the host supports it, block dotfiles at the edge.
+4. Verify each URL now returns 404 or the app page.`,
+};
+
+const COOKIES: Playbook = {
+  id: "cookies",
+  text: `Cookie requirements:
+1. Find where each flagged cookie is set (server code, middleware, auth library options).
+2. Session and auth cookies: Secure, HttpOnly, SameSite=Lax (Strict if cross-site navigation isn't needed), Path=/.
+3. Other cookies: Secure and SameSite at minimum. SameSite=None only with Secure, and only for cookies that must work cross-site.
+4. Verify in DevTools → Application → Cookies, including after signing in.`,
+};
+
+const OPEN_REDIRECT: Playbook = {
+  id: "open-redirect",
+  text: `Open redirect requirements:
+1. Find every place a redirect/next/returnTo value from the URL is used (server redirects and client navigation).
+2. Only accept relative paths that start with a single "/" (reject "//", "/\\", and absolute URLs), or match against an allowlist of the app's own URLs.
+3. Fall back to a safe default page when the value is rejected.
+4. Verify: ?redirect=https://example.com lands on the app, not example.com.`,
+};
+
+const XSS: Playbook = {
+  id: "xss",
+  text: `Raw-HTML rendering requirements:
+1. For each location listed in the evidence, decide whether the HTML can ever contain user, URL, database or AI-generated content.
+2. If it doesn't need to be HTML, render it as normal text (remove dangerouslySetInnerHTML / innerHTML / v-html).
+3. If it must be HTML (rich text, markdown), sanitise it with DOMPurify immediately before rendering; for markdown use a renderer with raw HTML disabled.
+4. Keep a CSP without 'unsafe-inline' scripts as the second layer.
+5. Verify by saving content like <img src=x onerror=alert(1)> and confirming nothing runs.`,
+};
+
 const BY_KEY: Record<string, Playbook> = {
+  source_maps_exposed: SOURCE_MAPS,
+  exposed_files: EXPOSED_FILES,
+  cookie_flags: COOKIES,
+  open_redirect: OPEN_REDIRECT,
+  xss_protections: XSS,
   csp_header: CSP,
   hsts_header: HSTS,
   xframe_header: FRAME,
@@ -166,6 +216,7 @@ const BY_TITLE: Record<string, Playbook> = {
   "Anon key permissions scoped correctly": RLS,
   "No direct table access without auth check": RLS,
   "Anon role cannot write to tables": RLS,
+  "XSS protections in place": XSS,
 };
 
 export function playbookFor(item: {
