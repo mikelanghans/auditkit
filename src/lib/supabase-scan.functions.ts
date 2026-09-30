@@ -3,6 +3,19 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
 import { consumeQuota } from "./quota";
+import {
+  SENSITIVE_COLUMN_SQL,
+  checkAuthProviders,
+  checkBackups,
+  checkJwtExpiry,
+  checkPasswordResetFlow,
+  checkRedirectUrls,
+  checkSecurityAdvisor,
+  checkSensitiveColumns,
+  type BackupsResponse,
+  type ColumnRow,
+  type Lint,
+} from "./supabase-extra-checks";
 
 
 const TIMEOUT_MS = 15_000;
@@ -484,6 +497,45 @@ async function fetchEdgeFunctions(projectRef: string, pat: string): Promise<{ ok
   }
 }
 
+async function mgmtGet<T>(projectRef: string, pat: string, path: string): Promise<{ ok: boolean; data?: T; error?: string }> {
+  try {
+    const r = await timedFetch(`https://api.supabase.com/v1/projects/${projectRef}${path}`, {
+      headers: { authorization: `Bearer ${pat}` },
+    });
+    if (!r.ok) {
+      await r.body?.cancel().catch(() => {});
+      return { ok: false, error: `Management API HTTP ${r.status}${r.status === 403 ? " (the PAT may lack permission for this)" : ""}` };
+    }
+    return { ok: true, data: (await r.json()) as T };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch failed" };
+  }
+}
+
+/** Supabase's own Security Advisor lints (experimental endpoint). */
+async function fetchSecurityAdvisor(projectRef: string, pat: string): Promise<{ ok: boolean; lints?: Lint[]; error?: string }> {
+  const r = await mgmtGet<{ lints?: Lint[] }>(projectRef, pat, "/advisors/security");
+  if (!r.ok) return { ok: false, error: r.error };
+  if (!Array.isArray(r.data?.lints)) return { ok: false, error: "unexpected response" };
+  return { ok: true, lints: r.data!.lints };
+}
+
+async function fetchSensitiveColumns(projectRef: string, pat: string): Promise<{ ok: boolean; rows?: ColumnRow[]; error?: string }> {
+  try {
+    const r = await timedFetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${pat}`, "content-type": "application/json" },
+      body: JSON.stringify({ query: SENSITIVE_COLUMN_SQL }),
+    });
+    if (!r.ok) return { ok: false, error: `Management API HTTP ${r.status}` };
+    const rows = (await r.json()) as any[];
+    if (!Array.isArray(rows)) return { ok: false, error: "unexpected response" };
+    return { ok: true, rows: rows.map((x) => ({ table: String(x.table), column: String(x.column), type: String(x.type) })) };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch failed" };
+  }
+}
+
 export const runSupabaseScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: SupabaseScanInput) => input)
@@ -584,6 +636,14 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     // 4b) Database functions and edge functions (Management API only)
     const definers = pat && projectRef ? await fetchAnonCallableDefiners(projectRef, pat) : null;
     const edgeFns = pat && projectRef ? await fetchEdgeFunctions(projectRef, pat) : null;
+    const [advisor, backups, sensitiveCols] =
+      pat && projectRef
+        ? await Promise.all([
+            fetchSecurityAdvisor(projectRef, pat),
+            mgmtGet<BackupsResponse>(projectRef, pat, "/database/backups"),
+            fetchSensitiveColumns(projectRef, pat),
+          ])
+        : [null, null, null];
 
     // 5) Bundle scan for service role exposure
     let bundle: Awaited<ReturnType<typeof scanBundleForSecret>> | null = null;
@@ -957,6 +1017,13 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       "Rate limiting on auth endpoints": rateLimit,
       "No secrets in client-side bundle": bundleCheck,
       "No service role key in client-side code": serviceRoleCheck,
+      "JWT expiry set appropriately": checkJwtExpiry(cfg, !!pat),
+      "OAuth redirect URIs locked down": checkRedirectUrls(cfg, !!pat),
+      "Auth provider configured correctly": checkAuthProviders(cfg, !!pat),
+      "Password reset flow validated": checkPasswordResetFlow(cfg, !!pat),
+      "Database backups configured": checkBackups(backups),
+      "Sensitive columns encrypted at rest": checkSensitiveColumns(sensitiveCols),
+      "Supabase Security Advisor reports no issues": checkSecurityAdvisor(advisor),
     };
 
     const titles = Object.keys(titleToResult);
