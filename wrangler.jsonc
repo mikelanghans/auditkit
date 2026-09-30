@@ -18,6 +18,8 @@
   "observability": { "enabled": true },
   "vars": {
     "SUPABASE_URL": "https://iczkayrpsdrliuqwowpe.supabase.co",
+    // Publishable (anon) key: public by design, it ships in the browser bundle.
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_ae4rg3CmQsjPaWY53KChLQ_aHhilhJW",
     "PUBLIC_APP_URL": "https://auditkit.syncopateddynamics.com"
   }
 }
