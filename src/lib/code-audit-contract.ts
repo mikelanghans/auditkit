@@ -29,8 +29,25 @@ export type CodeAuditJob = {
   issuedAt: string;
 };
 
+/** Stages the runner reports, in order. */
+export const PROGRESS_PHASES = ["starting", "cloning", "auditing", "validating", "reporting"] as const;
+export type ProgressPhase = (typeof PROGRESS_PHASES)[number];
+
+export type RunProgress = {
+  phase: ProgressPhase;
+  /** What the agent is doing now, e.g. its current to-do item. */
+  detail?: string | null;
+  /** Sub-agents launched so far (counts against the budget). */
+  agents?: number | null;
+  /** Tool calls made so far. */
+  steps?: number | null;
+  todosDone?: number | null;
+  todosTotal?: number | null;
+};
+
 export type CallbackEvent =
   | { runId: string; event: "started"; machineId?: string }
+  | ({ runId: string; event: "progress" } & RunProgress)
   | { runId: string; event: "failed"; error: string; agentsUsed?: number }
   | {
       runId: string;

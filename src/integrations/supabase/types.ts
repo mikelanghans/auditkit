@@ -401,6 +401,8 @@ export type Database = {
           repo_url: string
           git_ref: string | null
           profile: string
+          progress: Json | null
+          progress_at: string | null
           budget_agents: number
           status: string
           runner_machine_id: string | null
@@ -451,6 +453,8 @@ export type Database = {
           repo_url?: string
           git_ref?: string | null
           profile?: string
+          progress?: Json | null
+          progress_at?: string | null
           budget_agents?: number
           status?: string
           runner_machine_id?: string | null

@@ -223,3 +223,66 @@ test("fly auth header: macaroon tokens are sent as-is, plain tokens as Bearer", 
   assert.equal(flyAuthHeader("  FlyV1 fm2_abc\n"), "FlyV1 fm2_abc");
   assert.equal(flyAuthHeader("fo1_plain"), "Bearer fo1_plain");
 });
+
+test("progress: stored on an open run (and moves queued → running); untrusted text is cleaned; finished runs ignore it", async () => {
+  const db = runDb("queued");
+  let res: any = await applyCallback(
+    { runId: RUN, event: "progress", phase: "auditing", detail: "Tracing <script>auth\n flows", agents: 4, steps: 120, todosDone: 2, todosTotal: 7 },
+    { db: db.client() as any },
+  );
+  assert.equal(res.ok, true);
+  let run = db.rows("code_audit_runs")[0];
+  assert.equal(run.status, "running");
+  assert.equal(run.progress.phase, "auditing");
+  assert.equal(run.progress.detail, "Tracing script auth flows");
+  assert.equal(run.progress.agents, 4);
+  assert.ok(run.progress_at);
+
+  res = await applyCallback({ runId: RUN, event: "progress", phase: "hacking", agents: 1 }, { db: db.client() as any });
+  assert.equal(res.status, 400);
+  res = await applyCallback({ runId: RUN, event: "progress", phase: "auditing", agents: -5, steps: "lots" }, { db: db.client() as any });
+  run = db.rows("code_audit_runs")[0];
+  assert.equal(run.progress.agents, null);
+  assert.equal(run.progress.steps, null);
+
+  const done = runDb("done");
+  res = await applyCallback({ runId: RUN, event: "progress", phase: "auditing" }, { db: done.client() as any });
+  assert.match(res.message, /ignored/);
+  assert.equal(done.rows("code_audit_runs")[0].progress, undefined);
+});
+
+test("progress UI: current step and quiet-runner warning", async () => {
+  const { describeRun, formatElapsed } = await import("../code-audit-progress.ts");
+  const t0 = Date.parse("2026-09-30T05:00:00Z");
+  const base = { id: RUN, created_at: new Date(t0).toISOString(), budget_agents: 30 };
+  assert.equal(describeRun({ ...base, status: "queued" }, t0 + 60_000).stale, false);
+  assert.equal(describeRun({ ...base, status: "queued" }, t0 + 6 * 60_000).stale, true);
+  const running = { ...base, status: "running", started_at: base.created_at, progress: { phase: "auditing" }, progress_at: new Date(t0 + 60 * 60_000).toISOString() };
+  assert.equal(describeRun(running, t0 + 70 * 60_000).current, 3);
+  assert.equal(describeRun(running, t0 + 70 * 60_000).stale, false);
+  assert.equal(describeRun(running, t0 + 80 * 60_000).stale, true);
+  assert.equal(formatElapsed(65_000), "1m 05s");
+  assert.equal(formatElapsed(3_723_000), "1h 02m");
+});
+
+test("stop: only the owner's open run; destroys the machine and marks it failed", async () => {
+  setRunnerEnv(true);
+  const { stopCodeAudit } = await import("../code-audit.functions.ts");
+  const db = new FakeDb({ code_audit_runs: [{ id: RUN, audit_id: AUDIT, created_by: USER, status: "running", runner_machine_id: "abc123def456" }] });
+  let deleted = "";
+  stubFetch((url, init) => {
+    if (init.method === "DELETE") {
+      deleted = url;
+      return json({ ok: true });
+    }
+    return undefined;
+  });
+  let res: any = await stopCodeAudit({ data: { runId: RUN }, context: ctx(db, "someone-else") } as any);
+  assert.equal(res.ok, false);
+  res = await stopCodeAudit({ data: { runId: RUN }, context: ctx(db) } as any);
+  assert.equal(res.ok, true);
+  assert.match(deleted, /\/apps\/runner-app\/machines\/abc123def456\?force=true$/);
+  assert.equal(db.rows("code_audit_runs")[0].status, "failed");
+  res = await stopCodeAudit({ data: { runId: RUN }, context: ctx(db) } as any);
+  assert.match(res.error, /already finished/);
+});

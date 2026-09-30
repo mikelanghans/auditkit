@@ -125,6 +125,42 @@ export const startCodeAudit = createServerFn({ method: "POST" })
   });
 
 /**
+ * Stop a deep audit that is queued or running: destroys the Fly machine and
+ * marks the run failed. Also the way to clear a run whose runner never
+ * reported back.
+ */
+export const stopCodeAudit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { runId: string }) => {
+    if (!input?.runId || typeof input.runId !== "string") throw new Error("runId required");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { data: run } = await supabase
+      .from("code_audit_runs")
+      .select("id, created_by, status, runner_machine_id")
+      .eq("id", data.runId)
+      .maybeSingle();
+    if (!run || (run as any).created_by !== userId) return { ok: false as const, error: "Run not found." };
+    if (!["queued", "dispatching", "running"].includes((run as any).status))
+      return { ok: false as const, error: "This run has already finished." };
+    const dispatch = await import("./code-audit-dispatch.server");
+    const machine = (run as any).runner_machine_id as string | null;
+    const destroyed = machine ? await dispatch.destroyRunnerMachine(machine) : { ok: true };
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await supabaseAdmin
+      .from("code_audit_runs")
+      .update({
+        status: "failed",
+        finished_at: new Date().toISOString(),
+        error: destroyed.ok ? "Stopped by you." : `Stopped by you (the runner machine may still be running: ${destroyed.error}).`,
+      })
+      .eq("id", data.runId);
+    return { ok: true as const };
+  });
+
+/**
  * Link a confirmed code-audit finding to a checklist item. This can only ever
  * record a FAIL on the item: the deep audit finding nothing is not evidence
  * that an item passes.

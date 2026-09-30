@@ -113,6 +113,29 @@ export function summarizeLedger(units: unknown): { ok: boolean; summary: any; er
   return { ok: true, summary: { total: units.length, byStatus, units: unitsOut } };
 }
 
+const PHASES = new Set(["starting", "cloning", "auditing", "validating", "reporting"]);
+const count = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) < 1_000_000 ? (v as number) : null);
+
+/**
+ * Progress text comes from the audit agent, which reads hostile code, so it's
+ * treated as untrusted: known phases only, short plain-text detail, numbers only.
+ */
+export function sanitizeProgress(p: any): Record<string, unknown> | null {
+  if (!p || !PHASES.has(p.phase)) return null;
+  const detail =
+    typeof p.detail === "string"
+      ? p.detail.replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 160) || null
+      : null;
+  return {
+    phase: p.phase,
+    detail,
+    agents: count(p.agents),
+    steps: count(p.steps),
+    todosDone: count(p.todosDone),
+    todosTotal: count(p.todosTotal),
+  };
+}
+
 export async function applyCallback(
   payload: any,
   deps: { db: Db; now?: () => Date },
@@ -143,6 +166,21 @@ export async function applyCallback(
       })
       .eq("id", runId);
     return { ok: true, status: 200, message: "started" };
+  }
+
+  if (payload.event === "progress") {
+    if (!open) return { ok: true, status: 200, message: "ignored: run already finished" };
+    const progress = sanitizeProgress(payload);
+    if (!progress) return { ok: false, status: 400, error: "invalid progress" };
+    await deps.db
+      .from("code_audit_runs")
+      .update({
+        progress,
+        progress_at: now,
+        ...(run.status === "running" ? {} : { status: "running", started_at: now }),
+      })
+      .eq("id", runId);
+    return { ok: true, status: 200, message: "progress" };
   }
 
   if (payload.event === "failed") {

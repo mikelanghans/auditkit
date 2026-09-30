@@ -6,7 +6,8 @@ import { formatDistanceToNow } from "date-fns";
 import { ArrowLeft, Download, FileSearch, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { startCodeAudit, mapCodeAuditFinding } from "@/lib/code-audit.functions";
+import { startCodeAudit, mapCodeAuditFinding, stopCodeAudit } from "@/lib/code-audit.functions";
+import { CodeAuditProgress } from "@/components/code-audit-progress";
 import { PROFILE_BUDGETS, type CodeAuditProfile } from "@/lib/code-audit-contract";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -61,6 +62,9 @@ type Run = {
   budget_agents: number;
   status: string;
   error: string | null;
+  started_at: string | null;
+  progress: any;
+  progress_at: string | null;
   source_commit: string | null;
   agents_used: number | null;
   incomplete_reason: string | null;
@@ -104,9 +108,25 @@ function CodeAuditPage() {
       ((q.state.data as Run[] | undefined) ?? []).some((r) =>
         ["queued", "dispatching", "running"].includes(r.status),
       )
-        ? 15_000
+        ? 10_000
         : false,
   });
+
+  const stop = useServerFn(stopCodeAudit);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
+  async function onStop(runId: string) {
+    setStoppingId(runId);
+    try {
+      const res = await stop({ data: { runId } });
+      if (!res.ok) toast.error(res.error);
+      else toast.success("Run stopped.");
+      await qc.invalidateQueries({ queryKey: ["code-audit-runs", id] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not stop the run.");
+    } finally {
+      setStoppingId(null);
+    }
+  }
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const finishedRuns = (runs.data ?? []).filter(
@@ -284,6 +304,11 @@ function CodeAuditPage() {
                     </span>
                   )}
                 </button>
+                {["queued", "dispatching", "running"].includes(r.status) && (
+                  <div className="px-4 pb-4">
+                    <CodeAuditProgress run={r} onStop={() => onStop(r.id)} stopping={stoppingId === r.id} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>

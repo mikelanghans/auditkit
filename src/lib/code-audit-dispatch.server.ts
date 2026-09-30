@@ -70,3 +70,19 @@ export async function dispatchCodeAudit(
     return { ok: true, machineId: "" };
   }
 }
+
+/** Stop and destroy a runner machine. Best effort: the machine may already be gone. */
+export async function destroyRunnerMachine(machineId: string): Promise<{ ok: boolean; error?: string }> {
+  const app = process.env.CODE_AUDIT_FLY_APP;
+  if (!app || !process.env.FLY_API_TOKEN || !/^[a-z0-9]{6,32}$/i.test(machineId)) return { ok: false, error: "not configured" };
+  try {
+    const res = await fetch(
+      `https://api.machines.dev/v1/apps/${encodeURIComponent(app)}/machines/${encodeURIComponent(machineId)}?force=true`,
+      { method: "DELETE", headers: { authorization: flyAuthHeader(String(process.env.FLY_API_TOKEN)) } },
+    );
+    if (res.ok || res.status === 404) return { ok: true };
+    return { ok: false, error: `Fly API ${res.status}` };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "request failed" };
+  }
+}
