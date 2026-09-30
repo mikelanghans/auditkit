@@ -26,8 +26,17 @@ const EGRESS_UID = 10002;
 const PROXY = "http://127.0.0.1:3128";
 const MAX_JOB_MS = Number(process.env.CODE_AUDIT_MAX_HOURS ?? 3) * 3600_000;
 
+// Set once the callback is usable, so an unexpected crash is still reported to
+// AuditKit instead of leaving the run stuck on "queued".
+let reportCrash = null;
+
 if (AGENT_MODE) await runAgent();
-else await supervise();
+else
+  await supervise().catch(async (e) => {
+    console.error(e);
+    if (reportCrash) await reportCrash(`Runner crashed: ${e?.message ?? e}`);
+    process.exit(1);
+  });
 
 // ───────────────────────────── supervisor ─────────────────────────────
 
@@ -55,7 +64,6 @@ async function supervise() {
 
   const callbackHost = new URL(job.callbackUrl).hostname;
   let proxy = startProxy(["api.anthropic.com", "github.com", "codeload.github.com", callbackHost]);
-  run("sh", ["/app/lockdown.sh"]);
 
   const { ProxyAgent } = await import("undici");
   const dispatcher = new ProxyAgent(PROXY);
@@ -84,10 +92,63 @@ async function supervise() {
     await post({ runId: job.runId, event: "failed", error: String(error).slice(0, 1500) });
     process.exit(1);
   };
+  reportCrash = fail;
+
+  // Progress is best-effort: one attempt, never blocks the job, at most one
+  // update every 20 seconds unless the phase changes.
+  let lastProgressAt = 0;
+  let lastPhase = "";
+  let pendingProgress = null;
+  const sendProgress = (p) => {
+    const body = JSON.stringify({ runId: job.runId, event: "progress", ...p });
+    signCallback(body, secret)
+      .then(({ timestamp, signature }) =>
+        fetch(job.callbackUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-auditkit-timestamp": timestamp, "x-auditkit-signature": signature },
+          body,
+          dispatcher,
+        }),
+      )
+      .catch((e) => console.error(`[progress] ${e?.message ?? e}`));
+  };
+  const progress = (p) => {
+    const now = Date.now();
+    if (p.phase !== lastPhase || now - lastProgressAt >= 20_000) {
+      lastPhase = p.phase;
+      lastProgressAt = now;
+      pendingProgress = null;
+      sendProgress(p);
+    } else pendingProgress = p;
+  };
+  const flushTimer = setInterval(() => {
+    if (pendingProgress && Date.now() - lastProgressAt >= 20_000) progress(pendingProgress);
+  }, 5_000);
+  flushTimer.unref();
 
   await post({ runId: job.runId, event: "started", machineId: process.env.FLY_MACHINE_ID ?? hostname() });
+  progress({ phase: "starting", detail: "Locking down the network" });
+
+  // 0. Egress lockdown, then prove it: the audit user must not reach the internet directly.
+  try {
+    run("sh", ["/app/lockdown.sh"]);
+  } catch (e) {
+    return fail(`Network lockdown failed, so the audit was not started: ${e.message}`);
+  }
+  const probe = spawnSync(
+    process.execPath,
+    ["-e", "const s=require('net').connect(443,'1.1.1.1');s.setTimeout(3000,()=>process.exit(0));s.on('connect',()=>process.exit(3));s.on('error',()=>process.exit(0));"],
+    { uid: AUDITOR_UID, gid: AUDITOR_UID, env: { PATH: "/usr/bin:/bin" }, timeout: 10_000 },
+  );
+  if (probe.status !== 0)
+    return fail(
+      probe.status === 3
+        ? "Network lockdown is not effective (the audit user could reach the internet directly), so the audit was not started."
+        : `Could not verify the network lockdown (probe exit ${probe.status ?? probe.error?.message}), so the audit was not started.`,
+    );
 
   // 1. Clone, read-only, token used once and never written to disk.
+  progress({ phase: "cloning", detail: job.repoUrl.replace("https://github.com/", "") });
   try {
     mkdirSync(REPO, { recursive: true });
     mkdirSync(OUT, { recursive: true });
@@ -110,13 +171,15 @@ async function supervise() {
   proxy.kill();
   proxy = startProxy(["api.anthropic.com", callbackHost]);
 
-  // 3. Run the agent as an unprivileged user.
+  // 3. Run the agent as an unprivileged user. Its stdout is passed through to
+  // the machine log; lines starting with @@progress are forwarded to AuditKit.
+  progress({ phase: "auditing", detail: "Starting the audit agent", agents: 0, steps: 0 });
   const exit = await new Promise((resolve) => {
     const child = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", "/app/run-job.mjs", "--agent"], {
       uid: AUDITOR_UID,
       gid: AUDITOR_UID,
       cwd: OUT,
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "inherit"],
       env: {
         PATH: "/usr/local/bin:/usr/bin:/bin",
         HOME: "/home/auditor",
@@ -132,6 +195,25 @@ async function supervise() {
         JOB_REPO: job.repoUrl,
       },
     });
+    let buf = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (line.startsWith("@@progress ")) {
+          try {
+            const p = JSON.parse(line.slice(11));
+            progress({ phase: "auditing", detail: p.detail, agents: p.agents, steps: p.steps, todosDone: p.todosDone, todosTotal: p.todosTotal });
+          } catch {
+            /* ignore malformed progress */
+          }
+        } else process.stdout.write(`${line}\n`);
+      }
+      if (buf.length > 100_000) buf = "";
+    });
     const timer = setTimeout(() => child.kill("SIGKILL"), MAX_JOB_MS);
     child.on("exit", (code) => {
       clearTimeout(timer);
@@ -140,6 +222,7 @@ async function supervise() {
   });
 
   // 4. Validate with the skill's own validators, then report.
+  progress({ phase: "validating", detail: "Checking the audit output" });
   const read = (name) => (existsSync(`${OUT}/${name}`) ? readFileSync(`${OUT}/${name}`, "utf8") : null);
   const findingsText = read("findings.json");
   const ledgerText = read("coverage-ledger.json");
@@ -163,6 +246,7 @@ async function supervise() {
   } catch (e) {
     return fail(`Audit output is not valid JSON: ${e.message}`);
   }
+  progress({ phase: "reporting", detail: "Sending results to AuditKit" });
   await post({
     runId: job.runId,
     event: "completed",
@@ -182,7 +266,8 @@ async function supervise() {
 }
 
 function cleanEnv() {
-  return { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/root", LANG: "C.UTF-8" };
+  // sbin for iptables and friends; this env is only used by the root supervisor.
+  return { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", HOME: "/root", LANG: "C.UTF-8" };
 }
 
 function run(cmd, args, env = cleanEnv()) {
@@ -228,6 +313,21 @@ Execution environment facts:
 
 Finish by writing every artifact the skill defines and making sure findings.json and coverage-ledger.json pass the skill's validators.`;
 
+  // Progress for the supervisor: sub-agents launched, tool calls, and the
+  // agent's current to-do item. Printed as @@progress lines on stdout.
+  let agents = 0;
+  let steps = 0;
+  let detail = "Reading the skill";
+  let todosDone = null;
+  let todosTotal = null;
+  let lastEmit = 0;
+  const emit = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastEmit < 5_000) return;
+    lastEmit = now;
+    process.stdout.write(`@@progress ${JSON.stringify({ detail, agents, steps, todosDone, todosTotal })}\n`);
+  };
+
   let result = "";
   for await (const msg of query({
     prompt,
@@ -241,7 +341,31 @@ Finish by writing every artifact the skill defines and making sure findings.json
     },
   })) {
     if (msg.type === "result") result = msg.subtype ?? "";
+    if (msg.type === "assistant" && !msg.parent_tool_use_id) {
+      for (const block of msg.message?.content ?? []) {
+        if (block?.type !== "tool_use") continue;
+        steps++;
+        let force = false;
+        if (block.name === "Task") {
+          agents++;
+          detail = String(block.input?.description ?? "Running a sub-agent");
+          force = true;
+        } else if (block.name === "TodoWrite" && Array.isArray(block.input?.todos)) {
+          const todos = block.input.todos;
+          todosTotal = todos.length;
+          todosDone = todos.filter((t) => t?.status === "completed").length;
+          const current = todos.find((t) => t?.status === "in_progress");
+          if (current) detail = String(current.activeForm ?? current.content ?? detail);
+          force = true;
+        }
+        emit(force);
+      }
+    } else if (msg.type === "assistant") {
+      for (const block of msg.message?.content ?? []) if (block?.type === "tool_use") steps++;
+      emit();
+    }
   }
+  emit(true);
   console.log(`[agent] finished: ${result}`);
   process.exit(result === "success" ? 0 : 1);
 }
