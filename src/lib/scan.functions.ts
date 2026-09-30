@@ -5,6 +5,19 @@ import { upsertScanFinding } from "./finding-writer";
 import { consumeQuota } from "./quota";
 import { collectBundles, type BundleCoverage } from "./bundle-collect";
 import { scanForSecrets } from "./bundle-secrets";
+import {
+  EXPOSED_FILE_PROBES,
+  checkCookieFlags,
+  checkExposedFiles,
+  checkOpenRedirect,
+  checkSecurityHeadersRollup,
+  checkSourceMaps,
+  checkThirdPartyScripts,
+  clientRedirectHints,
+  redirectProbeUrls,
+  sourceMapCandidates,
+  type ProbeOutcome,
+} from "./web-checks";
 
 
 // "warn" = advisory, left for manual review and not written.
@@ -25,6 +38,63 @@ const MAX_FETCH_BYTES = 8_000_000;
  */
 async function timedFetch(url: string, init: RequestInit = {}): Promise<Response> {
   return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS, maxBodyBytes: MAX_FETCH_BYTES });
+}
+
+const UA = { "user-agent": "AuditKit-Scanner/1.0" };
+
+/** GET a URL and keep only the status and the first few KB of the body. */
+async function probeHead(url: string, bytes = 4096): Promise<ProbeOutcome> {
+  try {
+    const res = await safeFetch(url, { headers: UA }, { timeoutMs: TIMEOUT_MS, maxBodyBytes: MAX_FETCH_BYTES });
+    let head = "";
+    if (res.body) {
+      const reader = res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      while (total < bytes) {
+        const { value, done } = await reader.read();
+        if (done || !value) break;
+        chunks.push(value);
+        total += value.length;
+      }
+      await reader.cancel().catch(() => {});
+      const buf = new Uint8Array(Math.min(total, bytes));
+      let off = 0;
+      for (const c of chunks) {
+        const take = c.subarray(0, buf.length - off);
+        buf.set(take, off);
+        off += take.length;
+        if (off >= buf.length) break;
+      }
+      head = new TextDecoder("latin1").decode(buf);
+    }
+    return { url, status: res.status, head };
+  } catch (e: any) {
+    return { url, error: e?.message ?? String(e) };
+  }
+}
+
+/** First hop only, never followed: we need the Location header itself. */
+async function probeRedirect(url: string): Promise<{ url: string; status?: number; location?: string | null; error?: string }> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    await assertSafeOutboundUrl(url);
+    const res = await fetch(url, { headers: UA, redirect: "manual", signal: ctl.signal });
+    await res.body?.cancel().catch(() => {});
+    return { url, status: res.status, location: res.headers.get("location") };
+  } catch (e: any) {
+    return { url, error: e?.message ?? String(e) };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function getSetCookies(h: Headers): string[] {
+  const anyH = h as any;
+  if (typeof anyH.getSetCookie === "function") return anyH.getSetCookie();
+  const raw = h.get("set-cookie");
+  return raw ? raw.split(/,(?=\s*[A-Za-z0-9_\-.]+=)/) : [];
 }
 
 function normalizeUrl(raw: string): string {
@@ -293,9 +363,20 @@ export const runAutoScan = createServerFn({ method: "POST" })
       const bundles = await collectBundles(base, body, { maxBundles: MAX_BUNDLES, timeoutMs: TIMEOUT_MS, maxBytesPerFile: MAX_FETCH_BYTES });
       results.push(checkBundleSecrets(bundles.sources, bundles.coverage));
       results.push(checkViteExposure(bundles.sources, bundles.coverage));
+      results.push(checkCookieFlags(getSetCookies(h), base.startsWith("https://")));
+      results.push(checkThirdPartyScripts(body, base));
+
+      const origin = new URL(base).origin;
+      const maps = sourceMapCandidates(bundles.sources, origin);
+      const [mapProbes, redirectProbes] = await Promise.all([
+        Promise.all(maps.candidates.map((u) => probeHead(u, 512))),
+        Promise.all(redirectProbeUrls(base, ["/", "/login", "/auth"]).map(probeRedirect)),
+      ]);
+      results.push(checkSourceMaps(mapProbes, maps.inline, bundles.coverage.fetched));
+      results.push(checkOpenRedirect(redirectProbes, clientRedirectHints(bundles.sources)));
     } else {
       const reason = mainResp ? unobservedReason : `Could not fetch ${base}: ${mainErr ?? "unknown error"}`;
-      const unobservedKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "cors_policy", "sensitive_url_params", "bundle_secrets", "debug_mode", "vite_exposure"];
+      const unobservedKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "cors_policy", "sensitive_url_params", "bundle_secrets", "debug_mode", "vite_exposure", "cookie_flags", "third_party_scripts", "source_maps_exposed", "open_redirect"];
       for (const key of unobservedKeys) {
         results.push({ key, status: "inconclusive", notes: `Not checked: ${reason}` });
       }
@@ -310,6 +391,15 @@ export const runAutoScan = createServerFn({ method: "POST" })
     } catch (e: any) {
       results.push({ key: "error_verbosity", status: "inconclusive", notes: `Not checked: the probe request failed (${e?.message ?? String(e)}).` });
     }
+
+    // Files that must never be public. Checked even when the home page itself
+    // couldn't be read: each probe is judged on its own response.
+    const exposedProbes = await Promise.all(
+      EXPOSED_FILE_PROBES.map(async (p) => ({ ...(await probeHead(`${base.replace(/\/+$/, "")}${p.path}`)), path: p.path })),
+    );
+    results.push(checkExposedFiles(exposedProbes));
+
+    results.push(checkSecurityHeadersRollup(results));
 
     // Map keys → checklist item ids
     const keys = results.map((r) => r.key);
