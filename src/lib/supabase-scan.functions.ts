@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError } from "./ssrf-guard";
+import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
 import { consumeQuota } from "./quota";
 import {
@@ -559,7 +559,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       if (appUrl) await assertSafeOutboundUrl(appUrl);
     } catch (e) {
       if (e instanceof SSRFBlockedError) {
-        return { ok: false as const, error: `Refusing to probe internal/private destination: ${e.message}` };
+        return { ok: false as const, error: describeBlockedUrl(e) };
       }
       throw e;
     }

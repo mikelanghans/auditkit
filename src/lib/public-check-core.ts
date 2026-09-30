@@ -95,7 +95,12 @@ export async function runPublicCheck(
     await assertSafeOutboundUrl(url.toString());
   } catch (e) {
     if (e instanceof SSRFBlockedError)
-      return { ok: false, error: "We can only check public websites." };
+      return {
+        ok: false,
+        error: /no public A\/AAAA records/.test(e.message)
+          ? `We couldn't find ${url.hostname}. Check the address is spelled right and the site is live.`
+          : "We can only check public websites.",
+      };
     throw e;
   }
 

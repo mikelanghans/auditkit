@@ -219,6 +219,18 @@ async function dohResolve(name: string, type: "A" | "AAAA"): Promise<string[] | 
   return sawResolver ? collected : null;
 }
 
+/**
+ * A user-facing reason for a blocked URL. A name that simply doesn't exist in
+ * public DNS (a typo, or a record lost in a DNS move) is not an attack, so it
+ * shouldn't be reported as "refusing to probe an internal destination".
+ */
+export function describeBlockedUrl(e: { message: string }): string {
+  const m = /Blocked: (\S+) has no public A\/AAAA records/.exec(e.message);
+  if (m) return `${m[1]} doesn't exist in public DNS, so there's nothing to scan. Check the address, or add its DNS record if it should be live.`;
+  if (/Could not verify .* via DNS-over-HTTPS/.test(e.message)) return e.message;
+  return `Refusing to probe internal/private destination: ${e.message}`;
+}
+
 export class SSRFBlockedError extends Error {
   constructor(message: string) {
     super(message);
