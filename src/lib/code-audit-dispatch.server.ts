@@ -25,6 +25,15 @@ export function codeAuditRunnerConfigured(): boolean {
   );
 }
 
+/**
+ * `fly tokens create` prints macaroon tokens as "FlyV1 fm2_…", which is already
+ * a full Authorization value; older personal tokens take "Bearer".
+ */
+export function flyAuthHeader(token: string): string {
+  const t = token.trim();
+  return /^FlyV1\s/.test(t) ? t : `Bearer ${t}`;
+}
+
 export function callbackUrl(): string {
   return `${String(process.env.PUBLIC_APP_URL).replace(/\/+$/, "")}/api/public/hooks/code-audit`;
 }
@@ -37,7 +46,7 @@ export async function dispatchCodeAudit(
   const res = await fetch(`https://api.machines.dev/v1/apps/${encodeURIComponent(app)}/machines`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${process.env.FLY_API_TOKEN}`,
+      authorization: flyAuthHeader(String(process.env.FLY_API_TOKEN)),
       "content-type": "application/json",
     },
     body: JSON.stringify({

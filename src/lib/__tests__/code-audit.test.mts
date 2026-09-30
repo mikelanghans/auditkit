@@ -216,3 +216,10 @@ test("map: only confirmed findings can mark a checklist item failing; resolved i
   assert.equal(res.ok, true);
   assert.equal(db.finding(AUDIT, "ci2").status, "resolved");
 });
+
+test("fly auth header: macaroon tokens are sent as-is, plain tokens as Bearer", async () => {
+  const { flyAuthHeader } = await import("../code-audit-dispatch.server.ts");
+  assert.equal(flyAuthHeader("FlyV1 fm2_abc,fm2_def"), "FlyV1 fm2_abc,fm2_def");
+  assert.equal(flyAuthHeader("  FlyV1 fm2_abc\n"), "FlyV1 fm2_abc");
+  assert.equal(flyAuthHeader("fo1_plain"), "Bearer fo1_plain");
+});
