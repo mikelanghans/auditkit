@@ -7,10 +7,13 @@ import { decodeBase64Utf8 } from "./decode-blob";
 import { upsertScanFinding } from "./finding-writer";
 import { consumeQuota } from "./quota";
 import { gitignoreIgnoresEnv, isEnvFilePath } from "./repo-hygiene";
+import { checkXss, findXssSinks, xssCandidatePaths, type XssHit } from "./xss-scan";
 
 
 const TIMEOUT_MS = 15_000;
 const MAX_COMMITS = 100;
+const MAX_XSS_FILES = 150;
+const MAX_XSS_FILE_BYTES = 300_000;
 const COMMIT_CONCURRENCY = 6;
 
 export type RepoFinding = {
@@ -136,6 +139,8 @@ export const runRepoScan = createServerFn({ method: "POST" })
       { headers },
     );
     let envCheck: { status: "pass" | "fail" | "inconclusive"; notes: string };
+    let treePaths: string[] | null = null;
+    let treeWasTruncated = false;
     if (!tree.ok) {
       envCheck = { status: "inconclusive", notes: `Not checked: the repository file listing could not be fetched (HTTP ${tree.status}).` };
     } else {
@@ -146,6 +151,10 @@ export const runRepoScan = createServerFn({ method: "POST" })
       const paths: string[] = (treeJson.tree ?? [])
         .filter((n: any) => n.type === "blob")
         .map((n: any) => n.path);
+      treePaths = (treeJson.tree ?? [])
+        .filter((n: any) => n.type === "blob" && (n.size ?? 0) < MAX_XSS_FILE_BYTES)
+        .map((n: any) => n.path as string);
+      treeWasTruncated = treeTruncated;
       const envFiles = paths.filter(isEnvFilePath);
       // Read .gitignore through the API with the PAT, so private repos work.
       let gitignore = "";
@@ -277,10 +286,39 @@ export const runRepoScan = createServerFn({ method: "POST" })
       };
     }
 
+    // ---- XSS: raw-HTML rendering in the source ----
+    let xssCheck: { status: "pass" | "fail" | "inconclusive"; notes: string };
+    if (!treePaths) {
+      xssCheck = { status: "inconclusive", notes: "Not checked: the repository file listing could not be fetched." };
+    } else {
+      const { pick, total } = xssCandidatePaths(treePaths, MAX_XSS_FILES);
+      let failed = 0;
+      const hits: XssHit[] = [];
+      await pMap(pick, 8, async (path) => {
+        try {
+          const r = await timedFetch(
+            `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(defaultBranch)}`,
+            { headers: { ...headers, accept: "application/vnd.github.raw" } },
+          );
+          if (!r.ok) {
+            await r.body?.cancel().catch(() => {});
+            failed++;
+            return;
+          }
+          hits.push(...findXssSinks(path, await r.text()));
+        } catch {
+          failed++;
+        }
+      });
+      hits.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+      xssCheck = checkXss(hits, { scanned: pick.length - failed, total: treeWasTruncated ? total + 1 : total, failed });
+    }
+
     // ---- Persist findings by checklist title ----
     const titleToResult: Record<string, { status: "pass" | "fail" | "inconclusive"; notes: string }> = {
       ".env files in .gitignore": envCheck,
       "No secrets in git history": historyCheck,
+      "XSS protections in place": xssCheck,
     };
     const titles = Object.keys(titleToResult);
     const { data: items, error: ierr } = await supabase
