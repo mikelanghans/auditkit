@@ -7,7 +7,7 @@ plane: it starts the machine, and the runner posts signed results back.
 ```
 AuditKit (startCodeAudit)  ──Machines API──▶  Fly machine (this image)
   code_audit_runs row                          1. decrypt job (AES-GCM, key from CODE_AUDIT_WEBHOOK_SECRET)
-                                               2. start allowlisting egress proxy, lock egress with iptables
+                                               2. start allowlisting egress proxy (TCP + Unix socket)
                                                3. clone repo read-only; GitHub token used once, never on disk
                                                4. drop GitHub from the allowlist (model API + callback only)
                                                5. run the skill as uid `auditor` via the Claude Agent SDK,
@@ -69,8 +69,9 @@ label, and update `CODE_AUDIT_RUNNER_IMAGE`.
 
 ## Safety properties
 
-- **Client code is hostile input.** The agent runs as an unprivileged user; the only outbound path is a proxy that
-  allows `api.anthropic.com` and the AuditKit callback host. Target code runs only inside `sbx` (no network, empty
+- **Client code is hostile input.** The agent runs as an unprivileged user in its own network namespace with loopback
+  only (no iptables needed); its only outbound path is a bridge to a proxy that allows `api.anthropic.com` and the
+  AuditKit callback host. The runner checks a direct connection fails before starting the agent. Target code runs only inside `sbx` (no network, empty
   environment, read-only filesystem except its scratch directory, resource and time limits), as the skill requires.
 - **No AuditKit secrets on the runner.** It holds the Anthropic key and the shared webhook secret, nothing else. The
   client's GitHub token arrives encrypted, is used for one fetch, and is dropped.

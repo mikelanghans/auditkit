@@ -2,10 +2,11 @@
 # available:   fly deploy --config runner/fly.toml --dockerfile runner/Dockerfile .
 FROM node:22-bookworm-slim
 
-# git: clone the client repo. iptables: egress lockdown. bubblewrap + util-linux
-# (prlimit): the OS sandbox the skill requires before running any target code.
+# git: clone the client repo. iproute2 + util-linux (unshare, setpriv): the
+# agent's loopback-only network namespace. bubblewrap + util-linux (prlimit):
+# the OS sandbox the skill requires before running any target code.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates iptables bubblewrap util-linux coreutils procps \
+ && apt-get install -y --no-install-recommends git ca-certificates iproute2 bubblewrap util-linux coreutils procps \
  && rm -rf /var/lib/apt/lists/*
 
 # Unprivileged users: the audit agent and the egress proxy.
@@ -26,10 +27,10 @@ RUN git clone --filter=blob:none "$SKILL_REPO" /opt/security-audit-skill \
  && chown -R auditor:auditor /home/auditor/.claude
 
 COPY src/lib/code-audit-contract.ts ./contract.ts
-COPY runner/run-job.mjs runner/egress-proxy.mjs runner/lockdown.sh runner/sbx ./
-RUN chmod +x lockdown.sh sbx && ln -s /app/sbx /usr/local/bin/sbx \
+COPY runner/run-job.mjs runner/egress-proxy.mjs runner/uds-bridge.mjs runner/netns-agent.sh runner/sbx ./
+RUN chmod +x netns-agent.sh sbx && ln -s /app/sbx /usr/local/bin/sbx \
  && git config --system --add safe.directory /work/repo
 
-# The job runs as root only long enough to set up the firewall; the agent runs
-# as `auditor`. See run-job.mjs.
+# The supervisor runs as root to clone and to create the agent's network
+# namespace; the agent runs as `auditor` inside it. See run-job.mjs.
 CMD ["node", "--experimental-strip-types", "--no-warnings", "/app/run-job.mjs"]

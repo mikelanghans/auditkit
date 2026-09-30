@@ -4,9 +4,11 @@
 // Supervisor (root)                         Agent (uid auditor)
 // ─────────────────                         ───────────────────
 // decrypt job, start egress proxy,
-// lock egress (lockdown.sh),
+// check network namespaces work,
 // clone repo read-only (token used once),
-// drop GitHub from the proxy allowlist ───▶ run the security-audit skill via
+// drop GitHub from the proxy allowlist ───▶ in a loopback-only network
+//                                           namespace (netns-agent.sh), run the
+//                                           security-audit skill via
 //                                           the Claude Agent SDK, output to
 //                                           /work/out/run-1, target code only
 //                                           inside `sbx`
@@ -24,6 +26,8 @@ const SKILL_DIR = "/home/auditor/.claude/skills/security-audit";
 const AUDITOR_UID = 10001;
 const EGRESS_UID = 10002;
 const PROXY = "http://127.0.0.1:3128";
+const PROXY_SOCKET_DIR = "/run/egress";
+const PROXY_SOCKET = `${PROXY_SOCKET_DIR}/proxy.sock`;
 const MAX_JOB_MS = Number(process.env.CODE_AUDIT_MAX_HOURS ?? 3) * 3600_000;
 
 // Set once the callback is usable, so an unexpected crash is still reported to
@@ -63,6 +67,9 @@ async function supervise() {
   }
 
   const callbackHost = new URL(job.callbackUrl).hostname;
+  mkdirSync(PROXY_SOCKET_DIR, { recursive: true, mode: 0o700 });
+  run("chown", [`${EGRESS_UID}:${EGRESS_UID}`, PROXY_SOCKET_DIR]);
+  run("chmod", ["700", PROXY_SOCKET_DIR]);
   let proxy = startProxy(["api.anthropic.com", "github.com", "codeload.github.com", callbackHost]);
 
   const { ProxyAgent } = await import("undici");
@@ -129,23 +136,13 @@ async function supervise() {
   await post({ runId: job.runId, event: "started", machineId: process.env.FLY_MACHINE_ID ?? hostname() });
   progress({ phase: "starting", detail: "Locking down the network" });
 
-  // 0. Egress lockdown, then prove it: the audit user must not reach the internet directly.
+  // 0. Network isolation for the agent is a fresh network namespace (see
+  // netns-agent.sh); make sure the kernel supports it before doing anything.
   try {
-    run("sh", ["/app/lockdown.sh"]);
+    run("unshare", ["--net", "true"]);
   } catch (e) {
-    return fail(`Network lockdown failed, so the audit was not started: ${e.message}`);
+    return fail(`This machine can't create an isolated network namespace, so the audit was not started: ${e.message}`);
   }
-  const probe = spawnSync(
-    process.execPath,
-    ["-e", "const s=require('net').connect(443,'1.1.1.1');s.setTimeout(3000,()=>process.exit(0));s.on('connect',()=>process.exit(3));s.on('error',()=>process.exit(0));"],
-    { uid: AUDITOR_UID, gid: AUDITOR_UID, env: { PATH: "/usr/bin:/bin" }, timeout: 10_000 },
-  );
-  if (probe.status !== 0)
-    return fail(
-      probe.status === 3
-        ? "Network lockdown is not effective (the audit user could reach the internet directly), so the audit was not started."
-        : `Could not verify the network lockdown (probe exit ${probe.status ?? probe.error?.message}), so the audit was not started.`,
-    );
 
   // 1. Clone, read-only, token used once and never written to disk.
   progress({ phase: "cloning", detail: job.repoUrl.replace("https://github.com/", "") });
@@ -175,12 +172,14 @@ async function supervise() {
   // the machine log; lines starting with @@progress are forwarded to AuditKit.
   progress({ phase: "auditing", detail: "Starting the audit agent", agents: 0, steps: 0 });
   const exit = await new Promise((resolve) => {
-    const child = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", "/app/run-job.mjs", "--agent"], {
-      uid: AUDITOR_UID,
-      gid: AUDITOR_UID,
+    // unshare --net: new network namespace with loopback only. netns-agent.sh
+    // starts the proxy bridge, verifies isolation, then drops to `auditor`.
+    const child = spawn("unshare", ["--net", "sh", "/app/netns-agent.sh"], {
       cwd: OUT,
       stdio: ["ignore", "pipe", "inherit"],
       env: {
+        JOB_OUT: OUT,
+        EGRESS_PROXY_SOCKET: PROXY_SOCKET,
         PATH: "/usr/local/bin:/usr/bin:/bin",
         HOME: "/home/auditor",
         ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
@@ -266,7 +265,7 @@ async function supervise() {
 }
 
 function cleanEnv() {
-  // sbin for iptables and friends; this env is only used by the root supervisor.
+  // sbin for unshare/ip and friends; this env is only used by the root supervisor.
   return { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", HOME: "/root", LANG: "C.UTF-8" };
 }
 
@@ -281,7 +280,7 @@ function startProxy(hosts) {
     uid: EGRESS_UID,
     gid: EGRESS_UID,
     stdio: "inherit",
-    env: { PATH: "/usr/bin:/bin", EGRESS_ALLOW: hosts.join(",") },
+    env: { PATH: "/usr/bin:/bin", EGRESS_ALLOW: hosts.join(","), EGRESS_PROXY_SOCKET: PROXY_SOCKET },
   });
   spawnSync("sleep", ["0.5"]);
   return child;

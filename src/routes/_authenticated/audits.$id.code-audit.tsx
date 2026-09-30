@@ -299,7 +299,7 @@ function CodeAuditPage() {
                     </span>
                   )}
                   {r.status === "failed" && r.error && (
-                    <span className="text-xs text-status-fail ml-auto truncate max-w-md">
+                    <span className="text-xs text-status-fail basis-full whitespace-pre-wrap break-words select-text">
                       {r.error}
                     </span>
                   )}
