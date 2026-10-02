@@ -60,5 +60,10 @@ export const getPublicReport = createServerFn({ method: "POST" })
           bookingUrl: process.env.SAFESHIP_BOOKING_URL || process.env.VITE_SAFESHIP_BOOKING_URL || null,
         }
       : null;
-    return unlockPublicReport(data, { db: supabaseAdmin as any, mailer });
+    const { connectHubNotifier } = await import("./crm-intake");
+    const crm = connectHubNotifier(
+      process.env.CONNECT_HUB_INTAKE_URL,
+      process.env.CONNECT_HUB_WEBHOOK_SECRET,
+    );
+    return unlockPublicReport(data, { db: supabaseAdmin as any, mailer, crm });
   });

@@ -17,6 +17,7 @@ import {
 } from "./bundle-secrets";
 import { assertSafeOutboundUrl, SSRFBlockedError, safeFetch } from "./ssrf-guard";
 import { buildOwnerAlert, buildReportEmail, type OutgoingEmail } from "./public-check-email";
+import type { CrmNotifier } from "./crm-intake";
 
 export const PUBLIC_CHECK_UA =
   "AuditKit-PublicCheck/1.0 (security check requested by a site visitor)";
@@ -188,7 +189,7 @@ export function isValidEmail(email: string): boolean {
 
 export async function unlockPublicReport(
   input: { id: string; email: string; marketingConsent?: boolean },
-  deps: { db: Db; mailer?: ReportMailer | null },
+  deps: { db: Db; mailer?: ReportMailer | null; crm?: CrmNotifier | null },
 ): Promise<ReportResult> {
   if (!UUID_RE.test(String(input.id ?? "")))
     return { ok: false, error: "That report link isn't valid." };
@@ -215,6 +216,31 @@ export async function unlockPublicReport(
       .from("public_checks")
       .update({ email, email_captured_at: new Date().toISOString(), marketing_consent: consent })
       .eq("id", input.id);
+
+    // First capture only, so a re-submit can't push a second address into the
+    // CRM. A CRM outage never blocks the visitor's report.
+    if (deps.crm) {
+      const c = summary.counts ?? { critical: 0, high: 0, medium: 0, low: 0 };
+      const hostname = String(summary.hostname ?? "").slice(0, 200);
+      const crm = await deps.crm.send({
+        name: email,
+        email,
+        external_id: input.id,
+        marketing_consent: consent,
+        notes: `Checked ${hostname}: ${summary.total ?? 0} exposed key(s) (${c.critical} critical, ${c.high} high, ${c.medium} medium, ${c.low} low)`,
+        metadata: {
+          hostname,
+          url: String(row.url ?? "").slice(0, 500),
+          total: summary.total ?? 0,
+          critical: c.critical,
+          high: c.high,
+          medium: c.medium,
+          low: c.low,
+          complete: summary.complete === true,
+        },
+      });
+      if (!crm.ok) console.error("[public-check] Connect Hub intake failed", crm.error);
+    }
   }
 
   const mailer = deps.mailer;

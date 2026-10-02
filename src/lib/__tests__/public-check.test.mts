@@ -172,3 +172,53 @@ test("report email escapes content taken from the scanned site", async () => {
   assert.ok(!m.html.includes("<script>"));
   assert.match(m.html, /&lt;script&gt;/);
 });
+
+test("unlocking a report sends the lead to Connect Hub once, with counts but no key material", async () => {
+  const d = db();
+  site({
+    "https://crm.example.com/": `<html><script src="/assets/index.js"></script></html>`,
+    "https://crm.example.com/assets/index.js": `const s="${STRIPE_LIVE}"`,
+  });
+  const res: any = await runPublicCheck("https://crm.example.com", { db: d.client() as any, ipHash: "c".repeat(64) });
+  const leads: any[] = [];
+  const crm = { send: async (l: any) => (leads.push(l), { ok: true }) };
+
+  await unlockPublicReport({ id: res.id, email: "Owner@Crm.Example.com", marketingConsent: true }, { db: d.client() as any, crm });
+  assert.equal(leads.length, 1);
+  assert.equal(leads[0].email, "owner@crm.example.com");
+  assert.equal(leads[0].external_id, res.id);
+  assert.equal(leads[0].marketing_consent, true);
+  assert.equal(leads[0].metadata.hostname, "crm.example.com");
+  assert.equal(leads[0].metadata.critical + leads[0].metadata.high >= 1, true);
+  assert.ok(!JSON.stringify(leads[0]).includes(STRIPE_LIVE.slice(8)));
+
+  // Second unlock (any address) doesn't create another CRM lead.
+  await unlockPublicReport({ id: res.id, email: "someone@else.com" }, { db: d.client() as any, crm });
+  assert.equal(leads.length, 1);
+});
+
+test("a Connect Hub failure doesn't stop the visitor getting the report", async () => {
+  const d = db();
+  site({
+    "https://down.example.com/": `<html><script src="/assets/index.js"></script></html>`,
+    "https://down.example.com/assets/index.js": `const s="${STRIPE_LIVE}"`,
+  });
+  const res: any = await runPublicCheck("https://down.example.com", { db: d.client() as any, ipHash: "e".repeat(64) });
+  const crm = { send: async () => ({ ok: false, error: "503" }) };
+  const r: any = await unlockPublicReport({ id: res.id, email: "a@down.example.com" }, { db: d.client() as any, crm });
+  assert.equal(r.ok, true);
+});
+
+test("connectHubNotifier signs the body and posts to the auditkit_check source", async () => {
+  const { connectHubNotifier } = await import("../crm-intake.ts");
+  const { createHmac } = await import("node:crypto");
+  assert.equal(connectHubNotifier("https://hub.example.com/intake", ""), null);
+  const calls: any[] = [];
+  const fakeFetch: any = async (url: string, init: any) => (calls.push({ url, init }), new Response("{}", { status: 200 }));
+  const n = connectHubNotifier("https://hub.example.com/api/public/webhooks/intake/", "k3y", fakeFetch)!;
+  const r = await n.send({ name: "a@b.co", email: "a@b.co", external_id: "x", marketing_consent: false });
+  assert.deepEqual(r, { ok: true });
+  assert.equal(calls[0].url, "https://hub.example.com/api/public/webhooks/intake/auditkit_check");
+  const expected = createHmac("sha256", "k3y").update(calls[0].init.body).digest("hex");
+  assert.equal(calls[0].init.headers["x-webhook-signature"], expected);
+});
