@@ -20,19 +20,23 @@ async function getServerEntry(): Promise<ServerEntry> {
 
 // Content Security Policy applied to every response. Tuned for this app:
 // - Supabase (REST + realtime over wss) for data/auth
-// - Stripe kept in script/frame allowlist for forward-compat with payments
+// - No third-party script, frame or API origins: none are loaded. Add one
+//   only when a feature actually loads it (e.g. Stripe when payments ship).
+// - 'unsafe-inline' on script-src for TanStack Start's inline hydration
+//   scripts. Removing it needs per-request nonces.
 // - 'unsafe-inline' on style-src because Tailwind/shadcn inject runtime styles
 // - data:/blob: on img-src for generated previews and inline icons
 const SUPABASE_HTTP = "https://*.supabase.co";
 const SUPABASE_WS = "wss://*.supabase.co";
 const CSP_HEADER = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com",
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https:",
-  `connect-src 'self' ${SUPABASE_HTTP} ${SUPABASE_WS} https://api.stripe.com`,
-  "frame-src https://js.stripe.com",
+  `connect-src 'self' ${SUPABASE_HTTP} ${SUPABASE_WS}`,
+  "frame-src 'none'",
+  "form-action 'self'",
   "object-src 'none'",
   "base-uri 'self'",
   "frame-ancestors 'self'",
@@ -49,6 +53,15 @@ function withSecurityHeaders(response: Response): Response {
   }
   if (!headers.has("referrer-policy")) {
     headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  }
+  if (!headers.has("strict-transport-security")) {
+    headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  if (!headers.has("x-frame-options")) {
+    headers.set("X-Frame-Options", "SAMEORIGIN");
+  }
+  if (!headers.has("permissions-policy")) {
+    headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()");
   }
   return new Response(response.body, {
     status: response.status,

@@ -37,6 +37,17 @@ export function normalizeGithubRepo(raw: string): string | null {
   }
 }
 
+/** Branch, tag or commit names the runner may pass to `git fetch`. */
+export function isSafeGitRef(ref: string): boolean {
+  return (
+    /^[A-Za-z0-9._/-]{1,200}$/.test(ref) &&
+    !ref.startsWith("-") &&
+    !ref.startsWith("/") &&
+    !ref.includes("..") &&
+    !ref.includes("//")
+  );
+}
+
 /**
  * Check, before paying for a machine, that the runner will be able to clone
  * the repo: public without a token, or readable with the token given.
@@ -80,7 +91,18 @@ export async function checkRepoAccess(
 
 export const startCodeAudit = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: StartCodeAuditInput) => input)
+  .inputValidator((input: StartCodeAuditInput) => {
+    if (
+      !input ||
+      typeof input.auditId !== "string" ||
+      typeof input.repoUrl !== "string" ||
+      typeof input.profile !== "string" ||
+      (input.gitRef != null && typeof input.gitRef !== "string") ||
+      (input.token != null && typeof input.token !== "string")
+    )
+      throw new Error("Invalid input");
+    return input;
+  })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { data: audit } = await supabase
@@ -97,7 +119,8 @@ export const startCodeAudit = createServerFn({ method: "POST" })
         ok: false as const,
         error: "Enter a GitHub repository URL like https://github.com/owner/repo.",
       };
-    if (!(data.profile in PROFILE_BUDGETS))
+    // Own keys only: `"toString" in PROFILE_BUDGETS` is true.
+    if (!Object.hasOwn(PROFILE_BUDGETS, data.profile))
       return { ok: false as const, error: "Choose a profile." };
     if (data.clientConsent !== true) {
       return {
@@ -107,7 +130,8 @@ export const startCodeAudit = createServerFn({ method: "POST" })
       };
     }
     const gitRef = data.gitRef?.trim() || null;
-    if (gitRef && !/^[A-Za-z0-9._/-]{1,200}$/.test(gitRef))
+    // No leading "-" (git would read it as an option), no "..", no "//".
+    if (gitRef && !isSafeGitRef(gitRef))
       return { ok: false as const, error: "Invalid branch, tag or commit." };
     const token = data.token?.trim() || null;
     if (token && (token.length < 20 || token.length > 300 || /\s/.test(token))) {

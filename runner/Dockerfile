@@ -14,8 +14,9 @@ RUN useradd --create-home --uid 10001 auditor \
  && useradd --no-create-home --uid 10002 --shell /usr/sbin/nologin egress
 
 WORKDIR /app
-COPY runner/package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+COPY runner/package.json runner/package-lock.json ./
+# Exact versions and integrity hashes from the lockfile; no install scripts.
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 # Cloudflare security-audit skill (MIT), pinned. Bump deliberately.
 ARG SKILL_REPO=https://github.com/cloudflare/security-audit-skill.git
@@ -24,10 +25,13 @@ RUN git clone --filter=blob:none "$SKILL_REPO" /opt/security-audit-skill \
  && git -C /opt/security-audit-skill checkout "$SKILL_COMMIT" \
  && mkdir -p /home/auditor/.claude/skills \
  && cp -r /opt/security-audit-skill/skills/security-audit /home/auditor/.claude/skills/security-audit \
- && chown -R auditor:auditor /home/auditor/.claude
+ && chown -R auditor:auditor /home/auditor/.claude \
+ && chmod -R a-w /opt/security-audit-skill
+# /opt/security-audit-skill stays root-owned and read-only: the supervisor runs
+# the validators from there, never from the agent's writable copy.
 
 COPY src/lib/code-audit-contract.ts ./contract.ts
-COPY runner/run-job.mjs runner/egress-proxy.mjs runner/uds-bridge.mjs runner/netns-agent.sh runner/sbx ./
+COPY runner/run-job.mjs runner/egress-proxy.mjs runner/api-gateway.mjs runner/uds-bridge.mjs runner/netns-agent.sh runner/sbx ./
 RUN chmod +x netns-agent.sh sbx && ln -s /app/sbx /usr/local/bin/sbx \
  && git config --system --add safe.directory /work/repo
 

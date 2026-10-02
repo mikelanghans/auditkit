@@ -1,11 +1,13 @@
-// Inside the agent's network namespace: accept on 127.0.0.1:3128 and forward
-// each connection to the egress proxy's Unix socket outside the namespace.
-// Runs as the `egress` user; the proxy still decides which hosts are allowed.
+// Inside the agent's network namespace: accept on 127.0.0.1:<port> and forward
+// each connection to a Unix socket outside the namespace (the model-API
+// gateway). Runs as the `egress` user; the gateway decides what is allowed.
+// Usage: node uds-bridge.mjs <port> <socket-path>
 import net from "node:net";
 
-const socketPath = process.env.EGRESS_PROXY_SOCKET;
-if (!socketPath) {
-  console.error("uds-bridge: EGRESS_PROXY_SOCKET not set");
+const port = Number(process.argv[2]);
+const socketPath = process.argv[3];
+if (!Number.isInteger(port) || !socketPath) {
+  console.error("usage: uds-bridge.mjs <port> <socket-path>");
   process.exit(2);
 }
 
@@ -21,4 +23,4 @@ net
     client.on("error", close);
     upstream.on("error", close);
   })
-  .listen(3128, "127.0.0.1");
+  .listen(port, "127.0.0.1");

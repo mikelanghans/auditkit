@@ -44,21 +44,20 @@ export const Route = createFileRoute("/api/public/hooks/code-audit")({
         const body = await readCapped(request);
         if (body === null) return json(413, { ok: false, error: "body too large" });
 
-        const { verifyCallback } = await import("@/lib/code-audit-contract");
-        const valid = await verifyCallback(
+        // Each run signs with its own key, derived from the run id; a runner
+        // can only ever speak for the run it was given.
+        const { verifyRunCallback } = await import("@/lib/code-audit-contract");
+        const verified = await verifyRunCallback(
           body,
-          request.headers.get("x-auditkit-timestamp"),
-          request.headers.get("x-auditkit-signature"),
+          {
+            run: request.headers.get("x-auditkit-run"),
+            timestamp: request.headers.get("x-auditkit-timestamp"),
+            signature: request.headers.get("x-auditkit-signature"),
+          },
           secret,
-        ).catch(() => false);
-        if (!valid) return json(401, { ok: false, error: "unauthorized" });
-
-        let payload: unknown;
-        try {
-          payload = JSON.parse(body);
-        } catch {
-          return json(400, { ok: false, error: "invalid json" });
-        }
+        ).catch(() => null);
+        if (!verified) return json(401, { ok: false, error: "unauthorized" });
+        const payload = verified.payload;
 
         try {
           const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

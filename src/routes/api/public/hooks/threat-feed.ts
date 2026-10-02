@@ -33,7 +33,8 @@ export const Route = createFileRoute("/api/public/hooks/threat-feed")({
         } catch (e: any) {
           console.error("[threat-feed hook] error", e);
           return new Response(
-            JSON.stringify({ ok: false, error: e?.message ?? "Unknown error" }),
+            // Details go to the log, not to whoever called the hook.
+            JSON.stringify({ ok: false, error: "internal error" }),
             { status: 500, headers: { "content-type": "application/json" } },
           );
         }

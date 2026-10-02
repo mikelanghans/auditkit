@@ -3,10 +3,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FakeDb, stubFetch, json } from "./harness/fakes.mts";
-import { encryptJob, decryptJob, signCallback, verifyCallback } from "../code-audit-contract.ts";
+import { encryptJob, decryptJob, signCallback, verifyCallback, deriveCallbackKey, verifyRunCallback } from "../code-audit-contract.ts";
 import { applyCallback, normalizeFindings } from "../code-audit-import.ts";
 
 const SECRET = "s".repeat(40);
+const JOB_KEY = "j".repeat(40);
 const AUDIT = "audit-1";
 const USER = "user-1";
 const RUN = "11111111-2222-4333-8444-555555555555";
@@ -19,6 +20,7 @@ const job = {
   profile: "standard" as const,
   budget: 80,
   callbackUrl: "https://app.example.com/api/public/hooks/code-audit",
+  callbackKey: "c".repeat(64),
   issuedAt: new Date().toISOString(),
 };
 
@@ -133,6 +135,7 @@ function setRunnerEnv(on: boolean) {
     CODE_AUDIT_FLY_APP: "runner-app",
     CODE_AUDIT_RUNNER_IMAGE: "registry.fly.io/runner-app:1",
     CODE_AUDIT_WEBHOOK_SECRET: SECRET,
+    CODE_AUDIT_JOB_KEY: JOB_KEY,
     PUBLIC_APP_URL: "https://app.example.com",
   };
   for (const [k, v] of Object.entries(vars)) {
@@ -180,7 +183,11 @@ test("start: dispatches one Fly machine with the job encrypted, and records the 
   assert.ok(!flyBody.includes("TOPSECRET"), "token must not appear in machine config");
   const cfg = JSON.parse(flyBody).config;
   assert.equal(cfg.auto_destroy, true);
-  const decoded = await decryptJob(cfg.env.AUDITKIT_JOB, SECRET);
+  await assert.rejects(decryptJob(cfg.env.AUDITKIT_JOB, SECRET), "the master secret is not the job key");
+  const decoded = await decryptJob(cfg.env.AUDITKIT_JOB, JOB_KEY);
+  const runRow = db.rows("code_audit_runs")[0];
+  assert.equal(decoded.runId, runRow.id);
+  assert.equal(decoded.callbackKey, await deriveCallbackKey(SECRET, runRow.id));
   assert.equal(decoded.githubToken, "github_pat_TOPSECRETTOKENVALUE");
   assert.equal(decoded.repoUrl, "https://github.com/o/r");
   assert.equal(decoded.budget, 30);
@@ -324,4 +331,57 @@ test("start: checks GitHub access first, so a private repo without a token never
   assert.match(res.error, /token/);
   assert.equal(machines, 0);
   assert.equal(db.rows("code_audit_runs").length, 0);
+});
+
+test("start: profile must be a real profile, not an inherited object key", async () => {
+  const { startCodeAudit } = await import("../code-audit.functions.ts");
+  const own = new FakeDb({ audits: [{ id: AUDIT, created_by: USER }] });
+  const base = { auditId: AUDIT, repoUrl: "https://github.com/o/r", clientConsent: true };
+  for (const profile of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+    const res: any = await startCodeAudit({ data: { ...base, profile }, context: ctx(own) } as any);
+    assert.equal(res.ok, false, profile);
+    assert.match(res.error, /profile/, profile);
+  }
+});
+
+test("start: git refs that git could read as options or paths are refused", async () => {
+  const { isSafeGitRef } = await import("../code-audit.functions.ts");
+  for (const ok of ["main", "v1.2.3", "feature/x-y", "a1b2c3d", "release/2026.10"]) assert.equal(isSafeGitRef(ok), true, ok);
+  for (const bad of ["-v", "--all", "--upload-pack", "/etc", "a..b", "a//b", "a b", "x;y", "", "a".repeat(201)])
+    assert.equal(isSafeGitRef(bad), false, bad);
+});
+
+test("callbacks: each run has its own key; one run's key can't sign for another", async () => {
+  const OTHER = "99999999-2222-4333-8444-555555555555";
+  const keyA = await deriveCallbackKey(SECRET, RUN);
+  const keyB = await deriveCallbackKey(SECRET, OTHER);
+  assert.match(keyA, /^[0-9a-f]{64}$/);
+  assert.notEqual(keyA, keyB);
+  assert.notEqual(keyA, await deriveCallbackKey("t".repeat(40), RUN));
+  const now = Math.floor(Date.now() / 1000);
+
+  const body = JSON.stringify({ runId: RUN, event: "started" });
+  const sig = await signCallback(body, keyA, now);
+  const ok = await verifyRunCallback(body, { run: RUN, ...sig }, SECRET, now);
+  assert.equal(ok?.runId, RUN);
+
+  // Run A's machine tries to report for run B.
+  const forged = JSON.stringify({ runId: OTHER, event: "completed" });
+  const fsig = await signCallback(forged, keyA, now);
+  assert.equal(await verifyRunCallback(forged, { run: OTHER, ...fsig }, SECRET, now), null);
+  assert.equal(await verifyRunCallback(forged, { run: RUN, ...fsig }, SECRET, now), null, "body must name the header's run");
+  // Missing or malformed run header.
+  assert.equal(await verifyRunCallback(body, { run: null, ...sig }, SECRET, now), null);
+  assert.equal(await verifyRunCallback(body, { run: "../x", ...sig }, SECRET, now), null);
+});
+
+test("config: the runner's job key must differ from the webhook secret", async () => {
+  const { codeAuditRunnerConfigured } = await import("../code-audit-dispatch.server.ts");
+  setRunnerEnv(true);
+  assert.equal(codeAuditRunnerConfigured(), true);
+  process.env.CODE_AUDIT_JOB_KEY = SECRET;
+  assert.equal(codeAuditRunnerConfigured(), false);
+  delete process.env.CODE_AUDIT_JOB_KEY;
+  assert.equal(codeAuditRunnerConfigured(), false);
+  setRunnerEnv(false);
 });

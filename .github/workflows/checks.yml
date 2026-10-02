@@ -2,10 +2,17 @@ name: checks
 
 # Guards the scanner-integrity and security fixes. Lovable and local work both
 # commit to this repo; any change that undoes a fix fails here.
+#
+# Lock-down notes:
+# - Third-party actions are pinned to full commit SHAs (tag in the comment).
+#   Bump them deliberately; Dependabot's github-actions ecosystem can do it.
+# - The token is read-only and is not left in .git/config for later steps.
+# - pull_request (never pull_request_target), so fork PRs get no secrets.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,12 +26,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       # Tests run on Node's built-in TypeScript stripping (22.6+).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
@@ -37,15 +46,22 @@ jobs:
       - name: Security tests (SSRF guard, secret redaction)
         run: npm run test:security
 
-      - name: Scanner tests (verdict integrity, access controls, AI Assist injection, public check, code audit)
+      - name: Scanner tests (verdict integrity, access controls, AI Assist injection, public check, code audit, runner lockdown)
         run: npm run test:scanners
+
+      - name: Every test file is wired into a test script
+        run: |
+          missing=0
+          for f in src/lib/__tests__/*.test.mts; do
+            grep -q "$f" package.json || { echo "::error file=$f::not run by any npm test script"; missing=1; }
+          done
+          exit $missing
 
       - name: Runner syntax
         run: |
-          node --check runner/run-job.mjs
-          node --check runner/egress-proxy.mjs
+          for f in runner/*.mjs; do node --check "$f"; done
           sh -n runner/sbx
-          sh -n runner/lockdown.sh
+          sh -n runner/netns-agent.sh
 
       - name: Build
         run: bun run build
@@ -53,3 +69,15 @@ jobs:
           # Placeholders so the client bundle builds. No real project is contacted.
           VITE_SUPABASE_URL: https://placeholder.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_placeholder
+
+  # The runner image is what touches client code, so make sure it still builds
+  # (pinned skill commit, lockfile install) whenever the runner changes.
+  runner-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build runner image (not pushed)
+        run: docker build -f runner/Dockerfile -t auditkit-runner:ci .

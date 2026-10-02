@@ -11,11 +11,15 @@
 //                                           security-audit skill via
 //                                           the Claude Agent SDK, output to
 //                                           /work/out/run-1, target code only
-//                                           inside `sbx`
-// run the skill's validators, post signed
-// results to AuditKit, exit.
+//                                           inside `sbx`. Only way out: the
+//                                           model-API gateway (api-gateway.mjs),
+//                                           which holds the real key.
+// kill anything the agent left running,
+// run the skill's validators (pristine
+// root-owned copy, unprivileged, no network),
+// post signed results to AuditKit, exit.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, chmodSync } from "node:fs";
+import { mkdirSync, chmodSync, openSync, fstatSync, readFileSync, closeSync, constants as fsc } from "node:fs";
 import { hostname } from "node:os";
 
 const AGENT_MODE = process.argv.includes("--agent");
@@ -23,12 +27,19 @@ const WORK = "/work";
 const REPO = `${WORK}/repo`;
 const OUT = `${WORK}/out/run-1`;
 const SKILL_DIR = "/home/auditor/.claude/skills/security-audit";
+// Validators run from the root-owned copy baked into the image, never from the
+// agent's (writable) skill directory.
+const VALIDATOR_DIR = "/opt/security-audit-skill/skills/security-audit";
 const AUDITOR_UID = 10001;
 const EGRESS_UID = 10002;
 const PROXY = "http://127.0.0.1:3128";
 const PROXY_SOCKET_DIR = "/run/egress";
-const PROXY_SOCKET = `${PROXY_SOCKET_DIR}/proxy.sock`;
+const GATEWAY_SOCKET = `${PROXY_SOCKET_DIR}/api.sock`;
+const GATEWAY_PORT = 8080; // inside the agent's namespace, see netns-agent.sh
 const MAX_JOB_MS = Number(process.env.CODE_AUDIT_MAX_HOURS ?? 3) * 3600_000;
+const MAX_OUTPUT_FILE_BYTES = 8 * 1024 * 1024;
+// AuditKit's webhook rejects bodies over 6 MiB; stay under it.
+const MAX_CALLBACK_BYTES = 5.5 * 1024 * 1024;
 
 // Set once the callback is usable, so an unexpected crash is still reported to
 // AuditKit instead of leaving the run stuck on "queued".
@@ -45,32 +56,53 @@ else
 // ───────────────────────────── supervisor ─────────────────────────────
 
 async function supervise() {
-  const secret = process.env.CODE_AUDIT_WEBHOOK_SECRET;
+  const jobKey = process.env.CODE_AUDIT_JOB_KEY;
   const blob = process.env.AUDITKIT_JOB;
   delete process.env.AUDITKIT_JOB;
-  if (!secret || !blob) {
-    console.error("missing CODE_AUDIT_WEBHOOK_SECRET or AUDITKIT_JOB");
+  delete process.env.CODE_AUDIT_JOB_KEY;
+  if (process.env.CODE_AUDIT_WEBHOOK_SECRET) {
+    // AuditKit's master secret must never be on a runner: with it, one
+    // machine could sign results for every run. Remove it from the Fly app.
+    console.error("CODE_AUDIT_WEBHOOK_SECRET is set on the runner; refusing to run. Remove it (fly secrets unset).");
+    process.exit(2);
+  }
+  if (!jobKey || !blob) {
+    console.error("missing CODE_AUDIT_JOB_KEY or AUDITKIT_JOB");
     process.exit(2);
   }
   const { decryptJob, signCallback } = await import("./contract.ts");
   let job;
   try {
-    job = await decryptJob(blob, secret);
+    job = await decryptJob(blob, jobKey);
   } catch {
     console.error("job could not be decrypted; refusing to run");
     process.exit(2);
   }
+  if (!/^[0-9a-f]{64}$/.test(String(job.callbackKey ?? ""))) {
+    console.error("job has no callback key; refusing to run");
+    process.exit(2);
+  }
+  const secret = job.callbackKey; // signs callbacks for this run only
   // A job blob is only good for a short while after AuditKit issued it.
   if (Date.now() - Date.parse(job.issuedAt) > 30 * 60_000) {
     console.error("job is stale; refusing to run");
     process.exit(2);
   }
 
+  // Hard stop for the whole job, whatever hangs (clone, agent, validators).
+  setTimeout(async () => {
+    console.error("[runner] job deadline reached");
+    if (reportCrash) await reportCrash("The runner hit its overall time limit and was stopped.");
+    process.exit(1);
+  }, MAX_JOB_MS + 20 * 60_000).unref();
+
   const callbackHost = new URL(job.callbackUrl).hostname;
   mkdirSync(PROXY_SOCKET_DIR, { recursive: true, mode: 0o700 });
   run("chown", [`${EGRESS_UID}:${EGRESS_UID}`, PROXY_SOCKET_DIR]);
   run("chmod", ["700", PROXY_SOCKET_DIR]);
-  let proxy = startProxy(["api.anthropic.com", "github.com", "codeload.github.com", callbackHost]);
+  // Supervisor-only proxy (the agent can't reach it): GitHub for the clone,
+  // plus our callback host. The model API is never on this list.
+  let proxy = startProxy(["github.com", "codeload.github.com", callbackHost]);
 
   const { ProxyAgent } = await import("undici");
   const dispatcher = new ProxyAgent(PROXY);
@@ -81,19 +113,20 @@ async function supervise() {
       try {
         const res = await fetch(job.callbackUrl, {
           method: "POST",
-          headers: { "content-type": "application/json", "x-auditkit-timestamp": timestamp, "x-auditkit-signature": signature },
+          headers: { "content-type": "application/json", "x-auditkit-run": job.runId, "x-auditkit-timestamp": timestamp, "x-auditkit-signature": signature },
           body,
           dispatcher,
         });
         if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429)) {
           console.log(`[callback] ${payload.event} → ${res.status}`);
-          return;
+          return res.ok;
         }
       } catch (e) {
         console.error(`[callback] attempt ${attempt} failed: ${e?.message ?? e}`);
       }
       await new Promise((r) => setTimeout(r, attempt * 5000));
     }
+    return false;
   };
   const fail = async (error) => {
     console.error(`[runner] failed: ${error}`);
@@ -113,7 +146,7 @@ async function supervise() {
       .then(({ timestamp, signature }) =>
         fetch(job.callbackUrl, {
           method: "POST",
-          headers: { "content-type": "application/json", "x-auditkit-timestamp": timestamp, "x-auditkit-signature": signature },
+          headers: { "content-type": "application/json", "x-auditkit-run": job.runId, "x-auditkit-timestamp": timestamp, "x-auditkit-signature": signature },
           body,
           dispatcher,
         }),
@@ -150,14 +183,24 @@ async function supervise() {
   try {
     mkdirSync(REPO, { recursive: true });
     mkdirSync(OUT, { recursive: true });
-    run("chown", ["-R", `${AUDITOR_UID}:${AUDITOR_UID}`, `${WORK}/out`]);
-    const auth = job.githubToken
-      ? ["-c", `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${job.githubToken}`).toString("base64")}`]
-      : [];
+    // /work/out stays root-owned so the agent can't swap run-1 for a symlink;
+    // only run-1 itself is the agent's.
+    run("chmod", ["755", `${WORK}/out`]);
+    run("chown", [`${AUDITOR_UID}:${AUDITOR_UID}`, OUT]);
     const gitEnv = { ...cleanEnv(), https_proxy: PROXY, HTTPS_PROXY: PROXY, GIT_TERMINAL_PROMPT: "0" };
+    // The token goes in through the environment (not argv, which any local
+    // user can read in /proc) and is scoped to github.com.
+    const fetchEnv = job.githubToken
+      ? {
+          ...gitEnv,
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "http.https://github.com/.extraHeader",
+          GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`x-access-token:${job.githubToken}`).toString("base64")}`,
+        }
+      : gitEnv;
     run("git", ["init", "-q", REPO], gitEnv);
-    run("git", ["-C", REPO, ...auth, "fetch", "-q", "--depth", "1", job.repoUrl, job.gitRef || "HEAD"], gitEnv);
-    run("git", ["-C", REPO, "checkout", "-q", "FETCH_HEAD"], gitEnv);
+    run("git", ["-C", REPO, "fetch", "-q", "--depth", "1", "--end-of-options", job.repoUrl, job.gitRef || "HEAD"], fetchEnv, 10 * 60_000);
+    run("git", ["-C", REPO, "checkout", "-q", "FETCH_HEAD"], gitEnv, 5 * 60_000);
     job.githubToken = null;
   } catch (e) {
     return fail(`Could not clone ${job.repoUrl}: ${e.message}`);
@@ -165,9 +208,11 @@ async function supervise() {
   const sourceCommit = run("git", ["-C", REPO, "rev-parse", "HEAD"]).trim();
   run("chmod", ["-R", "a-w", REPO]);
 
-  // 2. From here on the only external host is the model API (and our callback).
+  // 2. From here on the supervisor only talks to our callback, and the agent
+  // only to the model-API gateway.
   proxy.kill();
-  proxy = startProxy(["api.anthropic.com", callbackHost]);
+  proxy = startProxy([callbackHost]);
+  const gateway = startGateway();
 
   // 3. Run the agent as an unprivileged user. Its stdout is passed through to
   // the machine log; lines starting with @@progress are forwarded to AuditKit.
@@ -180,13 +225,12 @@ async function supervise() {
       stdio: ["ignore", "pipe", "inherit"],
       env: {
         JOB_OUT: OUT,
-        EGRESS_PROXY_SOCKET: PROXY_SOCKET,
+        API_GATEWAY_SOCKET: GATEWAY_SOCKET,
         PATH: "/usr/local/bin:/usr/bin:/bin",
         HOME: "/home/auditor",
-        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
-        HTTPS_PROXY: PROXY,
-        https_proxy: PROXY,
-        NO_PROXY: "127.0.0.1,localhost",
+        // The real key stays in the gateway; the agent only has a placeholder.
+        ANTHROPIC_API_KEY: "sk-ant-placeholder-held-by-gateway",
+        ANTHROPIC_BASE_URL: `http://127.0.0.1:${GATEWAY_PORT}`,
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
         DISABLE_TELEMETRY: "1",
         CODE_AUDIT_MODEL: process.env.CODE_AUDIT_MODEL ?? "",
@@ -221,17 +265,30 @@ async function supervise() {
     });
   });
 
-  // 4. Validate with the skill's own validators, then report.
+  // 4. Nothing the agent started may keep running (or keep editing its
+  // output) while we validate and read it.
+  spawnSync("pkill", ["-KILL", "-u", String(AUDITOR_UID)]);
+  gateway.kill();
+
+  // 5. Validate with the skill's own validators, then report.
   progress({ phase: "validating", detail: "Checking the audit output" });
-  const read = (name) => (existsSync(`${OUT}/${name}`) ? readFileSync(`${OUT}/${name}`, "utf8") : null);
+  const read = (name) => readAgentFile(`${OUT}/${name}`);
   const findingsText = read("findings.json");
   const ledgerText = read("coverage-ledger.json");
   if (!findingsText || !ledgerText) {
     return fail(`The audit agent exited (code ${exit}) without writing findings.json and coverage-ledger.json.`);
   }
+  // Validators read agent-written files, so they run unprivileged, with no
+  // network and an empty environment, from the pristine root-owned copy.
   const validate = (script, file) => {
-    const r = spawnSync(process.execPath, [`${SKILL_DIR}/${script}`, `${OUT}/${file}`], { encoding: "utf8" });
-    return ((r.stdout || "") + (r.stderr || "")).trim().split("\n").slice(0, 20).join("\n");
+    const r = spawnSync(
+      "unshare",
+      ["--net", "setpriv", `--reuid=${AUDITOR_UID}`, `--regid=${AUDITOR_UID}`, "--clear-groups", "--no-new-privs", "--",
+        "env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", process.execPath, `${VALIDATOR_DIR}/${script}`, `${OUT}/${file}`],
+      { encoding: "utf8", env: cleanEnv(), timeout: 120_000 },
+    );
+    const out = ((r.stdout || "") + (r.stderr || "")).trim().split("\n").slice(0, 20).join("\n");
+    return r.status === 0 ? out : `FAIL (exit ${r.status ?? r.signal}): ${out}`.slice(0, 2000);
   };
   let meta = {};
   try {
@@ -247,7 +304,7 @@ async function supervise() {
     return fail(`Audit output is not valid JSON: ${e.message}`);
   }
   progress({ phase: "reporting", detail: "Sending results to AuditKit" });
-  await post({
+  const completed = {
     runId: job.runId,
     event: "completed",
     runStatus: meta.run_status === "complete" ? "complete" : "incomplete",
@@ -260,7 +317,17 @@ async function supervise() {
     reportMd: read("REPORT.md") ?? undefined,
     findingsDetailMd: read("FINDINGS-DETAIL.md") ?? undefined,
     needsValidationMd: read("NEEDS-VALIDATION.md") ?? undefined,
-  });
+  };
+  // Drop the long-form markdown before giving up if the body is too big.
+  if (Buffer.byteLength(JSON.stringify(completed)) > MAX_CALLBACK_BYTES) {
+    completed.findingsDetailMd = completed.needsValidationMd = undefined;
+  }
+  if (Buffer.byteLength(JSON.stringify(completed)) > MAX_CALLBACK_BYTES) {
+    return fail("The audit output is too large to send back to AuditKit.");
+  }
+  if (!(await post(completed))) {
+    return fail("AuditKit did not accept the audit results (see the runner log).");
+  }
   proxy.kill();
   process.exit(0);
 }
@@ -270,10 +337,31 @@ function cleanEnv() {
   return { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", HOME: "/root", LANG: "C.UTF-8" };
 }
 
-function run(cmd, args, env = cleanEnv()) {
-  const r = spawnSync(cmd, args, { encoding: "utf8", env });
+function run(cmd, args, env = cleanEnv(), timeout = 60_000) {
+  const r = spawnSync(cmd, args, { encoding: "utf8", env, timeout });
+  if (r.error?.code === "ETIMEDOUT") throw new Error(`${cmd} ${args[0]} timed out`);
   if (r.status !== 0) throw new Error(`${cmd} ${args[0]} failed: ${(r.stderr || r.stdout || "").trim().slice(0, 500)}`);
   return r.stdout;
+}
+
+/**
+ * Read a file the agent wrote, as root, without following a symlink it may
+ * have planted (e.g. REPORT.md → /proc/1/environ). Regular files only, capped.
+ */
+function readAgentFile(path) {
+  let fd;
+  try {
+    fd = openSync(path, fsc.O_RDONLY | fsc.O_NOFOLLOW | fsc.O_NONBLOCK);
+  } catch {
+    return null;
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.size > MAX_OUTPUT_FILE_BYTES) return null;
+    return readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function startProxy(hosts) {
@@ -281,7 +369,18 @@ function startProxy(hosts) {
     uid: EGRESS_UID,
     gid: EGRESS_UID,
     stdio: "inherit",
-    env: { PATH: "/usr/bin:/bin", EGRESS_ALLOW: hosts.join(","), EGRESS_PROXY_SOCKET: PROXY_SOCKET },
+    env: { PATH: "/usr/bin:/bin", EGRESS_ALLOW: hosts.join(",") },
+  });
+  spawnSync("sleep", ["0.5"]);
+  return child;
+}
+
+function startGateway() {
+  const child = spawn(process.execPath, ["/app/api-gateway.mjs"], {
+    uid: EGRESS_UID,
+    gid: EGRESS_UID,
+    stdio: "inherit",
+    env: { PATH: "/usr/bin:/bin", ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "", API_GATEWAY_SOCKET: GATEWAY_SOCKET },
   });
   spawnSync("sleep", ["0.5"]);
   return child;
@@ -307,7 +406,7 @@ Setup values:
 - Strict budget: ${budget} agent invocations across all phases. Never exceed it; if it cannot fund the minimum, follow the skill's incomplete-run rules.
 
 Execution environment facts:
-- There is no network except the model API. Do not attempt to install dependencies or fetch anything.
+- There is no network at all apart from the model API, which is reached through a local gateway. Do not attempt to install dependencies or fetch anything.
 - The OS-enforced sandbox the skill requires is the command \`sbx <scratch-dir> <command> [args...]\`: fresh network namespace (loopback only), cleared environment, read-only filesystem except the scratch dir, output and home directories hidden, CPU/memory/process/file-size limits and a 120s wall clock. Run target-controlled code only through sbx with the agent's own scratch dir. If a check can't run under sbx, record it as needs_validation as the skill describes.
 - Do not probe any deployed endpoint or external service.
 

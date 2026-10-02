@@ -5,9 +5,10 @@
 //   FLY_API_TOKEN               deploy token scoped to the runner app
 //   CODE_AUDIT_FLY_APP          runner app name
 //   CODE_AUDIT_RUNNER_IMAGE     image ref, e.g. registry.fly.io/<app>:<tag>
-//   CODE_AUDIT_WEBHOOK_SECRET   shared with the runner (fly secrets)
+//   CODE_AUDIT_WEBHOOK_SECRET   AuditKit only; per-run callback keys derive from it
+//   CODE_AUDIT_JOB_KEY          shared with the runner (fly secrets); decrypts jobs
 //   PUBLIC_APP_URL              this app's public origin, for the callback URL
-import { encryptJob, type CodeAuditJob } from "./code-audit-contract";
+import { deriveCallbackKey, encryptJob, type CodeAuditJob } from "./code-audit-contract";
 
 const MACHINE_SIZES = {
   quick: { cpus: 2, memory_mb: 4096 },
@@ -21,6 +22,9 @@ export function codeAuditRunnerConfigured(): boolean {
     process.env.CODE_AUDIT_FLY_APP &&
     process.env.CODE_AUDIT_RUNNER_IMAGE &&
     process.env.CODE_AUDIT_WEBHOOK_SECRET &&
+    process.env.CODE_AUDIT_JOB_KEY &&
+    // The runner holds the job key; it must not also be the master secret.
+    process.env.CODE_AUDIT_JOB_KEY !== process.env.CODE_AUDIT_WEBHOOK_SECRET &&
     process.env.PUBLIC_APP_URL
   );
 }
@@ -39,10 +43,14 @@ export function callbackUrl(): string {
 }
 
 export async function dispatchCodeAudit(
-  job: CodeAuditJob,
+  spec: Omit<CodeAuditJob, "callbackKey">,
 ): Promise<{ ok: true; machineId: string } | { ok: false; error: string }> {
   const app = process.env.CODE_AUDIT_FLY_APP!;
-  const blob = await encryptJob(job, process.env.CODE_AUDIT_WEBHOOK_SECRET!);
+  const job: CodeAuditJob = {
+    ...spec,
+    callbackKey: await deriveCallbackKey(process.env.CODE_AUDIT_WEBHOOK_SECRET!, spec.runId),
+  };
+  const blob = await encryptJob(job, process.env.CODE_AUDIT_JOB_KEY!);
   const res = await fetch(`https://api.machines.dev/v1/apps/${encodeURIComponent(app)}/machines`, {
     method: "POST",
     headers: {

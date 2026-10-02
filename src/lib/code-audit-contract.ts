@@ -1,13 +1,18 @@
 // The contract between AuditKit and the deep-audit runner. Shared shape and
 // crypto only; no imports, so tests and the runner can load it directly.
 //
-// Job (AuditKit → runner): the whole job spec, including the client's GitHub
-// token, is encrypted with AES-256-GCM before it is put in the Fly machine's
-// environment, so the token never sits in plaintext in machine config.
+// Two secrets, so a compromised runner can't speak for other runs:
+//   CODE_AUDIT_JOB_KEY         shared with the runner; decrypts job blobs only.
+//   CODE_AUDIT_WEBHOOK_SECRET  AuditKit only, never on the runner. Each run's
+//                              callback key is derived from it and the run id.
 //
-// Callback (runner → AuditKit): HMAC-SHA256 over `${timestamp}.${body}` in the
-// X-AuditKit-Signature header; timestamps older than 5 minutes are rejected.
-// Both keys are derived from CODE_AUDIT_WEBHOOK_SECRET with distinct labels.
+// Job (AuditKit → runner): the whole job spec, including the client's GitHub
+// token and that run's callback key, is encrypted with AES-256-GCM before it is
+// put in the Fly machine's environment.
+//
+// Callback (runner → AuditKit): X-AuditKit-Run names the run; HMAC-SHA256 with
+// that run's key over `${timestamp}.${body}` goes in X-AuditKit-Signature;
+// timestamps older than 5 minutes are rejected.
 
 export type CodeAuditProfile = "quick" | "standard" | "deep";
 
@@ -26,6 +31,8 @@ export type CodeAuditJob = {
   profile: CodeAuditProfile;
   budget: number;
   callbackUrl: string;
+  /** This run's callback signing key (hex). Signs callbacks for this run only. */
+  callbackKey: string;
   issuedAt: string;
 };
 
@@ -86,7 +93,7 @@ function b64decode(s: string): Uint8Array {
 
 async function deriveBytes(secret: string, label: string): Promise<ArrayBuffer> {
   if (!secret || secret.length < 32)
-    throw new Error("CODE_AUDIT_WEBHOOK_SECRET must be at least 32 characters.");
+    throw new Error("Code-audit secrets must be at least 32 characters.");
   return crypto.subtle.digest("SHA-256", enc.encode(`auditkit-code-audit:${label}:${secret}`));
 }
 
@@ -108,6 +115,21 @@ async function aesKey(secret: string) {
     false,
     ["encrypt", "decrypt"],
   );
+}
+
+/**
+ * The callback key for one run. Only AuditKit can compute it (it needs the
+ * webhook secret); the runner receives it inside that run's encrypted job.
+ */
+export async function deriveCallbackKey(webhookSecret: string, runId: string): Promise<string> {
+  const root = await crypto.subtle.importKey(
+    "raw",
+    await deriveBytes(webhookSecret, "callback-root"),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return toHex(await crypto.subtle.sign("HMAC", root, enc.encode(`run:${runId}`)));
 }
 
 export async function encryptJob(job: CodeAuditJob, secret: string): Promise<string> {
@@ -151,6 +173,33 @@ export async function signCallback(
 }
 
 export const CALLBACK_MAX_SKEW_SECONDS = 300;
+
+const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Verify a runner callback against the key for the run it names
+ * (X-AuditKit-Run), and check the body is about that same run.
+ * Returns the parsed payload, or null if anything doesn't match.
+ */
+export async function verifyRunCallback(
+  body: string,
+  headers: { run: string | null; timestamp: string | null; signature: string | null },
+  webhookSecret: string,
+  now = Math.floor(Date.now() / 1000),
+): Promise<{ runId: string; payload: any } | null> {
+  const runId = headers.run ?? "";
+  if (!RUN_ID_RE.test(runId)) return null;
+  const key = await deriveCallbackKey(webhookSecret, runId);
+  if (!(await verifyCallback(body, headers.timestamp, headers.signature, key, now))) return null;
+  let payload: any;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== "object" || payload.runId !== runId) return null;
+  return { runId, payload };
+}
 
 /** Constant-time check of the callback signature and freshness. */
 export async function verifyCallback(

@@ -1,0 +1,5 @@
+# The runner image copies only runner/ and src/lib/code-audit-contract.ts.
+# Keep secrets and bulk out of the build context.
+**
+!runner/
+!src/lib/code-audit-contract.ts
