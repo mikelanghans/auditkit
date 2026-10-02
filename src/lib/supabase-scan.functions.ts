@@ -2,6 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
+import { saveScanRun, type RecordedResult } from "./scan-history";
+import { checkWriteTestsAllowed } from "./audit-targets";
 import { consumeQuota } from "./quota";
 import {
   SENSITIVE_COLUMN_SQL,
@@ -59,12 +61,20 @@ async function timedFetch(url: string, init: RequestInit = {}): Promise<Response
   return await safeFetch(url, init, { timeoutMs: TIMEOUT_MS, maxBodyBytes: 8_000_000 });
 }
 
-function normalizeProjectUrl(raw: string): string | null {
-  const trimmed = raw.trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//i.test(trimmed)) return null;
+/**
+ * The scan sends the service-role key (and maybe a Management PAT) here, so only
+ * a real Supabase project origin over HTTPS is accepted: https://<ref>.supabase.co
+ * (or .in/.net). No http://, no custom domains, no ports, no paths.
+ */
+export function normalizeProjectUrl(raw: string): string | null {
+  const trimmed = String(raw ?? "").trim().replace(/\/+$/, "");
   try {
     const u = new URL(trimmed);
-    return `${u.protocol}//${u.host}`;
+    if (u.protocol !== "https:") return null;
+    if (u.port || u.username || u.password) return null;
+    if (u.pathname !== "/" && u.pathname !== "") return null;
+    if (!/^[a-z0-9]{16,}\.supabase\.(co|in|net)$/i.test(u.hostname)) return null;
+    return `https://${u.hostname.toLowerCase()}`;
   } catch {
     return null;
   }
@@ -576,6 +586,11 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       return { ok: false as const, error: "Audit not found or access denied." };
     }
 
+    if (data.intrusiveProbes === true) {
+      const allowed = await checkWriteTestsAllowed(supabase, data.auditId);
+      if (!allowed.ok) return { ok: false as const, error: allowed.error };
+    }
+
     const quota = await consumeQuota(supabase, "scan", 1);
     if (!quota.ok) return { ok: false as const, error: quota.error };
 
@@ -1039,6 +1054,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     let passes = 0;
     let fails = 0;
     let inconclusive = 0;
+    const recorded: RecordedResult[] = [];
     for (const [title, res] of Object.entries(titleToResult)) {
       if (!res) continue; // this scan can't speak to this item this time
       const itemId = byTitle.get(title);
@@ -1047,6 +1063,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       if (res.status === "inconclusive") inconclusive++;
       if (!itemId) {
         written.push({ title, status: res.status, matched: false });
+        recorded.push({ checklist_item_id: null, checklist_key: `title:${title}`, status: res.status, notes: res.notes, stored: false });
         continue;
       }
       const header = `[Supabase scan ${stamp}]\nProject: ${projectLabel}\n\n`;
@@ -1057,7 +1074,10 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
         notes: header + res.notes,
       });
       written.push({ title, status: w.written ? res.status : `${res.status} (kept existing ${w.keptStatus})`, matched: true });
+      recorded.push({ checklist_item_id: itemId, checklist_key: null, status: res.status, notes: header + res.notes, stored: w.written });
     }
+
+    const history = await saveScanRun(supabase, { auditId: data.auditId, scanner: "supabase", target: projectUrl }, recorded);
 
     return {
       ok: true as const,
@@ -1074,5 +1094,6 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       fails,
       inconclusive,
       results: written,
+      history,
     };
   });

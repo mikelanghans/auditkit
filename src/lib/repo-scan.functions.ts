@@ -5,6 +5,7 @@ import { detectAIEndpointsCore, type DetectedEndpoint } from "./ai-endpoint-dete
 import { GITHUB_HOSTS, safeFetch } from "./ssrf-guard";
 import { decodeBase64Utf8 } from "./decode-blob";
 import { upsertScanFinding } from "./finding-writer";
+import { saveScanRun, type RecordedResult } from "./scan-history";
 import { consumeQuota } from "./quota";
 import { gitignoreIgnoresEnv, isEnvFilePath } from "./repo-hygiene";
 import { checkXss, findXssSinks, xssCandidatePaths, type XssHit } from "./xss-scan";
@@ -362,10 +363,12 @@ export const runRepoScan = createServerFn({ method: "POST" })
 
     const stamp = new Date().toISOString();
     const written: { title: string; status: string; matched: boolean }[] = [];
+    const recorded: RecordedResult[] = [];
     for (const [title, res] of Object.entries(titleToResult)) {
       const itemId = byTitle.get(title);
       if (!itemId) {
         written.push({ title, status: res.status, matched: false });
+        recorded.push({ checklist_item_id: null, checklist_key: `title:${title}`, status: res.status, notes: res.notes, stored: false });
         continue;
       }
       const note = `[Repo scan ${stamp}]\nRepo: ${parsed.owner}/${parsed.repo}${siteMatch.match === "no" ? `\n⚠ ${siteMatch.note}` : ""}\n\n${res.notes}`;
@@ -376,6 +379,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
         notes: note,
       });
       written.push({ title, status: w.written ? res.status : `${res.status} (kept existing ${w.keptStatus})`, matched: true });
+      recorded.push({ checklist_item_id: itemId, checklist_key: null, status: res.status, notes: note, stored: w.written });
     }
 
     // ---- Phase 2: dependency vulnerability scan ----
@@ -430,15 +434,23 @@ export const runRepoScan = createServerFn({ method: "POST" })
             (e) => `• ${e.source} — ${e.url || "(URL not resolved)"} (field: ${e.promptField}${e.requiresAuth ? ", auth" : ""})\n    ${e.filePath}`,
           ).join("\n");
           // "inconclusive", not "na": the check applies, it just hasn't been run.
-          await upsertScanFinding(supabase, {
+          const piNote = `[Repo scan ${stamp}] ⚠ ${aiEndpoints.length} AI endpoint${aiEndpoints.length === 1 ? "" : "s"} discovered in ${parsed.owner}/${parsed.repo} but no prompt-injection test has been run yet. Use “Test for Injection” in the AI Endpoints Discovered panel.\n\n${lines}${aiEndpoints.length > 10 ? `\n\n…and ${aiEndpoints.length - 10} more.` : ""}`;
+          const pw = await upsertScanFinding(supabase, {
               audit_id: data.auditId,
               checklist_item_id: piItem.id,
               status: "inconclusive",
-              notes: `[Repo scan ${stamp}] ⚠ ${aiEndpoints.length} AI endpoint${aiEndpoints.length === 1 ? "" : "s"} discovered in ${parsed.owner}/${parsed.repo} but no prompt-injection test has been run yet. Use “Test for Injection” in the AI Endpoints Discovered panel.\n\n${lines}${aiEndpoints.length > 10 ? `\n\n…and ${aiEndpoints.length - 10} more.` : ""}`,
+              notes: piNote,
           });
+          recorded.push({ checklist_item_id: piItem.id, checklist_key: null, status: "inconclusive", notes: piNote, stored: pw.written });
         }
       }
     }
+
+    const history = await saveScanRun(
+      supabase,
+      { auditId: data.auditId, scanner: "repo", target: `${parsed.owner}/${parsed.repo}` },
+      recorded,
+    );
 
     return {
       ok: true as const,
@@ -452,6 +464,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
       aiEndpoints,
       aiDetectError,
       siteMatch,
+      history,
     };
   });
 

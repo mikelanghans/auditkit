@@ -15,6 +15,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { getCachedRepoToken, setCachedRepoToken, clearCachedRepoToken } from "@/lib/repo-token-cache";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { useAuditTargets } from "@/hooks/use-audit-targets";
+import { firstTarget } from "@/lib/audit-targets";
 
 type Mode = "repo-pick" | "detecting" | "endpoint-pick" | "manual";
 
@@ -60,6 +62,18 @@ export function AIScanDialog({
   const [needTokenFor, setNeedTokenFor] = useState<SavedRepo | null>(null);
   const [pendingToken, setPendingToken] = useState("");
   const [savePendingToken, setSavePendingToken] = useState(true);
+
+  // Pre-fill from this audit's AI endpoint target when nothing is filled in yet.
+  const targets = useAuditTargets(auditId);
+  useEffect(() => {
+    if (!open || endpointUrl) return;
+    const t = firstTarget(targets.data, "ai_endpoint");
+    if (!t) return;
+    setEndpointUrl(t.value);
+    const pf = (t.meta as any)?.prompt_field;
+    if (typeof pf === "string" && pf.trim()) setPromptField(pf.trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, targets.data]);
 
   // External preset (from “Test for Injection” buttons) — opens dialog prefilled in manual mode.
   useEffect(() => {

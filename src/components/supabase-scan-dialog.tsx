@@ -8,6 +8,8 @@ import { Progress } from "@/components/ui/progress";
 import { AlertTriangle, Database, Loader2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { runSupabaseScan } from "@/lib/supabase-scan.functions";
+import { useAuditScope, useAuditTargets } from "@/hooks/use-audit-targets";
+import { firstTarget } from "@/lib/audit-targets";
 
 export function SupabaseScanDialog({
   auditId,
@@ -34,6 +36,17 @@ export function SupabaseScanDialog({
   // Off by default: these probes write to the client's project. See
   // SupabaseScanInput.intrusiveProbes.
   const [intrusiveProbes, setIntrusiveProbes] = useState(false);
+  const targets = useAuditTargets(auditId);
+  const scope = useAuditScope(auditId);
+  const writeTestsAllowed = !!scope.data?.write_tests_allowed;
+
+  // Pre-fill the project URL from this audit's Supabase target.
+  useEffect(() => {
+    if (!open || projectUrl) return;
+    const t = firstTarget(targets.data, "supabase");
+    if (t) setProjectUrl(t.value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, targets.data]);
 
   useEffect(() => {
     if (!pending) { setProgress(0); return; }
@@ -63,7 +76,7 @@ export function SupabaseScanDialog({
           serviceRoleKey: serviceRoleKey.trim(),
           managementPat: pat.trim() || null,
           appUrl: appUrl ?? null,
-          intrusiveProbes,
+          intrusiveProbes: intrusiveProbes && writeTestsAllowed,
         },
       });
       setProgress(100);
@@ -138,9 +151,9 @@ export function SupabaseScanDialog({
                   id="sb-intrusive"
                   type="checkbox"
                   className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-current"
-                  checked={intrusiveProbes}
+                  checked={intrusiveProbes && writeTestsAllowed}
                   onChange={(e) => setIntrusiveProbes(e.target.checked)}
-                  disabled={pending}
+                  disabled={pending || !writeTestsAllowed}
                 />
                 <span className="space-y-1">
                   <span className="block font-semibold">
@@ -152,6 +165,11 @@ export function SupabaseScanDialog({
                     policy, and a burst of 8 failed sign-ins to test rate limiting (writes to their auth logs and may
                     trigger alerting).
                   </span>
+                  {!writeTestsAllowed && (
+                    <span className="block font-medium text-status-warn">
+                      Locked: turn on &ldquo;Write and stress tests allowed&rdquo; in Targets &amp; scope first.
+                    </span>
+                  )}
                   <span className="block text-foreground/70">
                     Leave this off for a passive scan. Both checks are reported as
                     &ldquo;not tested&rdquo; rather than passing.

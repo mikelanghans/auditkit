@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
+import { saveScanRun, type RecordedResult } from "./scan-history";
 import { consumeQuota } from "./quota";
 import { collectBundles, type BundleCoverage } from "./bundle-collect";
 import { scanForSecrets } from "./bundle-secrets";
@@ -413,16 +414,19 @@ export const runAutoScan = createServerFn({ method: "POST" })
 
     const stamp = new Date().toISOString();
     const written: { key: string; status: ScanStatus; matched: boolean; stored: boolean }[] = [];
+    const recorded: RecordedResult[] = [];
 
     for (const r of results) {
       const itemId = byKey.get(r.key);
       if (!itemId) {
         written.push({ key: r.key, status: r.status, matched: false, stored: false });
+        recorded.push({ checklist_item_id: null, checklist_key: r.key, status: r.status, notes: r.notes, stored: false });
         continue;
       }
       // Warn results: skip writing — leave for manual review
       if (r.status === "warn") {
         written.push({ key: r.key, status: r.status, matched: true, stored: false });
+        recorded.push({ checklist_item_id: itemId, checklist_key: r.key, status: r.status, notes: r.notes, stored: false });
         continue;
       }
       const note = `[Auto-scan ${stamp}]\nTarget: ${base}\n\n${r.notes}`;
@@ -433,12 +437,15 @@ export const runAutoScan = createServerFn({ method: "POST" })
         notes: note,
       });
       written.push({ key: r.key, status: r.status, matched: true, stored: res.written });
+      recorded.push({ checklist_item_id: itemId, checklist_key: r.key, status: r.status, notes: note, stored: res.written });
     }
+
+    const history = await saveScanRun(supabase, { auditId: data.auditId, scanner: "website", target: base }, recorded);
 
     const passes = written.filter((w) => w.status === "pass").length;
     const fails = written.filter((w) => w.status === "fail").length;
     const warnings = written.filter((w) => w.status === "warn").length;
     const inconclusive = written.filter((w) => w.status === "inconclusive").length;
 
-    return { target: base, results: written, passes, fails, warnings, inconclusive };
+    return { target: base, results: written, passes, fails, warnings, inconclusive, history };
   });

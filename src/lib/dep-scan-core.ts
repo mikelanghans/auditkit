@@ -4,6 +4,7 @@ import { decodeBase64Utf8 } from "./decode-blob";
 import { GITHUB_HOSTS, NPM_HOSTS, safeFetch } from "./ssrf-guard";
 import { collectDeps } from "./dep-manifest";
 import { upsertScanFinding } from "./finding-writer";
+import { saveScanRun, type HistorySummary } from "./scan-history";
 
 const TIMEOUT_MS = 15_000;
 const NPM_CONCURRENCY = 8;
@@ -29,6 +30,7 @@ export type DepScanResult = {
   gaps: string[];
   findings: DepFinding[];
   notes: string;
+  history?: HistorySummary;
 } | { ok: false; error: string };
 
 /**
@@ -308,15 +310,23 @@ export async function runDepScan(args: {
     .eq("checklist_key", "dep_vulns")
     .limit(1);
   const itemId = items?.[0]?.id;
+  const stamp = new Date().toISOString();
+  const depNote = `[Dependency scan ${stamp}]\n${notes}`;
+  let stored = false;
   if (itemId) {
-    const stamp = new Date().toISOString();
-    await upsertScanFinding(supabase, {
+    const w = await upsertScanFinding(supabase, {
       audit_id: auditId,
       checklist_item_id: itemId,
       status,
-      notes: `[Dependency scan ${stamp}]\n${notes}`,
+      notes: depNote,
     });
+    stored = w.written;
   }
+  const history = await saveScanRun(
+    supabase,
+    { auditId, scanner: "dependencies", target: `${owner}/${repo}` },
+    [{ checklist_item_id: itemId ?? null, checklist_key: "dep_vulns", status, notes: depNote, stored }],
+  );
 
-  return { ok: true, path: manifestPaths.join(", "), packagesScanned: names.length, counts, status, findings, notes, manifests: manifestPaths, gaps };
+  return { ok: true, path: manifestPaths.join(", "), packagesScanned: names.length, counts, status, findings, notes, manifests: manifestPaths, gaps, history };
 }

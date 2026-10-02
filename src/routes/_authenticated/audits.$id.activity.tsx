@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { listAuditActivity, type AuditActivityEvent } from "@/lib/finding-resolution.functions";
+import { ScanHistoryPanel } from "@/components/scan-history-panel";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/activity")({
   head: () => ({ meta: [{ title: "Activity Log — AuditKit" }] }),
@@ -115,6 +116,8 @@ function ActivityLogPage() {
           </DropdownMenu>
         </div>
       </div>
+
+      <ScanHistoryPanel auditId={id} />
 
       <Card className="p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">

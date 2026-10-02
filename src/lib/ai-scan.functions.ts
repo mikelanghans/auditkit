@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
+import { saveScanRun, type RecordedResult } from "./scan-history";
 import { consumeQuota } from "./quota";
 
 
@@ -350,6 +351,7 @@ export const runAIScan = createServerFn({ method: "POST" })
     let passes = 0;
     let fails = 0;
     let inconclusive = 0;
+    const recorded: RecordedResult[] = [];
     for (const [title, res] of Object.entries(titleToResult)) {
       if (res.status === "pass") passes++;
       if (res.status === "fail") fails++;
@@ -357,6 +359,7 @@ export const runAIScan = createServerFn({ method: "POST" })
       const itemId = byTitle.get(title);
       if (!itemId) {
         written.push({ title, status: res.status, matched: false });
+        recorded.push({ checklist_item_id: null, checklist_key: `title:${title}`, status: res.status, notes: res.notes, stored: false });
         continue;
       }
       const header = `[AI scan ${stamp}]\nEndpoint: ${url}\nPrompt field: "${promptField}"\n\n`;
@@ -367,7 +370,10 @@ export const runAIScan = createServerFn({ method: "POST" })
         notes: header + res.notes,
       });
       written.push({ title, status: w.written ? res.status : `${res.status} (kept existing ${w.keptStatus})`, matched: true });
+      recorded.push({ checklist_item_id: itemId, checklist_key: null, status: res.status, notes: header + res.notes, stored: w.written });
     }
+
+    const history = await saveScanRun(supabase, { auditId: data.auditId, scanner: "ai_endpoint", target: url }, recorded);
 
     return {
       ok: true as const,
@@ -385,5 +391,6 @@ export const runAIScan = createServerFn({ method: "POST" })
         notEvaluated: notEvaluated.length,
       },
       written,
+      history,
     };
   });

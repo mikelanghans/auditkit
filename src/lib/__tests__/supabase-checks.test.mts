@@ -118,3 +118,21 @@ test("password settings are read from the auth config when a PAT is given", asyn
   d = await scan({ auth: { mailer_autoconfirm: false } });
   assert.equal(status(d, 4), "inconclusive");
 });
+
+test("project URL: only https://<ref>.supabase.co is accepted (keys are sent there)", async () => {
+  const { normalizeProjectUrl } = await import("../supabase-scan.functions.ts");
+  assert.equal(normalizeProjectUrl(`https://${HOST}/`), `https://${HOST}`);
+  assert.equal(normalizeProjectUrl(`  https://${HOST.toUpperCase()}  `), `https://${HOST}`);
+  for (const bad of [
+    `http://${HOST}`,
+    `https://${HOST}:8443`,
+    `https://${HOST}/rest/v1`,
+    `https://user:pw@${HOST}`,
+    "https://api.example.com",
+    "https://abcdefghijklmnopqrst.supabase.co.evil.com",
+    "https://short.supabase.co",
+    "not a url",
+  ]) {
+    assert.equal(normalizeProjectUrl(bad), null, bad);
+  }
+});

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { AuditTargetsPanel } from "@/components/audit-targets-panel";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -333,6 +334,12 @@ function AuditView() {
           )}
         </div>
       </div>
+
+      <AuditTargetsPanel
+        auditId={id}
+        clientWebsites={auditWebsite ? [auditWebsite] : ((audit.data as any)?.client?.websites ?? [])}
+        clientRepos={savedRepos}
+      />
 
       <Card className="p-4">
         <div className="flex items-center justify-between text-sm mb-2">

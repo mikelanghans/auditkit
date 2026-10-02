@@ -474,6 +474,179 @@ export type Database = {
         }
         Relationships: []
       }
+      audit_scope: {
+        Row: {
+          audit_id: string
+          environment: string
+          write_tests_allowed: boolean
+          authorized_by: string | null
+          authorized_at: string | null
+          authorization_ref: string | null
+          testing_window: string | null
+          out_of_scope: string | null
+          notes: string | null
+          updated_at: string
+        }
+        Insert: {
+          audit_id: string
+          environment?: string
+          write_tests_allowed?: boolean
+          authorized_by?: string | null
+          authorized_at?: string | null
+          authorization_ref?: string | null
+          testing_window?: string | null
+          out_of_scope?: string | null
+          notes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          audit_id?: string
+          environment?: string
+          write_tests_allowed?: boolean
+          authorized_by?: string | null
+          authorized_at?: string | null
+          authorization_ref?: string | null
+          testing_window?: string | null
+          out_of_scope?: string | null
+          notes?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      audit_targets: {
+        Row: {
+          id: string
+          audit_id: string
+          kind: string
+          value: string
+          label: string | null
+          meta: Json
+          in_scope: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          audit_id: string
+          kind: string
+          value: string
+          label?: string | null
+          meta?: Json
+          in_scope?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          audit_id?: string
+          kind?: string
+          value?: string
+          label?: string | null
+          meta?: Json
+          in_scope?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      scan_results: {
+        Row: {
+          id: string
+          run_id: string
+          audit_id: string
+          checklist_item_id: string | null
+          checklist_key: string | null
+          scanner: string
+          status: string
+          change: string | null
+          previous_status: string | null
+          previous_run_id: string | null
+          stored: boolean
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          run_id: string
+          audit_id: string
+          checklist_item_id?: string | null
+          checklist_key?: string | null
+          scanner: string
+          status: string
+          change?: string | null
+          previous_status?: string | null
+          previous_run_id?: string | null
+          stored?: boolean
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          run_id?: string
+          audit_id?: string
+          checklist_item_id?: string | null
+          checklist_key?: string | null
+          scanner?: string
+          status?: string
+          change?: string | null
+          previous_status?: string | null
+          previous_run_id?: string | null
+          stored?: boolean
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scan_results_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scan_runs: {
+        Row: {
+          id: string
+          audit_id: string
+          created_by: string
+          scanner: string
+          trigger: string
+          parent_run_id: string | null
+          target: string | null
+          status: string
+          started_at: string
+          finished_at: string | null
+          summary: Json
+        }
+        Insert: {
+          id?: string
+          audit_id: string
+          created_by?: string
+          scanner: string
+          trigger?: string
+          parent_run_id?: string | null
+          target?: string | null
+          status?: string
+          started_at?: string
+          finished_at?: string | null
+          summary?: Json
+        }
+        Update: {
+          id?: string
+          audit_id?: string
+          created_by?: string
+          scanner?: string
+          trigger?: string
+          parent_run_id?: string | null
+          target?: string | null
+          status?: string
+          started_at?: string
+          finished_at?: string | null
+          summary?: Json
+        }
+        Relationships: []
+      }
       finding_audit_log: {
         Row: {
           after_status: string | null
