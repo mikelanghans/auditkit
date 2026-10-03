@@ -226,3 +226,44 @@ test("canary AI endpoint: an injectable, prompt-leaking chatbot fails", async ()
   assert.equal(db.finding(AUDIT, "ai1")?.status, "fail", got.join("\n"));
   // "Prompt injection test performed" records that the test ran; passing it is correct here.
 });
+
+// ---------------------------------------------------------------- repo
+
+test("canary repo: a live key in config, an unverified webhook and the service-role key in client code fail", async () => {
+  const titles = ["No secrets in the current code", "Webhooks verify their signatures", "Service-role key not referenced in client code", "No eval of dynamic values"];
+  const db = new FakeDb({
+    audits: [{ id: AUDIT, created_by: USER }],
+    checklist_items: titles.map((t, i) => ({ id: `rp${i}`, title: t })),
+  });
+  const c = ctx(db);
+  const files: Record<string, string> = {
+    "package.json": JSON.stringify({ dependencies: {} }),
+    "config/payments.json": JSON.stringify({ stripe: "sk_live_51CanaryCanaryCanaryCanaryCanaryCanary00" }),
+    "app/api/stripe/webhook/route.ts": "export async function POST(req) {\n  const event = await req.json();\n  if (event.type === 'checkout.session.completed') await grantAccess(event);\n}",
+    "src/lib/admin.ts": "export const admin = createClient(url, import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY);",
+    "src/components/Calc.tsx": "export const run = (expr) => eval(expr);",
+  };
+  const b64 = (t: string) => Buffer.from(t, "utf8").toString("base64");
+  stubFetch((url) => {
+    const u = new URL(url);
+    if (u.host !== "api.github.com") return text("nf", 404);
+    if (u.pathname === "/repos/acme/canary") return json({ default_branch: "main", private: true });
+    if (u.pathname.includes("/git/trees/")) return json({ tree: Object.keys(files).map((p) => ({ type: "blob", path: p, size: files[p].length, sha: p })) });
+    if (u.pathname.includes("/commits")) return json([]);
+    const m = u.pathname.match(/\/contents\/(.+)$/);
+    if (m) {
+      const p = decodeURIComponent(m[1]);
+      if (!(p in files)) return text("nf", 404);
+      return u.search.includes("ref=") && files[p] !== undefined
+        ? new Response(files[p], { status: 200 })
+        : json({ content: b64(files[p]) });
+    }
+    return json([]);
+  });
+  const { runRepoScan } = await import("../repo-scan.functions.ts");
+  const res: any = await runRepoScan({ data: { auditId: AUDIT, repoUrl: "https://github.com/acme/canary", token: "t".repeat(40) }, context: c } as any);
+  assert.equal(res.ok, true, res.error);
+  const got = titles.map((t, i) => ({ t, s: db.finding(AUDIT, `rp${i}`)?.status ?? "(not written)" }));
+  const missed = got.filter((g) => g.s !== "fail");
+  assert.deepEqual(missed, [], `planted flaws not caught:\n${missed.map((m) => `  ${m.t}: ${m.s}`).join("\n")}`);
+});

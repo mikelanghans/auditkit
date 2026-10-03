@@ -10,6 +10,7 @@ import type { EvidenceInput } from "./evidence";
 import { consumeQuota } from "./quota";
 import { gitignoreIgnoresEnv, isEnvFilePath } from "./repo-hygiene";
 import { checkXss, findXssSinks, xssCandidatePaths, type XssHit } from "./xss-scan";
+import { findRuleHits, judgeRule, judgeHeadSecrets, secretCandidatePaths, type RuleHit } from "./code-rules";
 import { parseGithubRepo, judgeSiteMatch, siteHost } from "./github-repo";
 
 
@@ -17,6 +18,7 @@ const TIMEOUT_MS = 15_000;
 const MAX_COMMITS = 100;
 const MAX_XSS_FILES = 150;
 const MAX_XSS_FILE_BYTES = 300_000;
+const MAX_SECRET_FILES = 60;
 const COMMIT_CONCURRENCY = 6;
 
 export type RepoFinding = {
@@ -289,8 +291,14 @@ export const runRepoScan = createServerFn({ method: "POST" })
 
     // ---- XSS: raw-HTML rendering in the source ----
     let xssCheck: { status: "pass" | "fail" | "inconclusive"; notes: string };
+    // Code rules and current-code secrets ride on the same file reads.
+    const ruleHits: RuleHit[] = [];
+    const headSecrets: { file: string; pattern: string; sample: string }[] = [];
+    let ruleCoverage = { scanned: 0, total: 0, failed: 0 };
+    let secretCoverage = { scanned: 0, total: 0, failed: 0 };
+    const unreadable = { status: "inconclusive" as const, notes: "Not checked: the repository file listing could not be fetched." };
     if (!treePaths) {
-      xssCheck = { status: "inconclusive", notes: "Not checked: the repository file listing could not be fetched." };
+      xssCheck = unreadable;
     } else {
       const { pick, total } = xssCandidatePaths(treePaths, MAX_XSS_FILES);
       xssFilesRead = true;
@@ -310,13 +318,48 @@ export const runRepoScan = createServerFn({ method: "POST" })
           const body = await r.text();
           if (auditHost && body.toLowerCase().includes(auditHost)) repoMentionsHost = true;
           hits.push(...findXssSinks(path, body));
+          ruleHits.push(...findRuleHits(path, body));
+          for (const h of scanForSecrets(body)) headSecrets.push({ file: path, ...h });
         } catch {
           failed++;
         }
       });
       hits.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
       xssCheck = checkXss(hits, { scanned: pick.length - failed, total: treeWasTruncated ? total + 1 : total, failed });
+      ruleCoverage = { scanned: pick.length - failed, total: treeWasTruncated ? total + 1 : total, failed };
+
+      // Config and other non-UI files, for secrets only.
+      const extra = secretCandidatePaths(treePaths, MAX_SECRET_FILES);
+      let extraFailed = 0;
+      await pMap(extra.pick, 8, async (path) => {
+        try {
+          const r = await timedFetch(
+            `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(defaultBranch)}`,
+            { headers: { ...headers, accept: "application/vnd.github.raw" } },
+          );
+          if (!r.ok) {
+            await r.body?.cancel().catch(() => {});
+            extraFailed++;
+            return;
+          }
+          const body = await r.text();
+          for (const h of scanForSecrets(body)) headSecrets.push({ file: path, ...h });
+        } catch {
+          extraFailed++;
+        }
+      });
+      secretCoverage = {
+        scanned: ruleCoverage.scanned + extra.pick.length - extraFailed,
+        total: ruleCoverage.total + extra.total,
+        failed: ruleCoverage.failed + extraFailed,
+      };
     }
+    const treeRead = !!treePaths;
+    const headSecretCheck = treeRead ? judgeHeadSecrets(headSecrets, secretCoverage) : unreadable;
+    const webhookCheck = treeRead ? judgeRule("webhook_signatures", ruleHits, ruleCoverage) : unreadable;
+    const serviceRoleSrcCheck = treeRead ? judgeRule("service_role_in_source", ruleHits, ruleCoverage) : unreadable;
+    const evalCheck = treeRead ? judgeRule("dynamic_code_eval", ruleHits, ruleCoverage) : unreadable;
+    const piiLogCheck = treeRead ? judgeRule("pii_in_logs", ruleHits, ruleCoverage) : unreadable;
 
     // ---- Does this repo belong to the audited website? ----
     let cname: string | null = null;
@@ -352,6 +395,11 @@ export const runRepoScan = createServerFn({ method: "POST" })
       ".env files in .gitignore": envCheck,
       "No secrets in git history": historyCheck,
       "XSS protections in place": xssCheck,
+      "No secrets in the current code": headSecretCheck,
+      "Webhooks verify their signatures": webhookCheck,
+      "Service-role key not referenced in client code": serviceRoleSrcCheck,
+      "No eval of dynamic values": evalCheck,
+      "Logging configured without PII capture": piiLogCheck,
     };
     const titles = Object.keys(titleToResult);
     const { data: items, error: ierr } = await supabase
@@ -381,7 +429,28 @@ export const runRepoScan = createServerFn({ method: "POST" })
         },
       },
     ];
-    const evidenceByTitle: Record<string, string[]> = { "No secrets in git history": ["history"] };
+    evidence.push(
+      {
+        ref: "head_secrets",
+        kind: "code",
+        title: `Secret patterns in the current code of ${parsed.owner}/${parsed.repo}`,
+        content: { branch: defaultBranch, coverage: secretCoverage, hits: headSecrets.slice(0, 200).map((h) => ({ file: h.file, pattern: h.pattern })) },
+      },
+      {
+        ref: "code_rules",
+        kind: "code",
+        title: `Code rule matches in ${parsed.owner}/${parsed.repo}`,
+        content: { branch: defaultBranch, coverage: ruleCoverage, hits: ruleHits.slice(0, 300) },
+      },
+    );
+    const evidenceByTitle: Record<string, string[]> = {
+      "No secrets in git history": ["history"],
+      "No secrets in the current code": ["head_secrets"],
+      "Webhooks verify their signatures": ["code_rules"],
+      "Service-role key not referenced in client code": ["code_rules"],
+      "No eval of dynamic values": ["code_rules"],
+      "Logging configured without PII capture": ["code_rules"],
+    };
     for (const [title, res] of Object.entries(titleToResult)) {
       const itemId = byTitle.get(title);
       if (!itemId) {
