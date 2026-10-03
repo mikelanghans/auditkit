@@ -6,6 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { AuditTargetsPanel } from "@/components/audit-targets-panel";
 import { EvidenceButton } from "@/components/evidence-dialog";
 import { FullAuditDialog } from "@/components/full-audit-dialog";
+import { FindingLifecycleDialog, LifecycleBadges } from "@/components/finding-lifecycle-dialog";
+import type { LifecycleFields } from "@/lib/finding-lifecycle";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,7 +61,7 @@ type Item = {
   sort_order: number;
   what_to_look_for: string | null;
 };
-type Finding = { id?: string; checklist_item_id: string; status: "pass" | "fail" | "na" | "resolved" | "inconclusive" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null; cursor_prompt?: string | null; claude_prompt?: string | null; explanation?: string | null; resolved_at?: string | null; resolved_via?: "automated_rescan" | "manual_evidence" | null; evidence_text?: string | null; evidence_url?: string | null };
+type Finding = { id?: string; checklist_item_id: string; status: "pass" | "fail" | "na" | "resolved" | "inconclusive" | null; notes: string | null; auto_scanned?: boolean | null; ai_assisted?: boolean | null; lovable_prompt?: string | null; cursor_prompt?: string | null; claude_prompt?: string | null; explanation?: string | null; resolved_at?: string | null; resolved_via?: "automated_rescan" | "manual_evidence" | null; evidence_text?: string | null; evidence_url?: string | null } & LifecycleFields;
 
 function AuditView() {
   const { id } = Route.useParams();
@@ -127,7 +129,7 @@ function AuditView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audit_findings")
-        .select("id, checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt, cursor_prompt, claude_prompt, explanation, resolved_at, resolved_via, evidence_text, evidence_url")
+        .select("id, checklist_item_id, status, notes, auto_scanned, ai_assisted, lovable_prompt, cursor_prompt, claude_prompt, explanation, resolved_at, resolved_via, evidence_text, evidence_url, risk_accepted_reason, risk_accepted_by, risk_accepted_at, risk_accepted_until, severity_override, severity_override_reason, remediation_owner, remediation_due, remediation_status")
         .eq("audit_id", id);
       if (error) throw error;
       return (data ?? []) as Finding[];
@@ -866,6 +868,10 @@ function ItemRow({
               </Badge>
               <RecheckItemButton auditId={auditId} checklistItemId={item.id} savedRepos={savedRepos} />
             </>
+          )}
+          {finding && <LifecycleBadges finding={finding} itemSeverity={(item as any).severity ?? null} />}
+          {finding?.id && status === "fail" && (
+            <FindingLifecycleDialog auditId={auditId} findingId={finding.id} itemTitle={item.title} itemSeverity={(item as any).severity ?? null} finding={finding} />
           )}
           {finding?.id && <HistoryButton findingId={finding.id} itemTitle={item.title} />}
           <EvidenceButton auditId={auditId} checklistItemId={item.id} itemTitle={item.title} />

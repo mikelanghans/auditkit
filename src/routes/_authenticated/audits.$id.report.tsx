@@ -35,6 +35,7 @@ import {
   type ReportModel,
 } from "@/lib/report-model";
 import { logReportExport } from "@/hooks/use-audit-trail";
+import { lifecycleOf, todayLocal, REMEDIATION_LABEL, type Lifecycle, type LifecycleFields } from "@/lib/finding-lifecycle";
 import {
   computeSecurityScore,
   gradeTone,
@@ -120,7 +121,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, summary_approved_at, website_url, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
+        .select("id, title, status, started_at, completed_at, summary, summary_approved_at, checklist_version, checklist_frozen_at, website_url, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
@@ -152,7 +153,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("audit_findings")
-        .select("checklist_item_id, status, notes, explanation")
+        .select("checklist_item_id, status, notes, explanation, risk_accepted_reason, risk_accepted_by, risk_accepted_at, risk_accepted_until, severity_override, severity_override_reason, remediation_owner, remediation_due, remediation_status")
         .eq("audit_id", id);
       return data ?? [];
     },
@@ -173,7 +174,7 @@ function ReportPage() {
 
 
   const map = useMemo(() => {
-    const m = new Map<string, { status: string | null; notes: string | null; explanation: string | null }>();
+    const m = new Map<string, { status: string | null; notes: string | null; explanation: string | null } & LifecycleFields>();
     findings.data?.forEach((f: any) => m.set(f.checklist_item_id, f));
     return m;
   }, [findings.data]);
@@ -209,13 +210,29 @@ function ReportPage() {
     return m;
   }, [map]);
 
+  // Severity overrides and accepted risks for this audit.
+  const today = todayLocal();
+  const lifecycle = useMemo(() => {
+    const m = new Map<string, Lifecycle>();
+    (items.data ?? []).forEach((it: any) => m.set(it.id, lifecycleOf(map.get(it.id), it.severity, today)));
+    return m;
+  }, [items.data, map, today]);
+  const scoredItems = useMemo(
+    () => (items.data ?? []).map((it: any) => ({ ...it, severity: lifecycle.get(it.id)?.severity ?? it.severity })),
+    [items.data, lifecycle],
+  );
+  const acceptedItems = useMemo(
+    () => (items.data ?? []).filter((it: any) => lifecycle.get(it.id)?.acceptedActive),
+    [items.data, lifecycle],
+  );
+
   const security = useMemo(
-    () => computeSecurityScore((items.data ?? []) as any, statusMap as any),
-    [items.data, statusMap],
+    () => computeSecurityScore(scoredItems as any, statusMap as any),
+    [scoredItems, statusMap],
   );
   const risk = useMemo(
-    () => failuresBySeverity((items.data ?? []) as any, statusMap as any),
-    [items.data, statusMap],
+    () => failuresBySeverity(scoredItems as any, statusMap as any),
+    [scoredItems, statusMap],
   );
   const effort = useMemo(() => estimateRemediationHours(risk), [risk]);
   const coverage = useMemo(
@@ -229,8 +246,9 @@ function ReportPage() {
 
   const failedItems = useMemo(() => {
     const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-    return (items.data ?? [])
-      .filter((it: any) => map.get(it.id)?.status === "fail")
+    // Accepted risks are listed separately; overrides change the order.
+    return scoredItems
+      .filter((it: any) => map.get(it.id)?.status === "fail" && !lifecycle.get(it.id)?.acceptedActive)
       .sort((a: any, b: any) => {
         const sevDiff =
           (order[(a.severity ?? "medium").toLowerCase()] ?? 2) -
@@ -239,7 +257,7 @@ function ReportPage() {
         // Same severity: keep checklist order so numbering is stable.
         return (a.sort_order ?? 0) - (b.sort_order ?? 0);
       });
-  }, [items.data, map]);
+  }, [scoredItems, map, lifecycle]);
 
   const scopeSnapshot = useMemo(() => {
     return grouped.map(([cat, list]) => {
@@ -326,6 +344,14 @@ function ReportPage() {
       untested,
       failed: failedItems.map((it: any) => ({ item: it, notes: map.get(it.id)?.notes ?? null, evidence: evidence.byItem.get(it.id) ?? [], controls: controlsByItem.get(it.id) ?? [] })),
       frameworks,
+      accepted: acceptedItems.map((it: any) => ({
+        title: it.title,
+        severity: lifecycle.get(it.id)?.severity ?? it.severity,
+        by: map.get(it.id)?.risk_accepted_by ?? null,
+        until: map.get(it.id)?.risk_accepted_until ?? null,
+        reason: map.get(it.id)?.risk_accepted_reason ?? null,
+      })),
+      checklistVersion: audit.data.checklist_version ?? null,
       retest: baseline
         ? { baselineLabel: `${baseline.scanner} run of ${baseline.started_at.slice(0, 16).replace("T", " ")} UTC`, rows: retestRows.map((r) => ({ ...r, title: titleById.get(r.itemId) ?? r.itemId })) }
         : null,
@@ -333,7 +359,7 @@ function ReportPage() {
       chain: extras.data.chain,
       generatedAt: new Date().toISOString(),
     };
-  }, [audit.data, items.data, extras.data, baselineId, security, totals, method, untested, failedItems, map, evidence, retestRows, titleById, controlsByItem, frameworks]);
+  }, [audit.data, items.data, extras.data, baselineId, security, totals, method, untested, failedItems, map, evidence, retestRows, titleById, controlsByItem, frameworks, acceptedItems, lifecycle]);
   const fileBase = (() => {
     const dateStr = (audit.data?.completed_at || audit.data?.started_at || new Date().toISOString()).slice(0, 10);
     const raw = audit.data?.website_url || audit.data?.title || "report";
@@ -442,10 +468,36 @@ function ReportPage() {
                     priority={idx + 1}
                     evidenceRefs={evidence.byItem.get(it.id)}
                     controls={controlsByItem.get(it.id)}
+                    lifecycle={lifecycle.get(it.id)}
+                    finding={f}
                   />
                 );
               })}
             </div>
+          </section>
+        )}
+
+        {acceptedItems.length > 0 && (
+          <section className="mb-8 break-inside-avoid">
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">Accepted risks ({acceptedItems.length})</h2>
+            <p className="text-xs text-muted-foreground mb-2">Failed checks the client has chosen to accept for now. They count as failures in the score and reopen on the date shown.</p>
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-xs text-muted-foreground"><th className="py-1">Check</th><th>Severity</th><th>Accepted by</th><th>Until</th><th>Reason</th></tr></thead>
+              <tbody>
+                {acceptedItems.map((it: any) => {
+                  const f = map.get(it.id);
+                  return (
+                    <tr key={it.id} className="border-t border-border/50 align-top">
+                      <td className="py-1">{it.title}</td>
+                      <td className="text-xs">{lifecycle.get(it.id)?.severity}</td>
+                      <td className="text-xs">{f?.risk_accepted_by}</td>
+                      <td className="text-xs whitespace-nowrap">{f?.risk_accepted_until}</td>
+                      <td className="text-xs">{f?.risk_accepted_reason}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </section>
         )}
 
@@ -486,7 +538,13 @@ function ReportPage() {
 
         <ResolvedFindingsAppendix auditId={id} />
 
-        <ReportAppendix index={evidence.index} chain={extras.data?.chain ?? null} />
+        <ReportAppendix
+          index={evidence.index}
+          chain={extras.data?.chain ?? null}
+          auditId={id}
+          checklistVersion={audit.data?.checklist_version ?? null}
+          checklistFrozenAt={audit.data?.checklist_frozen_at ?? null}
+        />
       </div>
 
 
@@ -638,7 +696,7 @@ const SEVERITY_IMPACT: Record<string, string> = {
 };
 
 function FailedFindingCard({
-  auditId, item, notes, explanation, priority, evidenceRefs, controls,
+  auditId, item, notes, explanation, priority, evidenceRefs, controls, lifecycle, finding,
 }: {
   auditId: string;
   item: any;
@@ -647,6 +705,8 @@ function FailedFindingCard({
   priority: number;
   evidenceRefs?: EvidenceRef[];
   controls?: string[];
+  lifecycle?: Lifecycle;
+  finding?: LifecycleFields;
 }) {
   const [open, setOpen] = useState(true);
   // Generated as the card scrolls into view, so it's ready before it's opened
@@ -698,6 +758,26 @@ function FailedFindingCard({
               <span className="text-xs text-muted-foreground">{item.category}</span>
             </div>
             <ControlTags tags={controls} />
+            {lifecycle?.overridden && (
+              <p className="text-xs text-muted-foreground">
+                Severity set to <strong>{lifecycle.severity}</strong> for this audit (checklist default {lifecycle.defaultSeverity}): {finding?.severity_override_reason}
+              </p>
+            )}
+            {lifecycle?.acceptedExpired && (
+              <p className="text-xs text-status-fail">
+                Risk acceptance by {finding?.risk_accepted_by} expired on {finding?.risk_accepted_until}; this issue is open again.
+              </p>
+            )}
+            {(finding?.remediation_owner || finding?.remediation_due || finding?.remediation_status) && (
+              <p className="text-xs">
+                <span className="text-muted-foreground">Remediation: </span>
+                {[finding?.remediation_status ? REMEDIATION_LABEL[finding.remediation_status] ?? finding.remediation_status : null,
+                  finding?.remediation_owner ? `owner ${finding.remediation_owner}` : null,
+                  finding?.remediation_due ? `due ${finding.remediation_due}${lifecycle?.overdue ? " (overdue)" : ""}` : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
 
             <DetailRow label="Why should I care?">
               {exp ? (

@@ -269,6 +269,8 @@ export type ReportModel = {
   failed: { item: ItemRow; notes: string | null; evidence: EvidenceRef[]; controls: string[] }[];
   retest: { baselineLabel: string; rows: (RetestRow & { title: string })[] } | null;
   frameworks?: FrameworkSummary[];
+  accepted?: { title: string; severity: string; by: string | null; until: string | null; reason: string | null }[];
+  checklistVersion?: string | null;
   evidenceIndex: EvidenceRef[];
   chain: { ok: boolean; events: number; head_hash: string | null; problem: string | null } | null;
   generatedAt: string;
@@ -328,6 +330,13 @@ export function buildReportMarkdown(m: ReportModel): string {
     if (f.notes) L.push("```", f.notes.trim(), "```", "");
   });
 
+  if (m.accepted?.length) {
+    L.push(`## Accepted risks (${m.accepted.length})`, "", "Failed checks the client has chosen to accept for now. They count as failures in the score and reopen on the date shown.", "");
+    L.push("| Check | Severity | Accepted by | Until | Reason |", "|---|---|---|---|---|");
+    for (const a of m.accepted) L.push(`| ${esc(a.title)} | ${a.severity} | ${esc(a.by ?? "—")} | ${a.until ?? "—"} | ${esc(a.reason ?? "")} |`);
+    L.push("");
+  }
+
   if (m.retest) {
     L.push(`## Re-test (compared with ${m.retest.baselineLabel})`, "");
     if (!m.retest.rows.length) L.push("No changes.", "");
@@ -356,6 +365,7 @@ export function buildReportMarkdown(m: ReportModel): string {
     for (const e of m.evidenceIndex) L.push(`| ${e.label} | ${esc(e.title)} | ${e.kind} | ${e.captured_at.slice(0, 16).replace("T", " ")} | \`${e.sha256}\` |`);
     L.push("");
   }
+  if (m.checklistVersion) L.push(`Checklist version: \`${m.checklistVersion}\``, "");
   L.push("## Appendix: audit trail", "");
   if (m.chain) {
     L.push(m.chain.ok ? `Verified: ${m.chain.events} events, each chained to the one before it.` : `NOT verified: ${m.chain.problem}.`);

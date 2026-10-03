@@ -83,6 +83,15 @@ export type Database = {
           resolved_via: string | null
           status: Database["public"]["Enums"]["finding_status"] | null
           updated_at: string
+          risk_accepted_reason: string | null
+          risk_accepted_by: string | null
+          risk_accepted_at: string | null
+          risk_accepted_until: string | null
+          severity_override: Database["public"]["Enums"]["severity"] | null
+          severity_override_reason: string | null
+          remediation_owner: string | null
+          remediation_due: string | null
+          remediation_status: string | null
         }
         Insert: {
           ai_assisted?: boolean
@@ -102,6 +111,15 @@ export type Database = {
           resolved_via?: string | null
           status?: Database["public"]["Enums"]["finding_status"] | null
           updated_at?: string
+          risk_accepted_reason?: string | null
+          risk_accepted_by?: string | null
+          risk_accepted_at?: string | null
+          risk_accepted_until?: string | null
+          severity_override?: Database["public"]["Enums"]["severity"] | null
+          severity_override_reason?: string | null
+          remediation_owner?: string | null
+          remediation_due?: string | null
+          remediation_status?: string | null
         }
         Update: {
           ai_assisted?: boolean
@@ -121,6 +139,15 @@ export type Database = {
           resolved_via?: string | null
           status?: Database["public"]["Enums"]["finding_status"] | null
           updated_at?: string
+          risk_accepted_reason?: string | null
+          risk_accepted_by?: string | null
+          risk_accepted_at?: string | null
+          risk_accepted_until?: string | null
+          severity_override?: Database["public"]["Enums"]["severity"] | null
+          severity_override_reason?: string | null
+          remediation_owner?: string | null
+          remediation_due?: string | null
+          remediation_status?: string | null
         }
         Relationships: [
           {
@@ -151,6 +178,9 @@ export type Database = {
           status: Database["public"]["Enums"]["audit_status"]
           summary: string | null
           summary_approved_at: string | null
+          checklist_snapshot: Json | null
+          checklist_version: string | null
+          checklist_frozen_at: string | null
           title: string
           updated_at: string
           website_url: string | null
@@ -166,6 +196,9 @@ export type Database = {
           status?: Database["public"]["Enums"]["audit_status"]
           summary?: string | null
           summary_approved_at?: string | null
+          checklist_snapshot?: Json | null
+          checklist_version?: string | null
+          checklist_frozen_at?: string | null
           title: string
           updated_at?: string
           website_url?: string | null
@@ -181,6 +214,9 @@ export type Database = {
           status?: Database["public"]["Enums"]["audit_status"]
           summary?: string | null
           summary_approved_at?: string | null
+          checklist_snapshot?: Json | null
+          checklist_version?: string | null
+          checklist_frozen_at?: string | null
           title?: string
           updated_at?: string
           website_url?: string | null
@@ -1009,6 +1045,10 @@ export type Database = {
           first_bad_seq: number | null
           problem: string | null
         }[]
+      }
+      freeze_audit_checklist: {
+        Args: { p_audit: string }
+        Returns: string
       }
       log_report_export: {
         Args: { p_audit: string; p_format: string; p_sha256: string | null; p_head_hash: string | null }

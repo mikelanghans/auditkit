@@ -333,7 +333,29 @@ export function EvidenceRefs({ refs }: { refs: EvidenceRef[] | undefined }) {
   );
 }
 
-export function ReportAppendix({ index, chain }: { index: EvidenceRef[]; chain: ChainStatus | null }) {
+export function ReportAppendix({
+  index,
+  chain,
+  auditId,
+  checklistVersion,
+  checklistFrozenAt,
+}: {
+  index: EvidenceRef[];
+  chain: ChainStatus | null;
+  auditId: string;
+  checklistVersion: string | null;
+  checklistFrozenAt: string | null;
+}) {
+  const qc = useQueryClient();
+  const [freezing, setFreezing] = useState(false);
+  const freeze = async () => {
+    setFreezing(true);
+    const { error } = await supabase.rpc("freeze_audit_checklist", { p_audit: auditId });
+    setFreezing(false);
+    if (error) return toast.error(error.message);
+    toast.success("Checklist frozen for this audit.");
+    qc.invalidateQueries({ queryKey: ["audit", auditId] });
+  };
   return (
     <section className="mt-8 break-before-page">
       <h2 className="text-lg font-semibold border-b pb-2 mb-3">Appendix: evidence index</h2>
@@ -355,6 +377,20 @@ export function ReportAppendix({ index, chain }: { index: EvidenceRef[]; chain: 
           </tbody>
         </table>
       )}
+      <h2 className="text-lg font-semibold border-b pb-2 mb-3 mt-6">Appendix: checklist version</h2>
+      <div className="text-sm flex items-center gap-3 flex-wrap">
+        {checklistVersion ? (
+          <span>
+            Assessed against checklist <span className="font-mono text-xs break-all">{checklistVersion}</span>
+            {checklistFrozenAt ? <span className="text-muted-foreground"> (frozen {format(new Date(checklistFrozenAt), "PP")})</span> : null}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">Not frozen yet. It freezes automatically when the audit is marked complete.</span>
+        )}
+        <Button size="sm" variant="outline" className="h-7 text-xs print:hidden" onClick={freeze} disabled={freezing}>
+          {freezing && <Loader2 className="h-3 w-3 mr-1 animate-spin" />} {checklistVersion ? "Re-freeze now" : "Freeze now"}
+        </Button>
+      </div>
       <h2 className="text-lg font-semibold border-b pb-2 mb-3 mt-6">Appendix: audit trail</h2>
       {chain ? (
         <div className="text-sm space-y-1">
