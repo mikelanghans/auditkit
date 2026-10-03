@@ -6,6 +6,14 @@ import { collectDeps } from "./dep-manifest";
 import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type HistorySummary } from "./scan-history";
 import type { EvidenceInput } from "./evidence";
+import { lockfileKind, parseLockfile, osvSeverity, type LockedPackage, type LockfileKind } from "./lockfile-parse";
+
+const OSV_HOSTS = ["api.osv.dev"];
+const MAX_LOCKFILES = 10;
+const MAX_LOCKFILE_BYTES = 20_000_000;
+const OSV_BATCH = 500;
+/** Detail lookups per scan (Worker subrequest budget). Beyond this, severity is reported as unknown. */
+const MAX_OSV_DETAILS = 60;
 
 const TIMEOUT_MS = 15_000;
 const NPM_CONCURRENCY = 8;
@@ -19,6 +27,8 @@ export type DepFinding = {
   cve: string | null;
   reason: string;
   advisoryUrl: string | null;
+  /** Not declared in any package.json: pulled in by another package. */
+  transitive?: boolean;
 };
 
 export type DepScanResult = {
@@ -43,7 +53,7 @@ export type DepScanResult = {
 async function timedFetch(url: string, init: RequestInit = {}, timeoutMs = TIMEOUT_MS): Promise<Response> {
   return await safeFetch(url, init, {
     timeoutMs,
-    allowHosts: [...GITHUB_HOSTS, ...NPM_HOSTS],
+    allowHosts: [...GITHUB_HOSTS, ...NPM_HOSTS, ...OSV_HOSTS],
   });
 }
 
@@ -76,6 +86,7 @@ async function pMap<T, R>(items: T[], n: number, fn: (it: T) => Promise<R>): Pro
 }
 
 type Manifest = { path: string; json: any };
+type LockfileRef = { path: string; sha: string; size: number | null; kind: LockfileKind };
 
 /**
  * Find and read EVERY package.json in the repo (outside node_modules), not just
@@ -83,11 +94,12 @@ type Manifest = { path: string; json: any };
  * scanning only the root manifest reported "no CVEs" for code it never looked at.
  * Anything that could not be read is returned in `gaps`.
  */
-async function fetchManifests(owner: string, repo: string, token: string, defaultBranch: string): Promise<{ manifests: Manifest[]; gaps: string[] }> {
+async function fetchManifests(owner: string, repo: string, token: string, defaultBranch: string): Promise<{ manifests: Manifest[]; lockfiles: LockfileRef[]; gaps: string[] }> {
   const headers = ghHeaders(token);
   const gaps: string[] = [];
 
   let paths: string[] = [];
+  let lockfiles: LockfileRef[] = [];
   const tree = await timedFetch(
     `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`,
     { headers },
@@ -101,6 +113,13 @@ async function fetchManifests(owner: string, repo: string, token: string, defaul
       .filter((n: any) => n.type === "blob" && /(^|\/)package\.json$/.test(String(n.path)) && !/(^|\/)node_modules\//.test(String(n.path)))
       .map((n: any) => String(n.path))
       .sort((a: string, b: string) => a.split("/").length - b.split("/").length || a.localeCompare(b));
+    lockfiles = (treeJson.tree ?? [])
+      .filter((n: any) => n.type === "blob" && lockfileKind(String(n.path)) && !/(^|\/)node_modules\//.test(String(n.path)))
+      .map((n: any) => ({ path: String(n.path), sha: String(n.sha), size: typeof n.size === "number" ? n.size : null, kind: lockfileKind(String(n.path))! }));
+    if (lockfiles.length > MAX_LOCKFILES) {
+      gaps.push(`${lockfiles.length - MAX_LOCKFILES} lockfile(s) beyond the ${MAX_LOCKFILES}-lockfile limit were not scanned.`);
+      lockfiles = lockfiles.slice(0, MAX_LOCKFILES);
+    }
   } else {
     gaps.push(`Could not list the repository tree (HTTP ${tree.status}); only package.json at the repo root was checked.`);
     paths = ["package.json"];
@@ -128,7 +147,106 @@ async function fetchManifests(owner: string, repo: string, token: string, defaul
       gaps.push(`${p}: could not be parsed.`);
     }
   }
-  return { manifests, gaps };
+  return { manifests, lockfiles, gaps };
+}
+
+/** Read lockfiles through the git blob API (works past the 1 MB contents-API limit). */
+async function fetchLockedPackages(
+  owner: string,
+  repo: string,
+  token: string,
+  lockfiles: LockfileRef[],
+  gaps: string[],
+): Promise<{ packages: LockedPackage[]; read: string[] }> {
+  const all = new Map<string, LockedPackage>();
+  const read: string[] = [];
+  for (const lf of lockfiles) {
+    if (lf.size !== null && lf.size > MAX_LOCKFILE_BYTES) {
+      gaps.push(`${lf.path} is larger than ${MAX_LOCKFILE_BYTES / 1_000_000} MB and was not read.`);
+      continue;
+    }
+    try {
+      const r = await timedFetch(`https://api.github.com/repos/${owner}/${repo}/git/blobs/${lf.sha}`, { headers: ghHeaders(token) }, 30_000);
+      if (!r.ok) {
+        gaps.push(`${lf.path}: could not be fetched (HTTP ${r.status}).`);
+        continue;
+      }
+      const j: any = await r.json();
+      const text = decodeBase64Utf8(String(j?.content ?? "").replace(/\s/g, ""));
+      const pkgs = parseLockfile(lf.kind, text);
+      if (!pkgs.length) {
+        gaps.push(`${lf.path}: no packages could be read from it.`);
+        continue;
+      }
+      for (const p of pkgs) all.set(`${p.name}@${p.version}`, p);
+      read.push(`${lf.path} (${pkgs.length})`);
+    } catch (e: any) {
+      gaps.push(`${lf.path}: could not be parsed (${e?.message ?? "error"}).`);
+    }
+  }
+  return { packages: [...all.values()], read };
+}
+
+type OsvHit = { pkg: LockedPackage; id: string; summary: string | null; severity: ReturnType<typeof osvSeverity>; cve: string | null };
+
+/**
+ * Known vulnerabilities for exact versions from OSV.dev. Returns null when any
+ * batch fails: a partial answer is never treated as "no vulnerabilities".
+ */
+async function queryOsv(packages: LockedPackage[], gaps: string[]): Promise<OsvHit[] | null> {
+  const idsByPkg: { pkg: LockedPackage; ids: string[] }[] = [];
+  for (let i = 0; i < packages.length; i += OSV_BATCH) {
+    const batch = packages.slice(i, i + OSV_BATCH);
+    try {
+      const r = await timedFetch("https://api.osv.dev/v1/querybatch", {
+        method: "POST",
+        headers: { "content-type": "application/json", "user-agent": "AuditKit-DependencyScan/1.0" },
+        body: JSON.stringify({ queries: batch.map((p) => ({ package: { name: p.name, ecosystem: "npm" }, version: p.version })) }),
+      }, 30_000);
+      if (!r.ok) {
+        gaps.push(`OSV.dev returned HTTP ${r.status}, so known vulnerabilities were NOT fully checked.`);
+        return null;
+      }
+      const j: any = await r.json();
+      const results: any[] = Array.isArray(j?.results) ? j.results : [];
+      if (results.length !== batch.length) {
+        gaps.push("OSV.dev returned an incomplete answer, so known vulnerabilities were NOT fully checked.");
+        return null;
+      }
+      results.forEach((res, k) => {
+        const ids = (res?.vulns ?? []).map((v: any) => String(v?.id)).filter(Boolean);
+        if (res?.next_page_token) gaps.push(`${batch[k].name}@${batch[k].version}: more advisories exist than OSV returned in one page.`);
+        if (ids.length) idsByPkg.push({ pkg: batch[k], ids });
+      });
+    } catch (e: any) {
+      gaps.push(`OSV.dev could not be reached (${e?.message ?? "error"}), so known vulnerabilities were NOT checked.`);
+      return null;
+    }
+  }
+  const unique = [...new Set(idsByPkg.flatMap((x) => x.ids))];
+  const details = new Map<string, any>();
+  await pMap(unique.slice(0, MAX_OSV_DETAILS), 6, async (id) => {
+    try {
+      const r = await timedFetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`, { headers: { "user-agent": "AuditKit-DependencyScan/1.0" } });
+      if (r.ok) details.set(id, await r.json());
+    } catch {
+      /* severity stays unknown, which is reported, not dropped */
+    }
+  });
+  const hits: OsvHit[] = [];
+  for (const { pkg, ids } of idsByPkg) {
+    for (const id of ids) {
+      const d = details.get(id);
+      hits.push({
+        pkg,
+        id,
+        summary: d?.summary ?? null,
+        severity: d ? osvSeverity(d) : "unknown",
+        cve: (d?.aliases ?? []).find((a: string) => /^CVE-/.test(a)) ?? (id.startsWith("CVE-") ? id : null),
+      });
+    }
+  }
+  return hits;
 }
 
 type NpmMeta = { latest: string | null; latestTime: string | null; currentTime: string | null };
@@ -180,7 +298,7 @@ export async function runDepScan(args: {
 }): Promise<DepScanResult> {
   const { owner, repo, token, defaultBranch, supabase, auditId } = args;
 
-  const { manifests, gaps } = await fetchManifests(owner, repo, token, defaultBranch);
+  const { manifests, lockfiles, gaps } = await fetchManifests(owner, repo, token, defaultBranch);
   if (manifests.length === 0) {
     return { ok: false, error: `No readable package.json found in ${owner}/${repo} on branch ${defaultBranch}.${gaps.length ? ` ${gaps.join(" ")}` : ""}` };
   }
@@ -202,20 +320,52 @@ export async function runDepScan(args: {
   const metas = await pMap(names, NPM_CONCURRENCY, async (n) => ({ name: n, meta: await fetchNpmMeta(n, cleaned[n]) }));
   const metaByName = new Map(metas.map((m) => [m.name, m.meta]));
 
-  const advisoryResult = names.length ? await fetchAdvisoriesBulk(query) : {};
+  // Exact versions from lockfiles (direct and transitive), checked against OSV.
+  // Without a lockfile, fall back to the npm advisory API on declared ranges.
+  const locked = lockfiles.length ? await fetchLockedPackages(owner, repo, token, lockfiles, gaps) : { packages: [], read: [] as string[] };
+  let osvHits: OsvHit[] | null = null;
+  if (locked.packages.length) {
+    osvHits = await queryOsv(locked.packages, gaps);
+  } else if (!lockfiles.length) {
+    gaps.push("No lockfile in the repo, so transitive dependencies were NOT checked and versions are the lowest each declared range allows.");
+  }
+  const useNpmAdvisories = osvHits === null;
+  const advisoryResult = useNpmAdvisories && names.length ? await fetchAdvisoriesBulk(query) : {};
   if (advisoryResult === null) {
     gaps.push("The npm advisory database could not be reached, so known vulnerabilities were NOT checked.");
   }
   const advisories: Record<string, any[]> = advisoryResult ?? {};
+  const direct = new Set(names);
+  const vulnerableNames = new Set<string>();
+  if (osvHits) {
+    const unknown = osvHits.filter((h) => h.severity === "unknown").length;
+    if (unknown) gaps.push(`${unknown} advisory record(s) couldn't be rated (no severity retrieved); they're listed as high until reviewed.`);
+  }
 
   const now = Date.now();
   const SIX_MONTHS = 1000 * 60 * 60 * 24 * 30 * 6;
   const findings: DepFinding[] = [];
 
+  for (const h of osvHits ?? []) {
+    const sev = h.severity === "unknown" ? "high" : h.severity;
+    findings.push({
+      name: h.pkg.name,
+      current: h.pkg.version,
+      latest: metaByName.get(h.pkg.name)?.latest ?? null,
+      severity: sev,
+      cve: h.cve ?? h.id,
+      reason: `${h.summary ?? "Known vulnerability"}${h.severity === "unknown" ? " (severity not retrieved)" : ""}`,
+      advisoryUrl: `https://osv.dev/vulnerability/${encodeURIComponent(h.id)}`,
+      transitive: !direct.has(h.pkg.name),
+    });
+    if (sev === "critical" || sev === "high") vulnerableNames.add(h.pkg.name);
+  }
+
   for (const name of names) {
     const current = query[name].join(", ");
     const meta = metaByName.get(name) ?? { latest: null, latestTime: null, currentTime: null };
     const advList: any[] = advisories[name] ?? [];
+    if (vulnerableNames.has(name)) continue;
 
     let recorded = false;
     for (const adv of advList) {
@@ -285,7 +435,9 @@ export async function runDepScan(args: {
   const status: "pass" | "fail" | "inconclusive" = hasBlocker ? "fail" : gaps.length > 0 ? "inconclusive" : "pass";
   const summaryLines = [
     `Scanned ${names.length} direct dependencies across ${manifests.length} manifest(s) in ${owner}/${repo}: ${manifestPaths.join(", ")}.`,
-    `Versions checked are the lowest each declared range allows. Transitive dependencies are not included (no lockfile is read).`,
+    osvHits
+      ? `Known vulnerabilities: ${locked.packages.length} exact package versions (direct and transitive) from ${locked.read.join(", ")}, checked against OSV.dev.`
+      : `Known vulnerabilities: declared ranges checked against the npm advisory database (lowest version each range allows). Transitive dependencies were not checked.`,
     `Critical: ${counts.critical} · High: ${counts.high} · Medium: ${counts.medium} · Low: ${counts.low}.`,
   ];
   if (gaps.length) {
@@ -295,7 +447,7 @@ export async function runDepScan(args: {
     summaryLines.push("", "Flagged packages:");
     for (const f of findings.slice(0, 40)) {
       summaryLines.push(
-        `• [${f.severity.toUpperCase()}] ${f.name} ${f.current}${f.latest ? ` (latest ${f.latest})` : ""}${f.cve ? ` — ${f.cve}` : ""} — ${f.reason}`,
+        `• [${f.severity.toUpperCase()}] ${f.name} ${f.current}${f.transitive ? " (transitive)" : ""}${f.latest ? ` (latest ${f.latest})` : ""}${f.cve ? ` — ${f.cve}` : ""} — ${f.reason}`,
       );
     }
     if (findings.length > 40) summaryLines.push(`…and ${findings.length - 40} more.`);
@@ -340,7 +492,7 @@ export async function runDepScan(args: {
           ref: "deps",
           kind: "probe_set",
           title: `Dependency check for ${owner}/${repo}`,
-          content: { manifests: manifestPaths, packages_checked: names.length, counts, gaps, findings },
+          content: { manifests: manifestPaths, lockfiles: locked.read, locked_packages: locked.packages.length, source: osvHits ? "osv.dev" : "npm advisories", packages_checked: names.length, counts, gaps, findings },
         } satisfies EvidenceInput,
       ],
     },
