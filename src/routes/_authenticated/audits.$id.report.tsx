@@ -22,11 +22,15 @@ import {
   EvidenceRefs,
   ReportAppendix,
   ExportButtons,
+  FrameworkSection,
+  ControlTags,
 } from "@/components/report-extras";
 import {
   summarizeMethod,
   retestComparison,
   buildEvidenceIndex,
+  summarizeFrameworks,
+  controlLabel,
   type EvidenceRef,
   type ReportModel,
 } from "@/lib/report-model";
@@ -277,6 +281,19 @@ function ReportPage() {
     const baseline = runs.find((r) => r.id === baselineId);
     return baseline ? retestComparison(baseline, runs, extras.data?.results ?? [], statusMap) : [];
   }, [baselineId, extras.data, statusMap]);
+  const controlsByItem = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const c of extras.data?.controls ?? []) {
+      const list = m.get(c.checklist_item_id) ?? [];
+      list.push(controlLabel(c));
+      m.set(c.checklist_item_id, list);
+    }
+    return m;
+  }, [extras.data]);
+  const frameworks = useMemo(
+    () => summarizeFrameworks(extras.data?.controls ?? [], statusMap, (itemId) => titleById.get(itemId)),
+    [extras.data, statusMap, titleById],
+  );
   const model: ReportModel | null = useMemo(() => {
     if (!audit.data || !items.data || !extras.data) return null;
     const approved = audit.data.summary && audit.data.summary_approved_at ? audit.data.summary : null;
@@ -307,7 +324,8 @@ function ReportPage() {
       targets: extras.data.targets.map((t) => ({ kind: t.kind, value: t.value, in_scope: t.in_scope, label: t.label })),
       method,
       untested,
-      failed: failedItems.map((it: any) => ({ item: it, notes: map.get(it.id)?.notes ?? null, evidence: evidence.byItem.get(it.id) ?? [], controls: [] })),
+      failed: failedItems.map((it: any) => ({ item: it, notes: map.get(it.id)?.notes ?? null, evidence: evidence.byItem.get(it.id) ?? [], controls: controlsByItem.get(it.id) ?? [] })),
+      frameworks,
       retest: baseline
         ? { baselineLabel: `${baseline.scanner} run of ${baseline.started_at.slice(0, 16).replace("T", " ")} UTC`, rows: retestRows.map((r) => ({ ...r, title: titleById.get(r.itemId) ?? r.itemId })) }
         : null,
@@ -315,7 +333,7 @@ function ReportPage() {
       chain: extras.data.chain,
       generatedAt: new Date().toISOString(),
     };
-  }, [audit.data, items.data, extras.data, baselineId, security, totals, method, untested, failedItems, map, evidence, retestRows, titleById]);
+  }, [audit.data, items.data, extras.data, baselineId, security, totals, method, untested, failedItems, map, evidence, retestRows, titleById, controlsByItem, frameworks]);
   const fileBase = (() => {
     const dateStr = (audit.data?.completed_at || audit.data?.started_at || new Date().toISOString()).slice(0, 10);
     const raw = audit.data?.website_url || audit.data?.title || "report";
@@ -423,6 +441,7 @@ function ReportPage() {
                     explanation={f?.explanation ?? null}
                     priority={idx + 1}
                     evidenceRefs={evidence.byItem.get(it.id)}
+                    controls={controlsByItem.get(it.id)}
                   />
                 );
               })}
@@ -437,6 +456,8 @@ function ReportPage() {
           rows={retestRows}
           titleOf={(itemId) => titleById.get(itemId) ?? itemId}
         />
+
+        <FrameworkSection frameworks={frameworks} />
 
         <ScopeSnapshot items={scopeSnapshot} score={security.score} />
 
@@ -617,7 +638,7 @@ const SEVERITY_IMPACT: Record<string, string> = {
 };
 
 function FailedFindingCard({
-  auditId, item, notes, explanation, priority, evidenceRefs,
+  auditId, item, notes, explanation, priority, evidenceRefs, controls,
 }: {
   auditId: string;
   item: any;
@@ -625,6 +646,7 @@ function FailedFindingCard({
   explanation: string | null;
   priority: number;
   evidenceRefs?: EvidenceRef[];
+  controls?: string[];
 }) {
   const [open, setOpen] = useState(true);
   // Generated as the card scrolls into view, so it's ready before it's opened
@@ -675,6 +697,7 @@ function FailedFindingCard({
               <SeverityBadge severity={item.severity} />
               <span className="text-xs text-muted-foreground">{item.category}</span>
             </div>
+            <ControlTags tags={controls} />
 
             <DetailRow label="Why should I care?">
               {exp ? (

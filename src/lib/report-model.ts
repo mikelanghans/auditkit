@@ -181,6 +181,72 @@ export function buildEvidenceIndex(
   return { byItem, index };
 }
 
+// ---------------------------------------------------------------- frameworks
+
+export type ControlRow = { checklist_item_id: string; framework: string; control_id: string; control_title: string };
+
+export type FrameworkSummary = {
+  framework: string;
+  controls: {
+    control_id: string;
+    control_title: string;
+    checks: number;
+    pass: number;
+    fail: number;
+    other: number;
+    failing: string[];
+  }[];
+};
+
+/** Short label for a control on a finding, e.g. "ASVS V4.1.1", "SOC 2 CC6.1". */
+export function controlLabel(c: { framework: string; control_id: string }): string {
+  if (c.framework.startsWith("OWASP ASVS")) return `ASVS ${c.control_id}`;
+  if (c.framework.startsWith("OWASP LLM")) return `${c.control_id}:2025`;
+  if (c.framework === "HIPAA") return `HIPAA §${c.control_id}`;
+  return `${c.framework} ${c.control_id}`;
+}
+
+const FRAMEWORK_ORDER = ["OWASP ASVS 4.0.3", "SOC 2", "HIPAA", "OWASP LLM Top 10 (2025)"];
+
+function controlSortKey(id: string): string {
+  // V4.1.10 after V4.1.9; CC6.10 after CC6.9.
+  return id.replace(/\d+/g, (n) => n.padStart(4, "0"));
+}
+
+/**
+ * For each framework and control: how many tagged checks passed, failed or
+ * weren't assessed, and which failed. Only items in this audit's checklist count.
+ */
+export function summarizeFrameworks(
+  controls: ControlRow[],
+  status: Map<string, string | null | undefined>,
+  titleOf: (id: string) => string | undefined,
+): FrameworkSummary[] {
+  const by = new Map<string, Map<string, FrameworkSummary["controls"][number]>>();
+  for (const c of controls) {
+    const title = titleOf(c.checklist_item_id);
+    if (title === undefined) continue;
+    const fw = by.get(c.framework) ?? new Map();
+    const row = fw.get(c.control_id) ?? { control_id: c.control_id, control_title: c.control_title, checks: 0, pass: 0, fail: 0, other: 0, failing: [] };
+    const st = status.get(c.checklist_item_id);
+    row.checks++;
+    if (st === "pass" || st === "resolved") row.pass++;
+    else if (st === "fail") { row.fail++; row.failing.push(title); }
+    else row.other++;
+    fw.set(c.control_id, row);
+    by.set(c.framework, fw);
+  }
+  return [...by.entries()]
+    .sort((a, b) => {
+      const ia = FRAMEWORK_ORDER.indexOf(a[0]), ib = FRAMEWORK_ORDER.indexOf(b[0]);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    })
+    .map(([framework, m]) => ({
+      framework,
+      controls: [...m.values()].sort((a, b) => controlSortKey(a.control_id).localeCompare(controlSortKey(b.control_id))),
+    }));
+}
+
 // ---------------------------------------------------------------- markdown
 
 export type ReportModel = {
@@ -202,6 +268,7 @@ export type ReportModel = {
   untested: { title: string; category: string; status: string }[];
   failed: { item: ItemRow; notes: string | null; evidence: EvidenceRef[]; controls: string[] }[];
   retest: { baselineLabel: string; rows: (RetestRow & { title: string })[] } | null;
+  frameworks?: FrameworkSummary[];
   evidenceIndex: EvidenceRef[];
   chain: { ok: boolean; events: number; head_hash: string | null; problem: string | null } | null;
   generatedAt: string;
@@ -267,6 +334,17 @@ export function buildReportMarkdown(m: ReportModel): string {
     else {
       L.push("| Check | Before | Now | Change |", "|---|---|---|---|");
       for (const r of m.retest.rows) L.push(`| ${esc(r.title)} | ${r.before ?? "—"} | ${r.now} | ${r.change.replace("_", " ")} |`);
+      L.push("");
+    }
+  }
+
+  if (m.frameworks?.length) {
+    L.push("## Findings by framework", "");
+    L.push("Each check is tagged with the controls it gives evidence for. A tag means evidence toward a control, not that the control is satisfied.", "");
+    for (const fw of m.frameworks) {
+      L.push(`### ${fw.framework}`, "", "| Control | Checks | Pass | Fail | Not assessed | Failing checks |", "|---|---|---|---|---|---|");
+      for (const c of fw.controls)
+        L.push(`| ${c.control_id} ${esc(c.control_title)} | ${c.checks} | ${c.pass} | ${c.fail} | ${c.other} | ${esc(c.failing.join("; ")) || "—"} |`);
       L.push("");
     }
   }

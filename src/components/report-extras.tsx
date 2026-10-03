@@ -18,7 +18,9 @@ import { buildZip, type ZipEntry } from "@/lib/zip-store";
 import {
   SCANNER_LABEL,
   buildReportMarkdown,
+  type ControlRow,
   type EvidenceMeta,
+  type FrameworkSummary,
   type EvidenceRef,
   type MethodSummary,
   type ReportModel,
@@ -34,6 +36,7 @@ export type ReportExtras = {
   runs: RunRow[];
   results: ResultRow[];
   evidence: EvidenceMeta[];
+  controls: ControlRow[];
   chain: ChainStatus | null;
 };
 
@@ -46,13 +49,14 @@ export function useReportExtras(auditId: string) {
         if (r.error) console.warn("[report]", r.error.message);
         return (r.data ?? fallback) as T;
       };
-      const [targets, scope, runs, results, evidence, chain] = await Promise.all([
+      const [targets, scope, runs, results, evidence, chain, controls] = await Promise.all([
         supabase.from("audit_targets").select("id, audit_id, kind, value, label, meta, in_scope").eq("audit_id", auditId).order("created_at"),
         supabase.from("audit_scope").select("*").eq("audit_id", auditId).maybeSingle(),
         supabase.from("scan_runs").select("id, scanner, trigger, target, status, started_at, finished_at, parent_run_id, summary").eq("audit_id", auditId).order("started_at"),
         supabase.from("scan_results").select("run_id, checklist_item_id, checklist_key, scanner, status, evidence_ids, created_at").eq("audit_id", auditId).limit(20000),
         supabase.from("evidence").select("id, kind, title, sha256, size_bytes, source, captured_at, checklist_item_id, storage_path").eq("audit_id", auditId).limit(5000),
         supabase.rpc("verify_audit_chain", { p_audit: auditId }),
+        (supabase as any).from("checklist_item_controls").select("checklist_item_id, framework, control_id, control_title").limit(5000),
       ]);
       return {
         targets: soft(targets as any, []),
@@ -60,6 +64,7 @@ export function useReportExtras(auditId: string) {
         runs: soft(runs as any, []),
         results: soft(results as any, []),
         evidence: soft(evidence as any, []),
+        controls: soft(controls as any, []),
         chain: (soft(chain as any, []) as ChainStatus[])[0] ?? null,
       };
     },
@@ -479,5 +484,63 @@ export function ExportButtons({ auditId, model, fileBase }: { auditId: string; m
         {busy === "zip" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FileArchive className="h-4 w-4 mr-1" />} Evidence bundle
       </Button>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- frameworks
+
+export function FrameworkSection({ frameworks }: { frameworks: FrameworkSummary[] }) {
+  const [shown, setShown] = useState<string | null>(null);
+  if (!frameworks.length) return null;
+  const active = frameworks.find((f) => f.framework === shown) ?? frameworks[0];
+  return (
+    <section className="mb-8">
+      <div className="flex items-center gap-3 border-b pb-2 mb-3 flex-wrap">
+        <h2 className="text-lg font-semibold">Findings by framework</h2>
+        <div className="flex gap-1 print:hidden ml-auto">
+          {frameworks.map((f) => (
+            <Button key={f.framework} size="sm" variant={f.framework === active.framework ? "default" : "outline"} className="h-7 text-xs" onClick={() => setShown(f.framework)}>
+              {f.framework.replace("OWASP ", "").replace(" (2025)", "")}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground mb-2">
+        Each check is tagged with the controls it gives evidence for. A tag means evidence toward a control, not that the control is satisfied.
+      </p>
+      {frameworks.map((fw) => (
+        <div key={fw.framework} className={fw.framework === active.framework ? "" : "hidden print:block"}>
+          <h3 className="text-sm font-semibold mt-3 mb-1">{fw.framework}</h3>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-muted-foreground"><th className="py-1">Control</th><th>Checks</th><th>Pass</th><th>Fail</th><th>Not assessed</th><th>Failing checks</th></tr>
+            </thead>
+            <tbody>
+              {fw.controls.map((c) => (
+                <tr key={c.control_id} className="border-t border-border/50 align-top">
+                  <td className="py-1"><span className="font-mono">{c.control_id}</span> <span className="text-muted-foreground">{c.control_title}</span></td>
+                  <td className="tabular-nums">{c.checks}</td>
+                  <td className="tabular-nums text-status-pass">{c.pass}</td>
+                  <td className={`tabular-nums ${c.fail ? "text-status-fail font-semibold" : ""}`}>{c.fail}</td>
+                  <td className="tabular-nums text-muted-foreground">{c.other}</td>
+                  <td>{c.failing.join("; ") || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+export function ControlTags({ tags }: { tags: string[] | undefined }) {
+  if (!tags?.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {tags.map((t) => (
+        <span key={t} className="rounded border border-border px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{t}</span>
+      ))}
+    </div>
   );
 }

@@ -103,3 +103,24 @@ test("zip: a valid archive whose files come back byte for byte", async () => {
   assert.match(py, /# hello ✓/);
   assert.match(py, /\[0, 1, 2, 255, 254\]/);
 });
+
+test("frameworks: per-control pass/fail/not assessed, failing checks named, natural order", async () => {
+  const { summarizeFrameworks, controlLabel } = await import("../report-model.ts");
+  const ASVS = "OWASP ASVS 4.0.3";
+  const controls = [
+    { checklist_item_id: "a", framework: "SOC 2", control_id: "CC6.1", control_title: "Logical access" },
+    { checklist_item_id: "a", framework: ASVS, control_id: "V4.1.1", control_title: "Access control" },
+    { checklist_item_id: "b", framework: ASVS, control_id: "V4.1.1", control_title: "Access control" },
+    { checklist_item_id: "c", framework: ASVS, control_id: "V4.1.1", control_title: "Access control" },
+    { checklist_item_id: "c", framework: ASVS, control_id: "V14.4.3", control_title: "CSP" },
+    { checklist_item_id: "zz", framework: ASVS, control_id: "V2.1.1", control_title: "not in this audit" },
+  ];
+  const status = new Map<string, string | null>([["a", "fail"], ["b", "resolved"], ["c", null]]);
+  const titles: Record<string, string> = { a: "RLS on", b: "No public buckets", c: "CSP set" };
+  const fw = summarizeFrameworks(controls, status, (id) => titles[id]);
+  assert.deepEqual(fw.map((f) => f.framework), [ASVS, "SOC 2"]);
+  assert.deepEqual(fw[0].controls.map((c) => c.control_id), ["V4.1.1", "V14.4.3"], "V4 before V14");
+  assert.deepEqual(fw[0].controls[0], { control_id: "V4.1.1", control_title: "Access control", checks: 3, pass: 1, fail: 1, other: 1, failing: ["RLS on"] });
+  assert.equal(controlLabel({ framework: "HIPAA", control_id: "164.312(a)(1)" }), "HIPAA §164.312(a)(1)");
+  assert.equal(controlLabel({ framework: ASVS, control_id: "V3.4.1" }), "ASVS V3.4.1");
+});
