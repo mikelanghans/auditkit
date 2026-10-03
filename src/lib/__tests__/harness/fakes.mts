@@ -19,7 +19,7 @@ export class FakeDb {
 
 class Query implements PromiseLike<any> {
   private filters: ((r: Row) => boolean)[] = [];
-  private op: "select" | "upsert" | "update" | "insert" = "select";
+  private op: "select" | "upsert" | "update" | "insert" | "delete" = "select";
   private payload: any;
   private conflict: string[] = [];
   private limitN: number | null = null;
@@ -30,11 +30,15 @@ class Query implements PromiseLike<any> {
   eq(k: string, v: unknown) { this.filters.push((r) => r[k] === v); return this; }
   neq(k: string, v: unknown) { this.filters.push((r) => r[k] !== v); return this; }
   in(k: string, vals: unknown[]) { this.filters.push((r) => vals.includes(r[k])); return this; }
+  lte(k: string, v: any) { this.filters.push((r) => r[k] <= v); return this; }
+  gte(k: string, v: any) { this.filters.push((r) => r[k] >= v); return this; }
+  is(k: string, v: unknown) { this.filters.push((r) => (r[k] ?? null) === v); return this; }
   limit(n: number) { this.limitN = n; return this; }
   order() { return this; }
   upsert(p: any, opts?: { onConflict?: string }) { this.op = "upsert"; this.payload = p; this.conflict = (opts?.onConflict ?? "id").split(","); return this; }
   update(p: any) { this.op = "update"; this.payload = p; return this; }
   insert(p: any) { this.op = "insert"; this.payload = p; return this; }
+  delete() { this.op = "delete"; return this; }
   private run(): { data: any; error: null } {
     const rows = this.db.rows(this.table);
     if (this.op === "upsert") {
@@ -55,6 +59,7 @@ class Query implements PromiseLike<any> {
     }
     const matched = rows.filter((r) => this.filters.every((f) => f(r)));
     if (this.op === "update") { matched.forEach((r) => Object.assign(r, this.payload)); return { data: null, error: null }; }
+    if (this.op === "delete") { this.db.tables[this.table] = rows.filter((r) => !matched.includes(r)); return { data: null, error: null }; }
     return { data: this.limitN ? matched.slice(0, this.limitN) : matched, error: null };
   }
   async single() { const r = this.run(); return r.data?.[0] ? { data: r.data[0], error: null } : { data: null, error: { message: "not found" } }; }

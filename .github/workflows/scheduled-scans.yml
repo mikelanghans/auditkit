@@ -1,0 +1,27 @@
+name: scheduled-scans
+
+# Hourly nudge for AuditKit's scheduled passive rescans. The app decides
+# which audits are due; this only calls the hook.
+#
+# Setup: repo Settings → Secrets and variables → Actions → New secret
+#   SCHEDULED_SCANS_SECRET  same value as the Worker secret of that name (32+ chars)
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run due scheduled scans
+        env:
+          SECRET: ${{ secrets.SCHEDULED_SCANS_SECRET }}
+        run: |
+          if [ -z "$SECRET" ]; then echo "SCHEDULED_SCANS_SECRET not set; skipping."; exit 0; fi
+          curl -fsS --max-time 540 -X POST \
+            -H "x-hook-secret: $SECRET" \
+            https://auditkit.syncopateddynamics.com/api/public/hooks/scheduled-scans

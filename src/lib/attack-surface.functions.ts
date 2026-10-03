@@ -74,8 +74,20 @@ export const runSurfaceScan = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const { data: audit } = await supabase.from("audits").select("id, created_by, website_url").eq("id", data.auditId).maybeSingle();
+    const { data: audit } = await supabase.from("audits").select("id, created_by").eq("id", data.auditId).maybeSingle();
     if (!audit || (audit as any).created_by !== userId) return { ok: false as const, error: "Audit not found or access denied." };
+    return surfaceScanCore(supabase, data, { checkQuota: true });
+  });
+
+/** The surface scan itself; see websiteScanCore for the two callers. */
+export async function surfaceScanCore(
+  supabase: any,
+  data: { auditId: string; parentRunId?: string | null },
+  opts: { checkQuota: boolean; trigger?: "manual" | "full" | "schedule" | "retest"; createdBy?: string | null },
+) {
+  {
+    const { data: audit } = await supabase.from("audits").select("id, website_url").eq("id", data.auditId).maybeSingle();
+    if (!audit) return { ok: false as const, error: "Audit not found." };
     const site = (audit as any).website_url as string | null;
     if (!site) return { ok: false as const, error: "This audit has no website set." };
     let host: string;
@@ -85,8 +97,10 @@ export const runSurfaceScan = createServerFn({ method: "POST" })
       return { ok: false as const, error: "The audit's website isn't a valid URL." };
     }
     const domain = registrableDomain(host);
-    const quota = await consumeQuota(supabase, "scan", 1);
-    if (!quota.ok) return { ok: false as const, error: quota.error };
+    if (opts.checkQuota) {
+      const quota = await consumeQuota(supabase, "scan", 1);
+      if (!quota.ok) return { ok: false as const, error: quota.error };
+    }
 
     // 1. Subdomains from certificate transparency.
     let subdomains: string[] | null = null;
@@ -134,7 +148,7 @@ export const runSurfaceScan = createServerFn({ method: "POST" })
     const evidenceFor: Record<string, string[]> = { email_spf: ["email_dns"], email_dmarc: ["email_dns"], subdomain_takeover: ["ct", "cnames"] };
 
     const { data: items } = await supabase.from("checklist_items").select("id, checklist_key").in("checklist_key", results.map((r) => r.key));
-    const byKey = new Map((items ?? []).map((it: any) => [it.checklist_key as string, it.id as string]));
+    const byKey = new Map<string, string>((items ?? []).map((it: any) => [it.checklist_key as string, it.id as string]));
     const stamp = new Date().toISOString();
     const recorded: RecordedResult[] = [];
     for (const r of results) {
@@ -149,7 +163,7 @@ export const runSurfaceScan = createServerFn({ method: "POST" })
     }
     const history = await saveScanRun(
       supabase,
-      { auditId: data.auditId, scanner: "surface", target: domain, trigger: data.parentRunId ? "full" : "manual", parentRunId: data.parentRunId ?? null },
+      { auditId: data.auditId, scanner: "surface", target: domain, trigger: opts.trigger ?? (data.parentRunId ? "full" : "manual"), parentRunId: data.parentRunId ?? null, createdBy: opts.createdBy ?? null },
       recorded,
       { evidence },
     );
@@ -161,4 +175,5 @@ export const runSurfaceScan = createServerFn({ method: "POST" })
       results: results.map((r) => ({ key: r.key, status: r.status })),
       history,
     };
-  });
+  }
+}

@@ -180,3 +180,26 @@ test("full audit: steps that didn't run are recorded as gaps, children are summe
 
   assert.equal(summarizeFullAudit([{ scanner: "website", target: null, outcome: "done" }], []).status, "done");
 });
+
+test("scheduled scans: a due schedule runs passive scans as the owner and is pushed to its next slot", async () => {
+  const { runDueSchedules, alertWorthy } = await import("../scheduled-scans.server.ts");
+  assert.equal(alertWorthy([{ status: "fail", change: "new" }, { status: "fail", change: "unchanged" }, { status: "pass", change: "fixed" }, { status: "fail", change: "regressed" }]).length, 2);
+
+  const { stubFetch, text } = await import("./harness/fakes.mts");
+  const db = new FakeDb({
+    audits: [{ id: AUDIT, created_by: "owner-1", title: "Acme", website_url: null }],
+    audit_schedules: [{ audit_id: AUDIT, enabled: true, cadence: "daily", scanners: ["website"], alert_email: true, next_run_at: "2026-10-01T00:00:00Z" }],
+  });
+  // The fake can't join; give the schedule its audit the way PostgREST would.
+  db.rows("audit_schedules")[0].audit = db.rows("audits")[0];
+  stubFetch(() => text("nf", 404));
+  const now = new Date("2026-10-03T12:00:00Z");
+  const out = await runDueSchedules(db.client() as any, now);
+  assert.equal(out.ran.length, 1);
+  const parent = db.rows("scan_runs").find((r) => r.scanner === "full");
+  assert.equal(parent.trigger, "schedule");
+  assert.equal(parent.created_by, "owner-1");
+  assert.equal(parent.status, "partial", "website step couldn't run: no website set");
+  assert.ok(db.rows("scan_results").some((r) => r.checklist_key === "step:website" && r.status === "not_run"));
+  assert.equal(db.rows("audit_schedules")[0].next_run_at, "2026-10-04T12:00:00.000Z");
+});

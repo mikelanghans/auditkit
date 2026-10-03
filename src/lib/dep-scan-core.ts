@@ -323,6 +323,7 @@ export async function runDepScan(args: {
   // Exact versions from lockfiles (direct and transitive), checked against OSV.
   // Without a lockfile, fall back to the npm advisory API on declared ranges.
   const locked = lockfiles.length ? await fetchLockedPackages(owner, repo, token, lockfiles, gaps) : { packages: [], read: [] as string[] };
+  if (locked.packages.length) await recordPackages(supabase, auditId, `${owner}/${repo}`, locked.packages);
   let osvHits: OsvHit[] | null = null;
   if (locked.packages.length) {
     osvHits = await queryOsv(locked.packages, gaps);
@@ -499,4 +500,76 @@ export async function runDepScan(args: {
   );
 
   return { ok: true, path: manifestPaths.join(", "), packagesScanned: names.length, counts, status, findings, notes, manifests: manifestPaths, gaps, history };
+}
+
+
+// ---------------------------------------------------------------- stored packages (phase 4)
+
+/**
+ * Keep the exact package list from this repo's lockfiles on the audit, so a
+ * scheduled run can re-check it against new advisories without the client's
+ * GitHub token. Best effort: a failure here never fails the scan.
+ */
+async function recordPackages(supabase: SupabaseClient<any, any, any>, auditId: string, source: string, pkgs: LockedPackage[]) {
+  try {
+    const del = await supabase.from("audit_packages").delete().eq("audit_id", auditId).eq("source", source);
+    if (del.error) throw new Error(del.error.message);
+    for (let i = 0; i < pkgs.length; i += 1000) {
+      const { error } = await supabase
+        .from("audit_packages")
+        .insert(pkgs.slice(i, i + 1000).map((p) => ({ audit_id: auditId, source, name: p.name, version: p.version })));
+      if (error) throw new Error(error.message);
+    }
+  } catch (e: any) {
+    console.warn("[dep-scan] package list not stored:", e?.message ?? e);
+  }
+}
+
+/**
+ * Re-check the stored package list against OSV.dev (scheduled runs). Writes the
+ * dependency item and a "dependencies" run like the repo scan does.
+ */
+export async function recheckStoredPackages(
+  supabase: any,
+  auditId: string,
+  opts: { parentRunId?: string | null; trigger?: "schedule" | "manual" | "full" | "retest"; createdBy?: string | null },
+): Promise<{ ok: true; status: "pass" | "fail" | "inconclusive"; packages: number; vulnerable: number } | { ok: false; error: string }> {
+  const { data: rows, error } = await supabase.from("audit_packages").select("source, name, version").eq("audit_id", auditId).limit(50000);
+  if (error) return { ok: false, error: error.message };
+  if (!rows?.length) return { ok: false, error: "No lockfile packages recorded for this audit yet. Run a repo scan once to record them." };
+  const unique = new Map<string, LockedPackage>();
+  for (const r of rows as any[]) unique.set(`${r.name}@${r.version}`, { name: r.name, version: r.version });
+  const pkgs = [...unique.values()];
+  const sources = [...new Set((rows as any[]).map((r) => r.source))];
+  const gaps: string[] = [];
+  const hits = await queryOsv(pkgs, gaps);
+  const findings = (hits ?? []).map((h) => ({
+    name: h.pkg.name,
+    version: h.pkg.version,
+    severity: h.severity === "unknown" ? "high" : h.severity,
+    id: h.cve ?? h.id,
+    summary: h.summary ?? "Known vulnerability",
+    url: `https://osv.dev/vulnerability/${encodeURIComponent(h.id)}`,
+  }));
+  const blocking = findings.filter((f) => f.severity === "critical" || f.severity === "high");
+  const status: "pass" | "fail" | "inconclusive" = blocking.length ? "fail" : hits === null || gaps.length ? "inconclusive" : "pass";
+  const stamp = new Date().toISOString();
+  const notes = [
+    `[Dependency re-check ${stamp}]`,
+    `Re-checked ${pkgs.length} exact package versions recorded from ${sources.join(", ")} against OSV.dev (no new code was fetched; run a repo scan to refresh the list).`,
+    blocking.length ? `\nCritical/high advisories:\n${blocking.slice(0, 40).map((f) => `• [${f.severity.toUpperCase()}] ${f.name} ${f.version} — ${f.id} — ${f.summary}`).join("\n")}` : "",
+    gaps.length ? `\nNOT fully checked, so this is not a pass:\n${gaps.map((g) => `• ${g}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+
+  const { data: items } = await supabase.from("checklist_items").select("id").eq("checklist_key", "dep_vulns").limit(1);
+  const itemId = items?.[0]?.id ?? null;
+  let stored = false;
+  if (itemId) stored = (await upsertScanFinding(supabase, { audit_id: auditId, checklist_item_id: itemId, status, notes })).written;
+  await saveScanRun(
+    supabase,
+    { auditId, scanner: "dependencies", target: sources.join(", "), trigger: opts.trigger ?? "schedule", parentRunId: opts.parentRunId ?? null, createdBy: opts.createdBy ?? null },
+    [{ checklist_item_id: itemId, checklist_key: "dep_vulns", status, notes, stored, evidence: ["osv"] }],
+    { evidence: [{ ref: "osv", kind: "probe_set", title: `OSV.dev re-check of ${pkgs.length} recorded packages`, content: { sources, packages: pkgs.length, gaps, findings } }] },
+  );
+  return { ok: true, status, packages: pkgs.length, vulnerable: blocking.length };
 }

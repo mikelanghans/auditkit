@@ -299,9 +299,22 @@ export const runAutoScan = createServerFn({ method: "POST" })
     if (input.parentRunId != null && typeof input.parentRunId !== "string") throw new Error("invalid parentRunId");
     return input;
   })
-  .handler(async ({ data, context }) => {
-    const { supabase } = context;
+  .handler(async ({ data, context }) => websiteScanCore(context.supabase, data, { checkQuota: true }));
 
+export type ScanCoreOptions = {
+  /** Interactive scans spend the user's daily quota; scheduled ones don't. */
+  checkQuota: boolean;
+  trigger?: "manual" | "full" | "schedule" | "retest";
+  /** Owner to record on the run when running without a user session. */
+  createdBy?: string | null;
+};
+
+/**
+ * The website scan itself, callable from the server function (user session,
+ * RLS) or from the scheduler (service role, createdBy set).
+ */
+export async function websiteScanCore(supabase: any, data: { auditId: string; parentRunId?: string | null }, opts: ScanCoreOptions) {
+  {
     const { data: audit, error: aerr } = await supabase
       .from("audits")
       .select("id, website_url, client:clients(id, websites, name)")
@@ -322,8 +335,10 @@ export const runAutoScan = createServerFn({ method: "POST" })
       throw e;
     }
 
-    const quota = await consumeQuota(supabase, "scan", 1);
-    if (!quota.ok) throw new Error(quota.error);
+    if (opts.checkQuota) {
+      const quota = await consumeQuota(supabase, "scan", 1);
+      if (!quota.ok) throw new Error(quota.error);
+    }
 
     const results: CheckResult[] = [];
     let mainResp: Response | null = null;
@@ -499,8 +514,9 @@ export const runAutoScan = createServerFn({ method: "POST" })
         auditId: data.auditId,
         scanner: "website",
         target: base,
-        trigger: data.parentRunId ? "full" : "manual",
+        trigger: opts.trigger ?? (data.parentRunId ? "full" : "manual"),
         parentRunId: data.parentRunId ?? null,
+        createdBy: opts.createdBy ?? null,
       },
       recorded,
       { evidence },
@@ -512,4 +528,5 @@ export const runAutoScan = createServerFn({ method: "POST" })
     const inconclusive = written.filter((w) => w.status === "inconclusive").length;
 
     return { target: base, results: written, passes, fails, warnings, inconclusive, history };
-  });
+  }
+}

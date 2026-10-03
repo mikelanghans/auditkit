@@ -35,6 +35,8 @@ export type RunOptions = {
   target?: string | null;
   trigger?: RunTrigger;
   parentRunId?: string | null;
+  /** Set when running without a user session (scheduled scans, service role). */
+  createdBy?: string | null;
 };
 
 export type HistorySummary = {
@@ -140,6 +142,7 @@ export async function saveScanRun(
         trigger: opts.trigger ?? "manual",
         parent_run_id: opts.parentRunId ?? null,
         target: opts.target ? String(opts.target).slice(0, 2048) : null,
+        ...(opts.createdBy ? { created_by: opts.createdBy } : {}),
       })
       .select("id")
       .single();
@@ -151,7 +154,7 @@ export async function saveScanRun(
     let evidenceCount = 0;
     const wanted = (extras.evidence ?? []).filter((e) => results.some((r) => r.evidence?.includes(e.ref)));
     if (wanted.length) {
-      const prepared = await prepareEvidenceRows(opts.auditId, runId!, wanted);
+      const prepared = await prepareEvidenceRows(opts.auditId, runId!, wanted, opts.createdBy ?? null);
       const { error: evErr } = await supabase.from("evidence").insert(prepared.rows);
       if (evErr) throw new Error(`evidence: ${evErr.message}`);
       idByRef = prepared.idByRef;

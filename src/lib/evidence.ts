@@ -113,9 +113,10 @@ export async function prepareEvidenceRows(
   auditId: string,
   runId: string,
   inputs: EvidenceInput[],
-): Promise<{ rows: Omit<EvidenceRow, "checklist_item_id">[]; idByRef: Map<string, string> }> {
+  createdBy: string | null = null,
+): Promise<{ rows: (Omit<EvidenceRow, "checklist_item_id"> & { created_by?: string })[]; idByRef: Map<string, string> }> {
   const idByRef = new Map<string, string>();
-  const rows: Omit<EvidenceRow, "checklist_item_id">[] = [];
+  const rows: (Omit<EvidenceRow, "checklist_item_id"> & { created_by?: string })[] = [];
   for (const e of inputs) {
     if (idByRef.has(e.ref)) continue;
     const text = evidenceText(e.content);
@@ -133,6 +134,7 @@ export async function prepareEvidenceRows(
       size_bytes: new TextEncoder().encode(text).length,
       sha256: await sha256Hex(text),
       source: "scanner",
+      ...(createdBy ? { created_by: createdBy } : {}),
     });
   }
   return { rows, idByRef };

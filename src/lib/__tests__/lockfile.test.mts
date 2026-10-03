@@ -165,3 +165,28 @@ test("dependency scan: OSV down is inconclusive, never a pass; no lockfile is in
   const nolock = await depScan(repoRoutes({ lockfile: false, osv: (body) => json({ results: body.queries.map(() => ({})) }) }));
   assert.equal(nolock.status, "inconclusive");
 });
+
+test("dependency scan records the locked packages; a later re-check uses them without GitHub", async () => {
+  const db = new FakeDb({ audits: [{ id: "a1", created_by: "u1" }], checklist_items: [{ id: "dep", checklist_key: "dep_vulns", title: "Dependency vulnerabilities scanned" }] });
+  stubFetch(repoRoutes({ osv: (body) => json({ results: body.queries.map(() => ({})) }) }));
+  const { runDepScan, recheckStoredPackages } = await import("../dep-scan-core.ts");
+  await runDepScan({ owner: "acme", repo: "app", token: "t".repeat(40), defaultBranch: "main", supabase: db.client() as any, auditId: "a1" });
+  assert.deepEqual(db.rows("audit_packages").map((r) => `${r.source} ${r.name}@${r.version}`).sort(), ["acme/app express@4.17.1", "acme/app qs@6.7.0"]);
+
+  // A new advisory appears for qs; GitHub is unreachable now.
+  const calls = stubFetch((url) => {
+    const u = new URL(url);
+    if (u.host === "api.github.com") throw new Error("must not call GitHub");
+    if (u.pathname === "/v1/querybatch") return json({ results: [{ vulns: [{ id: "GHSA-hrpp-h998-j3pp" }] }, {}].sort(() => 0) });
+    if (u.pathname.startsWith("/v1/vulns/")) return json({ id: "GHSA-hrpp-h998-j3pp", summary: "qs prototype pollution", database_specific: { severity: "HIGH" } });
+    return text("nf", 404);
+  });
+  const r: any = await recheckStoredPackages(db.client() as any, "a1", { trigger: "schedule", createdBy: "u1" });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.status, "fail");
+  assert.equal(db.finding("a1", "dep")?.status, "fail");
+  assert.ok(calls.every((c) => !c.includes("api.github.com")));
+  const run = db.rows("scan_runs").at(-1);
+  assert.equal(run.trigger, "schedule");
+  assert.equal(run.created_by, "u1");
+});
