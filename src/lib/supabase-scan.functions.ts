@@ -5,6 +5,17 @@ import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type RecordedResult } from "./scan-history";
 import { checkWriteTestsAllowed } from "./audit-targets";
 import type { EvidenceInput } from "./evidence";
+import {
+  POLICIES_SQL,
+  DEFINER_SEARCH_PATH_SQL,
+  EXPOSED_VIEWS_SQL,
+  checkPolicies,
+  checkDefinerSearchPath,
+  checkExposedViews,
+  type PolicyRow,
+  type DefinerFnRow,
+  type ViewRow,
+} from "./supabase-policy-checks";
 import { consumeQuota } from "./quota";
 import {
   SENSITIVE_COLUMN_SQL,
@@ -533,6 +544,23 @@ async function fetchSecurityAdvisor(projectRef: string, pat: string): Promise<{ 
   return { ok: true, lints: r.data!.lints };
 }
 
+/** Run a read-only query through the Management API. */
+async function mgmtQuery<T>(projectRef: string, pat: string, query: string): Promise<{ ok: boolean; rows?: T[]; error?: string }> {
+  try {
+    const r = await timedFetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${pat}`, "content-type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    if (!r.ok) return { ok: false, error: `Management API HTTP ${r.status}` };
+    const rows = (await r.json()) as unknown;
+    if (!Array.isArray(rows)) return { ok: false, error: "unexpected response" };
+    return { ok: true, rows: rows as T[] };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "fetch failed" };
+  }
+}
+
 async function fetchSensitiveColumns(projectRef: string, pat: string): Promise<{ ok: boolean; rows?: ColumnRow[]; error?: string }> {
   try {
     const r = await timedFetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
@@ -654,14 +682,17 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
     // 4b) Database functions and edge functions (Management API only)
     const definers = pat && projectRef ? await fetchAnonCallableDefiners(projectRef, pat) : null;
     const edgeFns = pat && projectRef ? await fetchEdgeFunctions(projectRef, pat) : null;
-    const [advisor, backups, sensitiveCols] =
+    const [advisor, backups, sensitiveCols, policyRows, definerPaths, views] =
       pat && projectRef
         ? await Promise.all([
             fetchSecurityAdvisor(projectRef, pat),
             mgmtGet<BackupsResponse>(projectRef, pat, "/database/backups"),
             fetchSensitiveColumns(projectRef, pat),
+            mgmtQuery<PolicyRow>(projectRef, pat, POLICIES_SQL),
+            mgmtQuery<DefinerFnRow>(projectRef, pat, DEFINER_SEARCH_PATH_SQL),
+            mgmtQuery<ViewRow>(projectRef, pat, EXPOSED_VIEWS_SQL),
           ])
-        : [null, null, null];
+        : [null, null, null, null, null, null];
 
     // 5) Bundle scan for service role exposure
     let bundle: Awaited<ReturnType<typeof scanBundleForSecret>> | null = null;
@@ -1042,6 +1073,9 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       "Database backups configured": checkBackups(backups),
       "Sensitive columns encrypted at rest": checkSensitiveColumns(sensitiveCols),
       "Supabase Security Advisor reports no issues": checkSecurityAdvisor(advisor),
+      "RLS policies don't grant blanket access": checkPolicies(policyRows?.ok ? policyRows.rows! : null, policyRows?.error),
+      "SECURITY DEFINER functions pin search_path": checkDefinerSearchPath(definerPaths?.ok ? definerPaths.rows! : null, definerPaths?.error),
+      "Exposed views respect RLS (security_invoker)": checkExposedViews(views?.ok ? views.rows! : null, views?.error),
     };
 
     // Evidence: the raw observations behind each item. Never row data: table
@@ -1071,6 +1105,9 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       { ref: "advisor", kind: "query_result", title: "Supabase Security Advisor lints", content: advisor },
       { ref: "backups", kind: "config", title: "Database backups", content: backups },
       { ref: "sensitive", kind: "query_result", title: "Plain-text columns with sensitive names", content: sensitiveCols },
+      { ref: "policies", kind: "query_result", title: "Row-level security policies (public and storage)", content: policyRows },
+      { ref: "definer_paths", kind: "query_result", title: "SECURITY DEFINER functions and their settings", content: definerPaths },
+      { ref: "views", kind: "query_result", title: "Views and whether they respect RLS", content: views },
       {
         ref: "bundle",
         kind: "probe_set",
@@ -1104,6 +1141,9 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       "Database backups configured": ["backups"],
       "Sensitive columns encrypted at rest": ["sensitive"],
       "Supabase Security Advisor reports no issues": ["advisor"],
+      "RLS policies don't grant blanket access": ["policies"],
+      "SECURITY DEFINER functions pin search_path": ["definer_paths"],
+      "Exposed views respect RLS (security_invoker)": ["views"],
     };
 
     const titles = Object.keys(titleToResult);

@@ -43,3 +43,7 @@ insert into storage.buckets (id, name, public) values ('uploads', 'uploads', tru
 on conflict (id) do update set public = true;
 drop policy if exists "anyone can list uploads" on storage.objects;
 create policy "anyone can list uploads" on storage.objects for select using (bucket_id = 'uploads');
+
+-- 6. A view that bypasses RLS, readable by anon.
+create or replace view public.user_emails as select email from public.users_private;
+grant select on public.user_emails to anon;

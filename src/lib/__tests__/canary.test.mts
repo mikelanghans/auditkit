@@ -111,6 +111,9 @@ const SUPABASE_PLANTED: Record<string, string> = {
   "Database backups configured": "no PITR, no backups",
   "Sensitive columns encrypted at rest": "users.password stored as text",
   "Supabase Security Advisor reports no issues": "advisor reports an ERROR lint",
+  "RLS policies don't grant blanket access": "profiles has USING (true) for public",
+  "SECURITY DEFINER functions pin search_path": "admin_reset() has no search_path",
+  "Exposed views respect RLS (security_invoker)": "user_emails view readable by anon",
 };
 
 /**
@@ -143,6 +146,12 @@ function vulnerableProject(url: string, init: RequestInit): Response | undefined
   if (u.host === "api.supabase.com") {
     if (u.pathname.endsWith("/database/query")) {
       const q = String(JSON.parse(String(init.body)).query);
+      if (q.includes("from pg_policies"))
+        return json([
+          { schema: "public", table: "profiles", policy: "anyone can read", permissive: "PERMISSIVE", roles: ["public"], cmd: "SELECT", qual: "true", with_check: null },
+        ]);
+      if (q.includes("proconfig")) return json([{ name: "admin_reset", args: "", config: "" }]);
+      if (q.includes("security_invoker")) return json([{ view: "user_emails", security_invoker: "false", anon_select: true, auth_select: true }]);
       if (q.includes("relrowsecurity as rls from pg_class"))
         return json([{ schema: "public", table: "payments", rls: false }, { schema: "public", table: "profiles", rls: true }]);
       if (q.includes("role_table_grants"))

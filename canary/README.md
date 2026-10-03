@@ -30,6 +30,9 @@ run a real "Run full audit" against after deploys and scanner changes.
 | No public storage buckets / storage files can't be listed | `uploads` bucket is public and listable |
 | No SECURITY DEFINER functions callable without auth | `admin_reset()` executable by anon |
 | Sensitive columns encrypted at rest | `users_private.password` is plain text |
+| RLS policies don't grant blanket access | `profiles` policy `USING (true)` |
+| SECURITY DEFINER functions pin search_path | `admin_reset()` sets no search_path |
+| Exposed views respect RLS | `user_emails` view, readable by anon |
 | Minimum password length / leaked password protection / email confirmation | set in Authentication settings: min length 6, HIBP off, confirm email off |
 | Website: headers, CSP, bundle secrets, source maps, exposed files | from the site setup above |
 
