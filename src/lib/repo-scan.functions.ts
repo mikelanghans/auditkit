@@ -6,6 +6,7 @@ import { GITHUB_HOSTS, safeFetch } from "./ssrf-guard";
 import { decodeBase64Utf8 } from "./decode-blob";
 import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type RecordedResult } from "./scan-history";
+import type { EvidenceInput } from "./evidence";
 import { consumeQuota } from "./quota";
 import { gitignoreIgnoresEnv, isEnvFilePath } from "./repo-hygiene";
 import { checkXss, findXssSinks, xssCandidatePaths, type XssHit } from "./xss-scan";
@@ -95,7 +96,7 @@ async function pMap<T, R>(items: T[], n: number, fn: (it: T) => Promise<R>): Pro
 
 export const runRepoScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { auditId: string; repoUrl: string; token: string; appUrl?: string | null }) => {
+  .inputValidator((input: { auditId: string; repoUrl: string; token: string; appUrl?: string | null; parentRunId?: string | null }) => {
     if (!input?.auditId || typeof input.auditId !== "string") throw new Error("auditId required");
     if (!input?.repoUrl || typeof input.repoUrl !== "string") throw new Error("repoUrl required");
     if (!input?.token || typeof input.token !== "string") throw new Error("token required");
@@ -364,11 +365,28 @@ export const runRepoScan = createServerFn({ method: "POST" })
     const stamp = new Date().toISOString();
     const written: { title: string; status: string; matched: boolean }[] = [];
     const recorded: RecordedResult[] = [];
+    // Evidence: where each secret-pattern hit is (commit, file, pattern). The
+    // matched text itself is not kept.
+    const evidence: EvidenceInput[] = [
+      {
+        ref: "history",
+        kind: "code",
+        title: `Secret patterns in recent commits of ${parsed.owner}/${parsed.repo}`,
+        content: {
+          branch: defaultBranch,
+          commits_listed: commits.length,
+          commits_inspected: evaluatedCommits,
+          not_inspected: unevaluated.slice(0, 100),
+          hits: unique.slice(0, 200).map((f) => ({ pattern: f.pattern, commit: f.commit, date: f.date, file: f.file })),
+        },
+      },
+    ];
+    const evidenceByTitle: Record<string, string[]> = { "No secrets in git history": ["history"] };
     for (const [title, res] of Object.entries(titleToResult)) {
       const itemId = byTitle.get(title);
       if (!itemId) {
         written.push({ title, status: res.status, matched: false });
-        recorded.push({ checklist_item_id: null, checklist_key: `title:${title}`, status: res.status, notes: res.notes, stored: false });
+        recorded.push({ checklist_item_id: null, checklist_key: `title:${title}`, status: res.status, notes: res.notes, stored: false, evidence: evidenceByTitle[title] });
         continue;
       }
       const note = `[Repo scan ${stamp}]\nRepo: ${parsed.owner}/${parsed.repo}${siteMatch.match === "no" ? `\n⚠ ${siteMatch.note}` : ""}\n\n${res.notes}`;
@@ -379,7 +397,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
         notes: note,
       });
       written.push({ title, status: w.written ? res.status : `${res.status} (kept existing ${w.keptStatus})`, matched: true });
-      recorded.push({ checklist_item_id: itemId, checklist_key: null, status: res.status, notes: note, stored: w.written });
+      recorded.push({ checklist_item_id: itemId, checklist_key: null, status: res.status, notes: note, stored: w.written, evidence: evidenceByTitle[title] });
     }
 
     // ---- Phase 2: dependency vulnerability scan ----
@@ -390,6 +408,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
       defaultBranch,
       supabase,
       auditId: data.auditId,
+      parentRunId: data.parentRunId ?? null,
     });
 
     // ---- Phase 3: AI endpoint discovery ----
@@ -448,8 +467,15 @@ export const runRepoScan = createServerFn({ method: "POST" })
 
     const history = await saveScanRun(
       supabase,
-      { auditId: data.auditId, scanner: "repo", target: `${parsed.owner}/${parsed.repo}` },
+      {
+        auditId: data.auditId,
+        scanner: "repo",
+        target: `${parsed.owner}/${parsed.repo}`,
+        trigger: data.parentRunId ? "full" : "manual",
+        parentRunId: data.parentRunId ?? null,
+      },
       recorded,
+      { evidence },
     );
 
     return {

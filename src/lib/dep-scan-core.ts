@@ -5,6 +5,7 @@ import { GITHUB_HOSTS, NPM_HOSTS, safeFetch } from "./ssrf-guard";
 import { collectDeps } from "./dep-manifest";
 import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type HistorySummary } from "./scan-history";
+import type { EvidenceInput } from "./evidence";
 
 const TIMEOUT_MS = 15_000;
 const NPM_CONCURRENCY = 8;
@@ -175,6 +176,7 @@ export async function runDepScan(args: {
   defaultBranch: string;
   supabase: SupabaseClient<any, any, any>;
   auditId: string;
+  parentRunId?: string | null;
 }): Promise<DepScanResult> {
   const { owner, repo, token, defaultBranch, supabase, auditId } = args;
 
@@ -324,8 +326,24 @@ export async function runDepScan(args: {
   }
   const history = await saveScanRun(
     supabase,
-    { auditId, scanner: "dependencies", target: `${owner}/${repo}` },
-    [{ checklist_item_id: itemId ?? null, checklist_key: "dep_vulns", status, notes: depNote, stored }],
+    {
+      auditId,
+      scanner: "dependencies",
+      target: `${owner}/${repo}`,
+      trigger: args.parentRunId ? "full" : "manual",
+      parentRunId: args.parentRunId ?? null,
+    },
+    [{ checklist_item_id: itemId ?? null, checklist_key: "dep_vulns", status, notes: depNote, stored, evidence: ["deps"] }],
+    {
+      evidence: [
+        {
+          ref: "deps",
+          kind: "probe_set",
+          title: `Dependency check for ${owner}/${repo}`,
+          content: { manifests: manifestPaths, packages_checked: names.length, counts, gaps, findings },
+        } satisfies EvidenceInput,
+      ],
+    },
   );
 
   return { ok: true, path: manifestPaths.join(", "), packagesScanned: names.length, counts, status, findings, notes, manifests: manifestPaths, gaps, history };

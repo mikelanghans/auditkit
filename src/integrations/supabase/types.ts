@@ -564,6 +564,7 @@ export type Database = {
           stored: boolean
           notes: string | null
           created_at: string
+          evidence_ids: string[]
         }
         Insert: {
           id?: string
@@ -579,6 +580,7 @@ export type Database = {
           stored?: boolean
           notes?: string | null
           created_at?: string
+          evidence_ids?: string[]
         }
         Update: {
           id?: string
@@ -594,6 +596,7 @@ export type Database = {
           stored?: boolean
           notes?: string | null
           created_at?: string
+          evidence_ids?: string[]
         }
         Relationships: [
           {
@@ -644,6 +647,57 @@ export type Database = {
           started_at?: string
           finished_at?: string | null
           summary?: Json
+        }
+        Relationships: []
+      }
+      evidence: {
+        Row: {
+          id: string
+          audit_id: string
+          run_id: string | null
+          checklist_item_id: string | null
+          kind: string
+          title: string
+          content_text: string | null
+          storage_path: string | null
+          mime_type: string | null
+          size_bytes: number
+          sha256: string
+          source: string
+          created_by: string
+          captured_at: string
+        }
+        Insert: {
+          id?: string
+          audit_id: string
+          run_id?: string | null
+          checklist_item_id?: string | null
+          kind: string
+          title: string
+          content_text?: string | null
+          storage_path?: string | null
+          mime_type?: string | null
+          size_bytes?: number
+          sha256: string
+          source?: string
+          created_by?: string
+          captured_at?: string
+        }
+        Update: {
+          id?: string
+          audit_id?: string
+          run_id?: string | null
+          checklist_item_id?: string | null
+          kind?: string
+          title?: string
+          content_text?: string | null
+          storage_path?: string | null
+          mime_type?: string | null
+          size_bytes?: number
+          sha256?: string
+          source?: string
+          created_by?: string
+          captured_at?: string
         }
         Relationships: []
       }

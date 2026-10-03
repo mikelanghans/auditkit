@@ -4,6 +4,7 @@ import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl 
 import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type RecordedResult } from "./scan-history";
 import { checkWriteTestsAllowed } from "./audit-targets";
+import type { EvidenceInput } from "./evidence";
 import { consumeQuota } from "./quota";
 import {
   SENSITIVE_COLUMN_SQL,
@@ -44,6 +45,8 @@ export type SupabaseScanInput = {
    * informed consent rather than being bundled into a "read-only" scan.
    */
   intrusiveProbes?: boolean;
+  /** Set when this scan is one step of a full audit run. */
+  parentRunId?: string | null;
 };
 
 // "inconclusive" = the check could not be performed or its result could not be
@@ -1041,6 +1044,68 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       "Supabase Security Advisor reports no issues": checkSecurityAdvisor(advisor),
     };
 
+    // Evidence: the raw observations behind each item. Never row data: table
+    // probes keep only status and row counts.
+    const SECRETISH = /(secret|pass|key|token|credential|private|hook_.*_uri)/i;
+    const safeCfg = cfg
+      ? Object.fromEntries(Object.entries(cfg).filter(([k]) => !SECRETISH.test(k)))
+      : null;
+    const evidence: EvidenceInput[] = [
+      {
+        ref: "tables",
+        kind: "probe_set",
+        title: "Anonymous read probes (Data API)",
+        content: {
+          listing: { ok: tableListing.ok, http: tableListing.http, error: tableListing.error ?? null, tables: totalTables },
+          probes: probes.map((p) => ({ table: p.table, result: p.status, http: p.http, rows_seen: (p as any).rows ?? 0 })),
+          not_probed: unprobed,
+        },
+      },
+      { ref: "rls", kind: "query_result", title: "RLS status per table (Management API)", content: { rows: rlsRows, error: rlsError } },
+      { ref: "writes", kind: "query_result", title: "Anon write grants per table (Management API)", content: { rows: writeRows } },
+      { ref: "auth_config", kind: "config", title: "Auth configuration (secrets removed)", content: authConfig?.ok ? safeCfg : { error: authConfig?.error ?? "not fetched (no PAT)" } },
+      { ref: "auth_probes", kind: "probe_set", title: "Auth behaviour probes", content: { intrusive, ...authBehavior } },
+      { ref: "storage", kind: "probe_set", title: "Storage buckets and anonymous listing", content: { buckets, listing } },
+      { ref: "definers", kind: "query_result", title: "SECURITY DEFINER functions executable by anon", content: definers },
+      { ref: "edge", kind: "query_result", title: "Edge functions and JWT verification", content: edgeFns },
+      { ref: "advisor", kind: "query_result", title: "Supabase Security Advisor lints", content: advisor },
+      { ref: "backups", kind: "config", title: "Database backups", content: backups },
+      { ref: "sensitive", kind: "query_result", title: "Plain-text columns with sensitive names", content: sensitiveCols },
+      {
+        ref: "bundle",
+        kind: "probe_set",
+        title: "Client bundle search for the service-role key",
+        content: bundle
+          ? { ok: bundle.ok, checked: bundle.checkedUrls, found: bundle.matches.length, bytes_scanned: bundle.bytesScanned, failed: bundle.failed ?? [], error: bundle.error ?? null }
+          : { skipped: "no app URL given" },
+      },
+    ];
+    const evidenceByTitle: Record<string, string[]> = {
+      "RLS enabled on all tables": ["rls", "tables"],
+      "Anon key permissions scoped correctly": ["tables"],
+      "No direct table access without auth check": ["tables"],
+      "No unauthenticated endpoints returning user data": ["tables"],
+      "Anon role cannot write to tables": ["writes"],
+      "Minimum password length enforced": ["auth_config", "auth_probes"],
+      "Leaked password protection enabled": ["auth_config"],
+      "Storage files can't be listed without auth": ["storage"],
+      "No SECURITY DEFINER functions callable without auth": ["definers"],
+      "Edge functions verify their callers": ["edge"],
+      "Email confirmation required for signup": ["auth_config"],
+      "No public storage buckets": ["storage"],
+      "Email enumeration not possible": ["auth_probes"],
+      "Rate limiting on auth endpoints": ["auth_probes", "auth_config"],
+      "No secrets in client-side bundle": ["bundle"],
+      "No service role key in client-side code": ["bundle"],
+      "JWT expiry set appropriately": ["auth_config"],
+      "OAuth redirect URIs locked down": ["auth_config"],
+      "Auth provider configured correctly": ["auth_config"],
+      "Password reset flow validated": ["auth_config"],
+      "Database backups configured": ["backups"],
+      "Sensitive columns encrypted at rest": ["sensitive"],
+      "Supabase Security Advisor reports no issues": ["advisor"],
+    };
+
     const titles = Object.keys(titleToResult);
     const { data: items, error: ierr } = await supabase
       .from("checklist_items")
@@ -1063,7 +1128,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       if (res.status === "inconclusive") inconclusive++;
       if (!itemId) {
         written.push({ title, status: res.status, matched: false });
-        recorded.push({ checklist_item_id: null, checklist_key: `title:${title}`, status: res.status, notes: res.notes, stored: false });
+        recorded.push({ checklist_item_id: null, checklist_key: `title:${title}`, status: res.status, notes: res.notes, stored: false, evidence: evidenceByTitle[title] });
         continue;
       }
       const header = `[Supabase scan ${stamp}]\nProject: ${projectLabel}\n\n`;
@@ -1074,10 +1139,21 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
         notes: header + res.notes,
       });
       written.push({ title, status: w.written ? res.status : `${res.status} (kept existing ${w.keptStatus})`, matched: true });
-      recorded.push({ checklist_item_id: itemId, checklist_key: null, status: res.status, notes: header + res.notes, stored: w.written });
+      recorded.push({ checklist_item_id: itemId, checklist_key: null, status: res.status, notes: header + res.notes, stored: w.written, evidence: evidenceByTitle[title] });
     }
 
-    const history = await saveScanRun(supabase, { auditId: data.auditId, scanner: "supabase", target: projectUrl }, recorded);
+    const history = await saveScanRun(
+      supabase,
+      {
+        auditId: data.auditId,
+        scanner: "supabase",
+        target: projectUrl,
+        trigger: data.parentRunId ? "full" : "manual",
+        parentRunId: data.parentRunId ?? null,
+      },
+      recorded,
+      { evidence },
+    );
 
     return {
       ok: true as const,

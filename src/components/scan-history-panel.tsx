@@ -17,7 +17,8 @@ type Run = {
   status: string;
   started_at: string;
   finished_at: string | null;
-  summary: { counts?: Record<string, number>; changes?: Record<string, number>; error?: string } | null;
+  parent_run_id: string | null;
+  summary: { counts?: Record<string, number>; changes?: Record<string, number>; evidence?: number; error?: string } | null;
 };
 
 type Result = {
@@ -66,7 +67,7 @@ export function ScanHistoryPanel({ auditId }: { auditId: string }) {
     queryFn: async (): Promise<Run[]> => {
       const { data, error } = await supabase
         .from("scan_runs")
-        .select("id, scanner, trigger, target, status, started_at, finished_at, summary")
+        .select("id, scanner, trigger, target, status, started_at, finished_at, parent_run_id, summary")
         .eq("audit_id", auditId)
         .order("started_at", { ascending: false })
         .limit(50);
@@ -121,7 +122,8 @@ function RunRow({ run }: { run: Run }) {
     <li className="py-2">
       <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-left">
         <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", open && "rotate-90")} />
-        <span className="text-sm font-medium">{SCANNER_LABEL[run.scanner] ?? run.scanner}</span>
+        {run.parent_run_id && <span className="text-xs text-muted-foreground" title="Step of a full audit">↳</span>}
+        <span className={cn("text-sm", run.scanner === "full" ? "font-semibold" : "font-medium")}>{SCANNER_LABEL[run.scanner] ?? run.scanner}</span>
         {run.target && <span className="text-xs font-mono text-muted-foreground truncate max-w-[280px]">{run.target}</span>}
         {run.status !== "done" && (
           <Badge variant="outline" className={run.status === "failed" ? "text-destructive" : "text-status-warn"}>{run.status}</Badge>
@@ -131,7 +133,8 @@ function RunRow({ run }: { run: Run }) {
             <Badge key={c} variant="outline" className={cn("text-[11px]", CHANGE_TONE[c])}>{changes[c]} {c}</Badge>
           ))}
           <span className="text-xs text-muted-foreground tabular-nums">
-            {counts.pass ?? 0}✓ {counts.fail ?? 0}✗
+            {counts.pass ?? 0}✓ {counts.fail ?? 0}✗{counts.not_run ? ` · ${counts.not_run} not run` : ""}
+            {run.summary?.evidence ? ` · ${run.summary.evidence} evidence` : ""}
           </span>
           <span className="text-xs text-muted-foreground whitespace-nowrap">{format(new Date(run.started_at), "MMM d, HH:mm")}</span>
         </span>

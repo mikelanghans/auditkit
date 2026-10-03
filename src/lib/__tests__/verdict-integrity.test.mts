@@ -119,9 +119,20 @@ test("website scan: secrets in a JS bundle fail bundle_secrets; public Supabase 
     return text("not found", 404);
   });
   const { runAutoScan } = await import("../scan.functions.ts");
-  await runAutoScan({ data: { auditId: AUDIT }, context: c } as any);
+  const res: any = await runAutoScan({ data: { auditId: AUDIT }, context: c } as any);
   assert.equal(status(db, "ci_bundle_secrets"), "fail");
   assert.equal(status(db, "ci_vite_exposure"), "pass");
+
+  // The run is kept with its evidence, and the evidence never holds the secret.
+  assert.equal(res.history.history_error, undefined);
+  assert.equal(db.rows("scan_runs").length, 1);
+  const bundleResult = db.rows("scan_results").find((r) => r.checklist_key === "bundle_secrets");
+  const linked = db.rows("evidence").filter((e) => bundleResult.evidence_ids.includes(e.id));
+  assert.equal(linked.length, 1);
+  assert.match(linked[0].title, /Scripts fetched/, "bundle check points at the list of scripts it read");
+  const stored = db.rows("evidence").map((e) => e.content_text).join("\n");
+  assert.match(stored, /assets\/index\.js/);
+  assert.doesNotMatch(stored, /sk_live_DUMMYDUMMYDUMMY00000000/);
 });
 
 test("website scan: more bundles than the scan limit is inconclusive, not pass", async () => {

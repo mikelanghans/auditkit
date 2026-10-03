@@ -9,6 +9,7 @@
 // migration hasn't been pushed yet) the scan still writes audit_findings and
 // the failure is logged and reported back in the run summary instead.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { prepareEvidenceRows, type EvidenceInput } from "./evidence";
 
 export type ScannerName = "website" | "supabase" | "repo" | "dependencies" | "ai_endpoint" | "code_audit" | "full";
 export type RunTrigger = "manual" | "full" | "schedule" | "retest";
@@ -24,6 +25,8 @@ export type RecordedResult = {
   notes?: string | null;
   /** Whether the result was written to audit_findings. */
   stored: boolean;
+  /** Refs of the EvidenceInput items this result rests on. */
+  evidence?: string[];
 };
 
 export type RunOptions = {
@@ -38,6 +41,7 @@ export type HistorySummary = {
   run_id: string | null;
   counts: Partial<Record<ResultStatus, number>>;
   changes: Partial<Record<ResultChange, number>>;
+  evidence_count?: number;
   /** Set when history could not be saved; the scan itself still completed. */
   history_error?: string;
 };
@@ -99,8 +103,9 @@ export async function saveScanRun(
   supabase: SupabaseClient<any>,
   opts: RunOptions,
   results: RecordedResult[],
-  extraSummary: Record<string, unknown> = {},
+  extras: { summary?: Record<string, unknown>; evidence?: EvidenceInput[] } = {},
 ): Promise<HistorySummary> {
+  const extraSummary = extras.summary ?? {};
   const counts: HistorySummary["counts"] = {};
   const changes: HistorySummary["changes"] = {};
   let runId: string | null = null;
@@ -141,22 +146,38 @@ export async function saveScanRun(
     if (runErr || !run) throw new Error(runErr?.message ?? "could not create scan run");
     runId = (run as { id: string }).id;
 
+    // Evidence first, so each result can carry the ids of what it rests on.
+    let idByRef = new Map<string, string>();
+    let evidenceCount = 0;
+    const wanted = (extras.evidence ?? []).filter((e) => results.some((r) => r.evidence?.includes(e.ref)));
+    if (wanted.length) {
+      const prepared = await prepareEvidenceRows(opts.auditId, runId!, wanted);
+      const { error: evErr } = await supabase.from("evidence").insert(prepared.rows);
+      if (evErr) throw new Error(`evidence: ${evErr.message}`);
+      idByRef = prepared.idByRef;
+      evidenceCount = prepared.rows.length;
+    }
+
     let status: "done" | "partial" = "done";
     if (rows.length) {
-      const { error: resErr } = await supabase
-        .from("scan_results")
-        .insert(rows.map((r) => ({ ...r, run_id: runId })));
+      const { error: resErr } = await supabase.from("scan_results").insert(
+        rows.map((r, i) => ({
+          ...r,
+          run_id: runId,
+          evidence_ids: (results[i].evidence ?? []).map((ref) => idByRef.get(ref)).filter(Boolean),
+        })),
+      );
       if (resErr) throw new Error(resErr.message);
     }
     if (counts.inconclusive || counts.not_run) status = "partial";
 
     const { error: closeErr } = await supabase
       .from("scan_runs")
-      .update({ status, finished_at: new Date().toISOString(), summary: { counts, changes, ...extraSummary } })
+      .update({ status, finished_at: new Date().toISOString(), summary: { counts, changes, evidence: evidenceCount, ...extraSummary } })
       .eq("id", runId);
     if (closeErr) throw new Error(closeErr.message);
 
-    return { run_id: runId, counts, changes };
+    return { run_id: runId, counts, changes, evidence_count: evidenceCount };
   } catch (e: any) {
     const msg = e?.message ?? String(e);
     console.error(`[scan-history] ${opts.scanner} run for audit ${opts.auditId} not saved:`, msg);

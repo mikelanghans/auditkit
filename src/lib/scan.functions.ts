@@ -3,6 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl } from "./ssrf-guard";
 import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type RecordedResult } from "./scan-history";
+import { httpExchange, type EvidenceInput } from "./evidence";
 import { consumeQuota } from "./quota";
 import { collectBundles, type BundleCoverage } from "./bundle-collect";
 import { scanForSecrets } from "./bundle-secrets";
@@ -293,8 +294,9 @@ function checkViteExposure(sources: { url: string; body: string }[], coverage: B
 
 export const runAutoScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { auditId: string }) => {
+  .inputValidator((input: { auditId: string; parentRunId?: string | null }) => {
     if (!input?.auditId || typeof input.auditId !== "string") throw new Error("auditId required");
+    if (input.parentRunId != null && typeof input.parentRunId !== "string") throw new Error("invalid parentRunId");
     return input;
   })
   .handler(async ({ data, context }) => {
@@ -350,6 +352,27 @@ export const runAutoScan = createServerFn({ method: "POST" })
     // TLS was negotiated if response headers arrived at all.
     results.push(checkSsl(base, !!mainResp, mainErr));
 
+    // Evidence: what each check was judged on. Keys → evidence refs.
+    const evidence: EvidenceInput[] = [];
+    const evidenceFor = new Map<string, string[]>();
+    const attach = (ref: string, keys: string[]) => {
+      for (const k of keys) evidenceFor.set(k, [...(evidenceFor.get(k) ?? []), ref]);
+    };
+    evidence.push({
+      ref: "main",
+      kind: "http_exchange",
+      title: `GET ${base}`,
+      content: httpExchange(
+        { url: base },
+        mainResp ? { status: mainResp.status, headers: mainResp.headers, body } : { error: mainErr ?? "no response" },
+      ),
+    });
+    attach("main", [
+      "ssl_valid", "xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy",
+      "csp_header", "cors_policy", "sensitive_url_params", "debug_mode", "cookie_flags", "third_party_scripts",
+      "security_headers",
+    ]);
+
     if (mainResp && bodyObserved) {
       const h = mainResp.headers;
       results.push(header(h, "x-frame-options", "xframe_header", "X-Frame-Options"));
@@ -366,6 +389,13 @@ export const runAutoScan = createServerFn({ method: "POST" })
       results.push(checkViteExposure(bundles.sources, bundles.coverage));
       results.push(checkCookieFlags(getSetCookies(h), base.startsWith("https://")));
       results.push(checkThirdPartyScripts(body, base));
+      evidence.push({
+        ref: "bundles",
+        kind: "probe_set",
+        title: `Scripts fetched from ${base}`,
+        content: { coverage: bundles.coverage, files: bundles.sources.map((b) => ({ url: b.url, bytes: b.body.length })) },
+      });
+      attach("bundles", ["bundle_secrets", "vite_exposure", "third_party_scripts"]);
 
       const origin = new URL(base).origin;
       const maps = sourceMapCandidates(bundles.sources, origin);
@@ -375,6 +405,15 @@ export const runAutoScan = createServerFn({ method: "POST" })
       ]);
       results.push(checkSourceMaps(mapProbes, maps.inline, bundles.coverage.fetched));
       results.push(checkOpenRedirect(redirectProbes, clientRedirectHints(bundles.sources)));
+      evidence.push({
+        ref: "source_maps",
+        kind: "probe_set",
+        title: "Source map requests",
+        content: { inline_maps: maps.inline, probes: mapProbes.map((p) => ({ url: p.url, status: p.status ?? null, error: p.error ?? null, head: p.head?.slice(0, 200) ?? null })) },
+      });
+      attach("source_maps", ["source_maps_exposed"]);
+      evidence.push({ ref: "redirects", kind: "probe_set", title: "Open redirect probes", content: { probes: redirectProbes } });
+      attach("redirects", ["open_redirect"]);
     } else {
       const reason = mainResp ? unobservedReason : `Could not fetch ${base}: ${mainErr ?? "unknown error"}`;
       const unobservedKeys = ["xframe_header", "xcontent_type", "referrer_policy", "hsts_header", "permissions_policy", "csp_header", "cors_policy", "sensitive_url_params", "bundle_secrets", "debug_mode", "vite_exposure", "cookie_flags", "third_party_scripts", "source_maps_exposed", "open_redirect"];
@@ -389,6 +428,13 @@ export const runAutoScan = createServerFn({ method: "POST" })
       const probe = await timedFetch(probeUrl, { method: "GET", headers: { "user-agent": "AuditKit-Scanner/1.0" } });
       const text = (await probe.text()).slice(0, 50_000);
       results.push(checkErrorVerbosity(text, probe.status));
+      evidence.push({
+        ref: "error_probe",
+        kind: "http_exchange",
+        title: `GET ${probeUrl}`,
+        content: httpExchange({ url: probeUrl }, { status: probe.status, headers: probe.headers, body: text }, 1_500),
+      });
+      attach("error_probe", ["error_verbosity"]);
     } catch (e: any) {
       results.push({ key: "error_verbosity", status: "inconclusive", notes: `Not checked: the probe request failed (${e?.message ?? String(e)}).` });
     }
@@ -399,6 +445,13 @@ export const runAutoScan = createServerFn({ method: "POST" })
       EXPOSED_FILE_PROBES.map(async (p) => ({ ...(await probeHead(`${base.replace(/\/+$/, "")}${p.path}`)), path: p.path })),
     );
     results.push(checkExposedFiles(exposedProbes));
+    evidence.push({
+      ref: "exposed_files",
+      kind: "probe_set",
+      title: "Sensitive file requests",
+      content: { probes: exposedProbes.map((p) => ({ path: p.path, url: p.url, status: p.status ?? null, error: p.error ?? null, head: p.head?.slice(0, 300) ?? null })) },
+    });
+    attach("exposed_files", ["exposed_files"]);
 
     results.push(checkSecurityHeadersRollup(results));
 
@@ -420,13 +473,13 @@ export const runAutoScan = createServerFn({ method: "POST" })
       const itemId = byKey.get(r.key);
       if (!itemId) {
         written.push({ key: r.key, status: r.status, matched: false, stored: false });
-        recorded.push({ checklist_item_id: null, checklist_key: r.key, status: r.status, notes: r.notes, stored: false });
+        recorded.push({ checklist_item_id: null, checklist_key: r.key, status: r.status, notes: r.notes, stored: false, evidence: evidenceFor.get(r.key) });
         continue;
       }
       // Warn results: skip writing — leave for manual review
       if (r.status === "warn") {
         written.push({ key: r.key, status: r.status, matched: true, stored: false });
-        recorded.push({ checklist_item_id: itemId, checklist_key: r.key, status: r.status, notes: r.notes, stored: false });
+        recorded.push({ checklist_item_id: itemId, checklist_key: r.key, status: r.status, notes: r.notes, stored: false, evidence: evidenceFor.get(r.key) });
         continue;
       }
       const note = `[Auto-scan ${stamp}]\nTarget: ${base}\n\n${r.notes}`;
@@ -437,10 +490,21 @@ export const runAutoScan = createServerFn({ method: "POST" })
         notes: note,
       });
       written.push({ key: r.key, status: r.status, matched: true, stored: res.written });
-      recorded.push({ checklist_item_id: itemId, checklist_key: r.key, status: r.status, notes: note, stored: res.written });
+      recorded.push({ checklist_item_id: itemId, checklist_key: r.key, status: r.status, notes: note, stored: res.written, evidence: evidenceFor.get(r.key) });
     }
 
-    const history = await saveScanRun(supabase, { auditId: data.auditId, scanner: "website", target: base }, recorded);
+    const history = await saveScanRun(
+      supabase,
+      {
+        auditId: data.auditId,
+        scanner: "website",
+        target: base,
+        trigger: data.parentRunId ? "full" : "manual",
+        parentRunId: data.parentRunId ?? null,
+      },
+      recorded,
+      { evidence },
+    );
 
     const passes = written.filter((w) => w.status === "pass").length;
     const fails = written.filter((w) => w.status === "fail").length;

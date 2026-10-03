@@ -4,6 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AuditTargetsPanel } from "@/components/audit-targets-panel";
+import { EvidenceButton } from "@/components/evidence-dialog";
+import { FullAuditDialog } from "@/components/full-audit-dialog";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -741,6 +743,7 @@ function ShieldScanBanner({
           </div>
         </div>
         <div className="flex items-start gap-2 flex-wrap min-w-0">
+          <FullAuditDialog auditId={auditId} websiteUrl={appUrl} savedRepos={savedRepos} onDone={onDone} />
           <div className="inline-flex flex-col items-start gap-1">
             <Button
               onClick={run}
@@ -865,6 +868,7 @@ function ItemRow({
             </>
           )}
           {finding?.id && <HistoryButton findingId={finding.id} itemTitle={item.title} />}
+          <EvidenceButton auditId={auditId} checklistItemId={item.id} itemTitle={item.title} />
           <div className="flex items-center gap-1">
             <StatusBtn label="Pass" icon={<Check className="h-4 w-4" />} active={status === "pass"} color="pass" onClick={() => onSet("pass", null)} />
             <StatusBtn label="Fail" icon={<X className="h-4 w-4" />} active={status === "fail"} color="fail" onClick={() => onSet("fail", notes || null)} />
