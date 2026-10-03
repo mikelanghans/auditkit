@@ -24,6 +24,7 @@ import {
   ExportButtons,
   FrameworkSection,
   ControlTags,
+  LinkedCodeFindings,
 } from "@/components/report-extras";
 import {
   summarizeMethod,
@@ -470,6 +471,7 @@ function ReportPage() {
                     controls={controlsByItem.get(it.id)}
                     lifecycle={lifecycle.get(it.id)}
                     finding={f}
+                    linkedCode={(extras.data?.linkedCode ?? []).filter((c) => c.checklist_item_id === it.id)}
                   />
                 );
               })}
@@ -534,7 +536,7 @@ function ReportPage() {
 
         <ArchitecturalRiskSection findings={archFindings.data ?? []} />
 
-        <CodeAuditSection auditId={id} />
+        <CodeAuditSection auditId={id} titleOf={(itemId) => titleById.get(itemId)} />
 
         <ResolvedFindingsAppendix auditId={id} />
 
@@ -696,7 +698,7 @@ const SEVERITY_IMPACT: Record<string, string> = {
 };
 
 function FailedFindingCard({
-  auditId, item, notes, explanation, priority, evidenceRefs, controls, lifecycle, finding,
+  auditId, item, notes, explanation, priority, evidenceRefs, controls, lifecycle, finding, linkedCode,
 }: {
   auditId: string;
   item: any;
@@ -707,6 +709,7 @@ function FailedFindingCard({
   controls?: string[];
   lifecycle?: Lifecycle;
   finding?: LifecycleFields;
+  linkedCode?: { id: string; title: string; severity: string | null; verdict: string; checklist_item_id: string }[];
 }) {
   const [open, setOpen] = useState(true);
   // Generated as the card scrolls into view, so it's ready before it's opened
@@ -802,6 +805,12 @@ function FailedFindingCard({
             {notes && (
               <DetailRow label="Evidence">
                 <EvidenceBlocks notes={notes} />
+              </DetailRow>
+            )}
+
+            {linkedCode && linkedCode.length > 0 && (
+              <DetailRow label="Also found in the code review">
+                <LinkedCodeFindings rows={linkedCode} />
               </DetailRow>
             )}
 
@@ -1148,13 +1157,13 @@ function ResolvedFindingsAppendix({ auditId }: { auditId: string }) {
 
 // Code-level findings from the deep code audit that the auditor chose to
 // include. Only confirmed and needs-validation records are shown.
-function CodeAuditSection({ auditId }: { auditId: string }) {
+function CodeAuditSection({ auditId, titleOf }: { auditId: string; titleOf?: (itemId: string) => string | undefined }) {
   const { data } = useQuery({
     queryKey: ["code-audit-report", auditId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("code_audit_findings")
-        .select("id, verdict, severity, title, description, root_cause, remediation, validation_plan")
+        .select("id, verdict, severity, title, description, root_cause, remediation, validation_plan, checklist_item_id")
         .eq("audit_id", auditId)
         .eq("include_in_report", true)
         .neq("verdict", "rejected")
@@ -1194,6 +1203,9 @@ function CodeAuditSection({ auditId }: { auditId: string }) {
               </span>
             </div>
             <div className="font-semibold">{r.title}</div>
+            {r.checklist_item_id && titleOf?.(r.checklist_item_id) && (
+              <div className="text-xs text-muted-foreground">Linked to the issue “{titleOf(r.checklist_item_id)}”</div>
+            )}
             {r.description && <p className="text-sm whitespace-pre-wrap">{r.description}</p>}
             {fixText(r.remediation) && (
               <p className="text-sm">

@@ -37,6 +37,8 @@ export type ReportExtras = {
   results: ResultRow[];
   evidence: EvidenceMeta[];
   controls: ControlRow[];
+  /** Deep-audit findings linked to a checklist item and kept for the report. */
+  linkedCode: { id: string; title: string; severity: string | null; verdict: string; checklist_item_id: string }[];
   chain: ChainStatus | null;
 };
 
@@ -49,7 +51,7 @@ export function useReportExtras(auditId: string) {
         if (r.error) console.warn("[report]", r.error.message);
         return (r.data ?? fallback) as T;
       };
-      const [targets, scope, runs, results, evidence, chain, controls] = await Promise.all([
+      const [targets, scope, runs, results, evidence, chain, controls, linkedCode] = await Promise.all([
         supabase.from("audit_targets").select("id, audit_id, kind, value, label, meta, in_scope").eq("audit_id", auditId).order("created_at"),
         supabase.from("audit_scope").select("*").eq("audit_id", auditId).maybeSingle(),
         supabase.from("scan_runs").select("id, scanner, trigger, target, status, started_at, finished_at, parent_run_id, summary").eq("audit_id", auditId).order("started_at"),
@@ -57,6 +59,14 @@ export function useReportExtras(auditId: string) {
         supabase.from("evidence").select("id, kind, title, sha256, size_bytes, source, captured_at, checklist_item_id, storage_path, purged_at").eq("audit_id", auditId).limit(5000),
         supabase.rpc("verify_audit_chain", { p_audit: auditId }),
         (supabase as any).from("checklist_item_controls").select("checklist_item_id, framework, control_id, control_title").limit(5000),
+        supabase
+          .from("code_audit_findings")
+          .select("id, title, severity, verdict, checklist_item_id")
+          .eq("audit_id", auditId)
+          .eq("include_in_report", true)
+          .neq("verdict", "rejected")
+          .neq("review_state", "dismissed")
+          .not("checklist_item_id", "is", null),
       ]);
       return {
         targets: soft(targets as any, []),
@@ -65,6 +75,7 @@ export function useReportExtras(auditId: string) {
         results: soft(results as any, []),
         evidence: soft(evidence as any, []),
         controls: soft(controls as any, []),
+        linkedCode: soft(linkedCode as any, []),
         chain: (soft(chain as any, []) as ChainStatus[])[0] ?? null,
       };
     },
@@ -582,5 +593,19 @@ export function ControlTags({ tags }: { tags: string[] | undefined }) {
         <span key={t} className="rounded border border-border px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{t}</span>
       ))}
     </div>
+  );
+}
+
+export function LinkedCodeFindings({ rows }: { rows: ReportExtras["linkedCode"] | undefined }) {
+  if (!rows?.length) return null;
+  return (
+    <ul className="text-xs space-y-0.5">
+      {rows.map((r) => (
+        <li key={r.id}>
+          <span className="font-semibold uppercase">{r.verdict === "confirmed" ? r.severity ?? "confirmed" : "needs validation"}</span> {r.title}
+          <span className="text-muted-foreground"> (details under Code-level findings)</span>
+        </li>
+      ))}
+    </ul>
   );
 }

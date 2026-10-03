@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { evidenceText, redactHar, sha256Hex, type EvidenceKind } from "@/lib/evidence";
 
+export type EvidenceRowView = Row;
 type Row = {
   id: string;
   kind: EvidenceKind;
@@ -59,6 +60,61 @@ export function useItemEvidence(auditId: string, checklistItemId: string, enable
   });
 }
 
+/**
+ * Save hand-captured evidence: a note or pasted request (redacted), or a file
+ * (HAR files lose cookies and auth headers first). checklistItemId null puts
+ * it in the audit's capture inbox for triage.
+ */
+export async function saveManualEvidence(o: { auditId: string; checklistItemId: string | null; title: string; text: string; file: File | null }) {
+  const { auditId, checklistItemId, title, text, file } = o;
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) throw new Error("Not signed in.");
+  if (file) {
+    if (file.size > MAX_FILE_BYTES) throw new Error("Files are limited to 25 MB.");
+    const isHar = /\.har$/i.test(file.name);
+    let body: Blob = file;
+    let mime = file.type || "application/octet-stream";
+    if (isHar) {
+      body = new Blob([redactHar(await file.text())], { type: "application/json" });
+      mime = "application/json";
+    }
+    const bytes = new Uint8Array(await body.arrayBuffer());
+    const sha = await sha256Hex(bytes);
+    const path = `${auditId}/${crypto.randomUUID()}-${safeName(file.name)}`;
+    const up = await supabase.storage.from("evidence").upload(path, body, { contentType: mime, upsert: false });
+    if (up.error) throw new Error(up.error.message);
+    const kind: EvidenceKind = isHar ? "har" : mime.startsWith("image/") ? "screenshot" : "file";
+    const { error } = await supabase.from("evidence").insert({
+      audit_id: auditId,
+      checklist_item_id: checklistItemId,
+      kind,
+      title: (title.trim() || file.name).slice(0, 300),
+      content_text: text.trim() ? evidenceText(text) : null,
+      storage_path: path,
+      mime_type: mime,
+      size_bytes: bytes.length,
+      sha256: sha,
+      source: "manual",
+    });
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const stored = evidenceText(text);
+  const looksHttp = /^(curl\s|GET |POST |PUT |PATCH |DELETE |HTTP\/)/m.test(text.trim());
+  const { error } = await supabase.from("evidence").insert({
+    audit_id: auditId,
+    checklist_item_id: checklistItemId,
+    kind: looksHttp ? "http_exchange" : "note",
+    title: (title.trim() || (looksHttp ? "Captured request" : "Note")).slice(0, 300),
+    content_text: stored,
+    mime_type: "text/plain",
+    size_bytes: new TextEncoder().encode(stored).length,
+    sha256: await sha256Hex(stored),
+    source: "manual",
+  });
+  if (error) throw new Error(error.message);
+}
+
 function safeName(name: string) {
   return name.replace(/[^A-Za-z0-9._-]+/g, "_").slice(-80) || "file";
 }
@@ -78,52 +134,7 @@ export function EvidenceButton({ auditId, checklistItemId, itemTitle }: { auditI
     if (!text.trim() && !file) return toast.error("Paste something or choose a file.");
     setSaving(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) throw new Error("Not signed in.");
-      if (file) {
-        if (file.size > MAX_FILE_BYTES) throw new Error("Files are limited to 25 MB.");
-        const isHar = /\.har$/i.test(file.name);
-        let body: Blob = file;
-        let mime = file.type || "application/octet-stream";
-        if (isHar) {
-          body = new Blob([redactHar(await file.text())], { type: "application/json" });
-          mime = "application/json";
-        }
-        const bytes = new Uint8Array(await body.arrayBuffer());
-        const sha = await sha256Hex(bytes);
-        const path = `${auditId}/${crypto.randomUUID()}-${safeName(file.name)}`;
-        const up = await supabase.storage.from("evidence").upload(path, body, { contentType: mime, upsert: false });
-        if (up.error) throw new Error(up.error.message);
-        const kind: EvidenceKind = isHar ? "har" : mime.startsWith("image/") ? "screenshot" : "file";
-        const { error } = await supabase.from("evidence").insert({
-          audit_id: auditId,
-          checklist_item_id: checklistItemId,
-          kind,
-          title: (title.trim() || file.name).slice(0, 300),
-          content_text: text.trim() ? evidenceText(text) : null,
-          storage_path: path,
-          mime_type: mime,
-          size_bytes: bytes.length,
-          sha256: sha,
-          source: "manual",
-        });
-        if (error) throw new Error(error.message);
-      } else {
-        const stored = evidenceText(text);
-        const looksHttp = /^(curl\s|GET |POST |PUT |PATCH |DELETE |HTTP\/)/m.test(text.trim());
-        const { error } = await supabase.from("evidence").insert({
-          audit_id: auditId,
-          checklist_item_id: checklistItemId,
-          kind: looksHttp ? "http_exchange" : "note",
-          title: (title.trim() || (looksHttp ? "Captured request" : "Note")).slice(0, 300),
-          content_text: stored,
-          mime_type: "text/plain",
-          size_bytes: new TextEncoder().encode(stored).length,
-          sha256: await sha256Hex(stored),
-          source: "manual",
-        });
-        if (error) throw new Error(error.message);
-      }
+      await saveManualEvidence({ auditId, checklistItemId, title, text, file });
       toast.success("Evidence saved.");
       reset();
       qc.invalidateQueries({ queryKey: ["evidence", auditId, checklistItemId] });
@@ -180,7 +191,7 @@ export function EvidenceButton({ auditId, checklistItemId, itemTitle }: { auditI
   );
 }
 
-function EvidenceItem({ row }: { row: Row }) {
+export function EvidenceItem({ row }: { row: Row }) {
   const [url, setUrl] = useState<string | null>(null);
   const open = async () => {
     if (!row.storage_path) return;

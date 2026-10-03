@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AuditTargetsPanel } from "@/components/audit-targets-panel";
 import { EvidenceButton } from "@/components/evidence-dialog";
 import { FullAuditDialog } from "@/components/full-audit-dialog";
+import { CaptureInbox } from "@/components/capture-inbox";
 import { FindingLifecycleDialog, LifecycleBadges } from "@/components/finding-lifecycle-dialog";
 import type { LifecycleFields } from "@/lib/finding-lifecycle";
 import { Card } from "@/components/ui/card";
@@ -338,6 +339,8 @@ function AuditView() {
           )}
         </div>
       </div>
+
+      <CaptureInbox auditId={id} items={(items.data ?? []) as any} />
 
       <AuditTargetsPanel
         auditId={id}
