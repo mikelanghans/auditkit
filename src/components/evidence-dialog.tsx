@@ -25,9 +25,10 @@ type Row = {
   source: "scanner" | "manual";
   captured_at: string;
   run_id: string | null;
+  purged_at?: string | null;
 };
 
-const COLS = "id, kind, title, content_text, storage_path, mime_type, size_bytes, sha256, source, captured_at, run_id";
+const COLS = "id, kind, title, content_text, storage_path, mime_type, size_bytes, sha256, source, captured_at, run_id, purged_at";
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 export function useItemEvidence(auditId: string, checklistItemId: string, enabled: boolean) {
@@ -202,7 +203,10 @@ function EvidenceItem({ row }: { row: Row }) {
         {row.content_text && (
           <pre className="max-h-72 overflow-auto rounded bg-muted/50 p-2 text-[11px] font-mono whitespace-pre-wrap">{row.content_text}</pre>
         )}
-        {row.storage_path && (
+        {row.purged_at && (
+          <p className="text-xs text-muted-foreground">Purged {format(new Date(row.purged_at), "PP")} under the audit's retention date. The hash below is what was captured.</p>
+        )}
+        {row.storage_path && !row.purged_at && (
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={open}>Open file</Button>
             {isImage && url && <img src={url} alt={row.title} className="max-h-40 rounded border" />}

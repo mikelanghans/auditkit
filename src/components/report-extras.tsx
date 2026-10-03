@@ -54,7 +54,7 @@ export function useReportExtras(auditId: string) {
         supabase.from("audit_scope").select("*").eq("audit_id", auditId).maybeSingle(),
         supabase.from("scan_runs").select("id, scanner, trigger, target, status, started_at, finished_at, parent_run_id, summary").eq("audit_id", auditId).order("started_at"),
         supabase.from("scan_results").select("run_id, checklist_item_id, checklist_key, scanner, status, evidence_ids, created_at").eq("audit_id", auditId).limit(20000),
-        supabase.from("evidence").select("id, kind, title, sha256, size_bytes, source, captured_at, checklist_item_id, storage_path").eq("audit_id", auditId).limit(5000),
+        supabase.from("evidence").select("id, kind, title, sha256, size_bytes, source, captured_at, checklist_item_id, storage_path, purged_at").eq("audit_id", auditId).limit(5000),
         supabase.rpc("verify_audit_chain", { p_audit: auditId }),
         (supabase as any).from("checklist_item_controls").select("checklist_item_id, framework, control_id, control_title").limit(5000),
       ]);
@@ -457,6 +457,10 @@ export function ExportButtons({ auditId, model, fileBase }: { auditId: string; m
       }
       for (const e of model.evidenceIndex) {
         const base = `evidence/${e.label}-${slug(e.title)}`;
+        if (e.purged_at) {
+          manifest.push({ ...e, file: null, purged: true });
+          continue;
+        }
         if (e.storage_path) {
           const { data, error } = await supabase.storage.from("evidence").download(e.storage_path);
           if (error || !data) {

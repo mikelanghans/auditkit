@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuditScope, useAuditTargets } from "@/hooks/use-audit-targets";
+import { EvidenceRetention } from "@/components/evidence-retention";
 import { ChevronDown, Crosshair, Loader2, Plus, ShieldCheck, Trash2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -287,6 +288,7 @@ export function AuditTargetsPanel({
                 <Label className="text-xs">Out of scope</Label>
                 <Textarea rows={2} className="text-xs" placeholder="Systems, paths or techniques not to test" value={form.out_of_scope ?? ""} onChange={(e) => setForm({ ...form, out_of_scope: e.target.value })} />
               </div>
+              <EvidenceRetention auditId={auditId} />
               <div className="space-y-1">
                 <Label className="text-xs">Notes</Label>
                 <Textarea rows={2} className="text-xs" value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />

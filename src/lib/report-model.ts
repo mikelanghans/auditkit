@@ -33,6 +33,7 @@ export type EvidenceMeta = {
   captured_at: string;
   checklist_item_id: string | null;
   storage_path: string | null;
+  purged_at?: string | null;
 };
 
 export type ItemRow = { id: string; title: string; category: string; severity: string | null; sort_order?: number | null };
@@ -362,7 +363,7 @@ export function buildReportMarkdown(m: ReportModel): string {
   if (!m.evidenceIndex.length) L.push("No evidence recorded.", "");
   else {
     L.push("| Ref | Evidence | Type | Captured | SHA-256 |", "|---|---|---|---|---|");
-    for (const e of m.evidenceIndex) L.push(`| ${e.label} | ${esc(e.title)} | ${e.kind} | ${e.captured_at.slice(0, 16).replace("T", " ")} | \`${e.sha256}\` |`);
+    for (const e of m.evidenceIndex) L.push(`| ${e.label} | ${esc(e.title)}${e.purged_at ? " (purged)" : ""} | ${e.kind} | ${e.captured_at.slice(0, 16).replace("T", " ")} | \`${e.sha256}\` |`);
     L.push("");
   }
   if (m.checklistVersion) L.push(`Checklist version: \`${m.checklistVersion}\``, "");

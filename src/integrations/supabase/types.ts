@@ -168,6 +168,7 @@ export type Database = {
       }
       audits: {
         Row: {
+          evidence_retain_until: string | null
           built_with: string | null
           client_id: string
           completed_at: string | null
@@ -186,6 +187,7 @@ export type Database = {
           website_url: string | null
         }
         Insert: {
+          evidence_retain_until?: string | null
           built_with?: string | null
           client_id: string
           completed_at?: string | null
@@ -204,6 +206,7 @@ export type Database = {
           website_url?: string | null
         }
         Update: {
+          evidence_retain_until?: string | null
           built_with?: string | null
           client_id?: string
           completed_at?: string | null
@@ -733,6 +736,7 @@ export type Database = {
       }
       evidence: {
         Row: {
+          purged_at: string | null
           id: string
           audit_id: string
           run_id: string | null
@@ -749,6 +753,7 @@ export type Database = {
           captured_at: string
         }
         Insert: {
+          purged_at?: string | null
           id?: string
           audit_id: string
           run_id?: string | null
@@ -765,6 +770,7 @@ export type Database = {
           captured_at?: string
         }
         Update: {
+          purged_at?: string | null
           id?: string
           audit_id?: string
           run_id?: string | null
@@ -1045,6 +1051,10 @@ export type Database = {
           first_bad_seq: number | null
           problem: string | null
         }[]
+      }
+      purge_audit_evidence: {
+        Args: { p_audit: string }
+        Returns: { storage_path: string }[]
       }
       freeze_audit_checklist: {
         Args: { p_audit: string }
