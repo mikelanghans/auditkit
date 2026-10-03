@@ -34,6 +34,7 @@ type Result = {
 
 const SCANNER_LABEL: Record<string, string> = {
   website: "Website",
+  surface: "Attack surface",
   supabase: "Supabase",
   repo: "Repo",
   dependencies: "Dependencies",

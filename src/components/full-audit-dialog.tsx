@@ -17,6 +17,7 @@ import { getCachedRepoToken } from "@/lib/repo-token-cache";
 import type { SavedRepo } from "@/components/repo-launcher";
 import { startFullAudit, finishFullAudit, type FullAuditStep, type FullAuditStepScanner } from "@/lib/full-audit.functions";
 import { runAutoScan } from "@/lib/scan.functions";
+import { runSurfaceScan } from "@/lib/attack-surface.functions";
 import { runSupabaseScan } from "@/lib/supabase-scan.functions";
 import { runRepoScan } from "@/lib/repo-scan.functions";
 import { runAIScan } from "@/lib/ai-scan.functions";
@@ -28,6 +29,7 @@ type StepState = { outcome: FullAuditStep["outcome"] | "pending" | "running"; re
 
 const LABEL: Record<FullAuditStepScanner, string> = {
   website: "Website",
+  surface: "Attack surface (DNS, certificates)",
   supabase: "Supabase",
   repo: "Repo + dependencies",
   ai_endpoint: "AI endpoint",
@@ -51,6 +53,7 @@ export function FullAuditDialog({
   const start = useServerFn(startFullAudit);
   const finish = useServerFn(finishFullAudit);
   const website = useServerFn(runAutoScan);
+  const surface = useServerFn(runSurfaceScan);
   const supa = useServerFn(runSupabaseScan);
   const repo = useServerFn(runRepoScan);
   const ai = useServerFn(runAIScan);
@@ -75,7 +78,10 @@ export function FullAuditDialog({
   const aiTargets = list.filter((t) => t.kind === "ai_endpoint");
 
   const plan: PlannedStep[] = useMemo(() => {
-    const steps: PlannedStep[] = [{ key: "website", scanner: "website", label: LABEL.website, target: websiteUrl }];
+    const steps: PlannedStep[] = [
+      { key: "website", scanner: "website", label: LABEL.website, target: websiteUrl },
+      { key: "surface", scanner: "surface", label: LABEL.surface, target: websiteUrl },
+    ];
     supabaseTargets.forEach((t, i) => steps.push({ key: `supabase:${t.id}`, scanner: "supabase", label: LABEL.supabase, target: t.value, meta: { first: i === 0 } }));
     if (!supabaseTargets.length) steps.push({ key: "supabase", scanner: "supabase", label: LABEL.supabase, target: null });
     repoTargets.forEach((t) => steps.push({ key: `repo:${t.id}`, scanner: "repo", label: LABEL.repo, target: t.value }));
@@ -110,6 +116,12 @@ export function FullAuditDialog({
           if (!websiteUrl) return notRun("This audit has no website set.");
           const r: any = await website({ data: { auditId, parentRunId } });
           return { ...base, outcome: "done", reason: `${r.passes} pass · ${r.fails} fail${r.inconclusive ? ` · ${r.inconclusive} unverified` : ""}` };
+        }
+        case "surface": {
+          if (!websiteUrl) return notRun("This audit has no website set.");
+          const r: any = await surface({ data: { auditId, parentRunId } });
+          if (!r.ok) return failed(r.error);
+          return { ...base, target: r.domain, outcome: "done", reason: `${r.subdomains.length} host(s) in certificate logs${r.subdomainError ? ` (${r.subdomainError})` : ""}` };
         }
         case "supabase": {
           if (!step.target) return notRun("No Supabase target in Targets & scope.");

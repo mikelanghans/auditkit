@@ -11,7 +11,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { prepareEvidenceRows, type EvidenceInput } from "./evidence";
 
-export type ScannerName = "website" | "supabase" | "repo" | "dependencies" | "ai_endpoint" | "code_audit" | "full";
+export type ScannerName = "website" | "surface" | "supabase" | "repo" | "dependencies" | "ai_endpoint" | "code_audit" | "full";
 export type RunTrigger = "manual" | "full" | "schedule" | "retest";
 export type ResultStatus = "pass" | "fail" | "warn" | "na" | "inconclusive" | "not_run";
 export type ResultChange = "new" | "regressed" | "unchanged" | "fixed" | "unverified";

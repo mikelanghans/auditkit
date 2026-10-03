@@ -40,6 +40,7 @@ export type ItemRow = { id: string; title: string; category: string; severity: s
 
 export const SCANNER_LABEL: Record<string, string> = {
   website: "Website scan",
+  surface: "Attack surface map",
   supabase: "Supabase scan",
   repo: "Repository scan",
   dependencies: "Dependency scan",
@@ -69,7 +70,7 @@ export function summarizeMethod(runs: RunRow[]): MethodSummary {
     if (r.started_at > cur.last) cur.last = r.started_at;
     by.set(r.scanner, cur);
   }
-  const order = ["website", "supabase", "repo", "dependencies", "ai_endpoint", "code_audit"];
+  const order = ["website", "surface", "supabase", "repo", "dependencies", "ai_endpoint", "code_audit"];
   const scanners = [...by.entries()]
     .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
     .map(([scanner, v]) => ({ scanner, label: SCANNER_LABEL[scanner] ?? scanner, runs: v.runs, targets: [...v.targets], first: v.first, last: v.last }));

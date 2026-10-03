@@ -83,11 +83,16 @@ class FakeClient {
 export type Route = (url: string, init: RequestInit) => Response | Promise<Response> | undefined;
 
 /** Install a fetch stub. DNS-over-HTTPS lookups resolve every host to a public IP. */
-export function stubFetch(route: Route) {
+export function stubFetch(route: Route, opts: { answersDns?: boolean } = {}) {
   const calls: string[] = [];
   globalThis.fetch = (async (input: any, init: RequestInit = {}) => {
     const url = typeof input === "string" ? input : input.url;
     if (/dns-query|\/resolve\?/.test(url)) {
+      // A test may answer DNS itself (TXT/CNAME lookups); otherwise every host resolves publicly.
+      if (opts.answersDns) {
+        const own = await route(url, init);
+        if (own && own.status !== 404) return own;
+      }
       const type = new URL(url).searchParams.get("type");
       return json({ Status: 0, Answer: type === "A" ? [{ type: 1, data: "93.184.216.34" }] : [] });
     }
