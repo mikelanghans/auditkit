@@ -15,6 +15,23 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { listResolvedFindings } from "@/lib/finding-resolution.functions";
 import {
+  useReportExtras,
+  SummarySection,
+  ScopeMethodSection,
+  RetestSection,
+  EvidenceRefs,
+  ReportAppendix,
+  ExportButtons,
+} from "@/components/report-extras";
+import {
+  summarizeMethod,
+  retestComparison,
+  buildEvidenceIndex,
+  type EvidenceRef,
+  type ReportModel,
+} from "@/lib/report-model";
+import { logReportExport } from "@/hooks/use-audit-trail";
+import {
   computeSecurityScore,
   gradeTone,
   failuresBySeverity,
@@ -99,7 +116,7 @@ function ReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("audits")
-        .select("id, title, status, started_at, completed_at, summary, website_url, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
+        .select("id, title, status, started_at, completed_at, summary, summary_approved_at, website_url, client:clients(name, contact_name, contact_email, has_agentic_features, uses_ai_features)")
         .eq("id", id).single();
       if (error) throw error;
       return data as any;
@@ -236,6 +253,78 @@ function ReportPage() {
     });
   }, [grouped, map]);
 
+  // ---- Built from audit data (phase 2c)
+  const extras = useReportExtras(id);
+  const [baselineId, setBaselineId] = useState<string | null>(null);
+  const titleById = useMemo(() => new Map((items.data ?? []).map((it: any) => [it.id, it.title as string])), [items.data]);
+  const method = useMemo(() => summarizeMethod(extras.data?.runs ?? []), [extras.data]);
+  const untested = useMemo(
+    () =>
+      (items.data ?? [])
+        .filter((it: any) => {
+          const st = map.get(it.id)?.status;
+          return st === "inconclusive" || !st;
+        })
+        .map((it: any) => ({ title: it.title, category: it.category, status: map.get(it.id)?.status ?? "unanswered" })),
+    [items.data, map],
+  );
+  const evidence = useMemo(() => {
+    const ordered = [...failedItems.map((it: any) => it.id), ...grouped.flatMap(([, list]) => list.map((it: any) => it.id))];
+    return buildEvidenceIndex([...new Set(ordered)], extras.data?.results ?? [], extras.data?.evidence ?? []);
+  }, [failedItems, grouped, extras.data]);
+  const retestRows = useMemo(() => {
+    const runs = extras.data?.runs ?? [];
+    const baseline = runs.find((r) => r.id === baselineId);
+    return baseline ? retestComparison(baseline, runs, extras.data?.results ?? [], statusMap) : [];
+  }, [baselineId, extras.data, statusMap]);
+  const model: ReportModel | null = useMemo(() => {
+    if (!audit.data || !items.data || !extras.data) return null;
+    const approved = audit.data.summary && audit.data.summary_approved_at ? audit.data.summary : null;
+    const baseline = extras.data.runs.find((r) => r.id === baselineId);
+    return {
+      audit: {
+        title: audit.data.title,
+        client: audit.data.client?.name ?? null,
+        website: audit.data.website_url ?? null,
+        started_at: audit.data.started_at ?? null,
+        completed_at: audit.data.completed_at ?? null,
+        status: audit.data.status ?? null,
+      },
+      summary: approved,
+      score: { score: security.score ?? null, grade: String(security.grade) },
+      counts: totals,
+      scope: extras.data.scope
+        ? {
+            environment: extras.data.scope.environment,
+            authorized_by: extras.data.scope.authorized_by,
+            authorized_at: extras.data.scope.authorized_at,
+            authorization_ref: extras.data.scope.authorization_ref,
+            testing_window: extras.data.scope.testing_window,
+            out_of_scope: extras.data.scope.out_of_scope,
+            write_tests_allowed: extras.data.scope.write_tests_allowed,
+          }
+        : null,
+      targets: extras.data.targets.map((t) => ({ kind: t.kind, value: t.value, in_scope: t.in_scope, label: t.label })),
+      method,
+      untested,
+      failed: failedItems.map((it: any) => ({ item: it, notes: map.get(it.id)?.notes ?? null, evidence: evidence.byItem.get(it.id) ?? [], controls: [] })),
+      retest: baseline
+        ? { baselineLabel: `${baseline.scanner} run of ${baseline.started_at.slice(0, 16).replace("T", " ")} UTC`, rows: retestRows.map((r) => ({ ...r, title: titleById.get(r.itemId) ?? r.itemId })) }
+        : null,
+      evidenceIndex: evidence.index,
+      chain: extras.data.chain,
+      generatedAt: new Date().toISOString(),
+    };
+  }, [audit.data, items.data, extras.data, baselineId, security, totals, method, untested, failedItems, map, evidence, retestRows, titleById]);
+  const fileBase = (() => {
+    const dateStr = (audit.data?.completed_at || audit.data?.started_at || new Date().toISOString()).slice(0, 10);
+    const raw = audit.data?.website_url || audit.data?.title || "report";
+    const host = (() => {
+      try { return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname.replace(/^www\./, ""); } catch { return raw; }
+    })();
+    return `security-audit-${dateStr}-${host.replace(/[^a-z0-9.-]/gi, "-")}`;
+  })();
+
   return (
     <div className="space-y-6 print:space-y-4">
       <div className="flex items-center justify-between print:hidden">
@@ -243,9 +332,10 @@ function ReportPage() {
           <ArrowLeft className="h-4 w-4 mr-1" /> Back to audit
         </Link>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => window.print()}>
+          <Button variant="outline" onClick={() => { void logReportExport(id, "print", null, extras.data?.chain?.head_hash ?? null); window.print(); }}>
             <Printer className="h-4 w-4 mr-1" /> Print
           </Button>
+          <ExportButtons auditId={id} model={model} fileBase={fileBase} />
           <Button
             disabled={downloading}
             onClick={async () => {
@@ -266,6 +356,7 @@ function ReportPage() {
                 })();
                 const safeDomain = domain.replace(/[^a-z0-9.-]/gi, "-");
                 await downloadReportPdf(reportRef.current, `security-audit-${dateStr}-${safeDomain}.pdf`, win);
+                void logReportExport(id, "pdf", null, extras.data?.chain?.head_hash ?? null);
               } catch (e: any) {
                 win?.close();
                 toast.error(e?.message ? `Could not create PDF: ${e.message}` : "Could not create PDF");
@@ -292,6 +383,12 @@ function ReportPage() {
           </div>
         </header>
 
+        <SummarySection
+          auditId={id}
+          summary={audit.data?.summary ?? null}
+          approvedAt={audit.data?.summary_approved_at ?? null}
+        />
+
         <ExecutiveSummary
           score={security.score}
           grade={security.grade}
@@ -300,6 +397,13 @@ function ReportPage() {
           verdict={verdict}
           totals={totals}
           coverage={coverage}
+        />
+
+        <ScopeMethodSection
+          scope={extras.data?.scope ?? null}
+          targets={extras.data?.targets ?? []}
+          method={method}
+          untested={untested}
         />
 
         {failedItems.length > 0 && (
@@ -318,12 +422,21 @@ function ReportPage() {
                     notes={f?.notes ?? null}
                     explanation={f?.explanation ?? null}
                     priority={idx + 1}
+                    evidenceRefs={evidence.byItem.get(it.id)}
                   />
                 );
               })}
             </div>
           </section>
         )}
+
+        <RetestSection
+          runs={extras.data?.runs ?? []}
+          baselineId={baselineId}
+          onBaseline={setBaselineId}
+          rows={retestRows}
+          titleOf={(itemId) => titleById.get(itemId) ?? itemId}
+        />
 
         <ScopeSnapshot items={scopeSnapshot} score={security.score} />
 
@@ -351,6 +464,8 @@ function ReportPage() {
         <CodeAuditSection auditId={id} />
 
         <ResolvedFindingsAppendix auditId={id} />
+
+        <ReportAppendix index={evidence.index} chain={extras.data?.chain ?? null} />
       </div>
 
 
@@ -502,13 +617,14 @@ const SEVERITY_IMPACT: Record<string, string> = {
 };
 
 function FailedFindingCard({
-  auditId, item, notes, explanation, priority,
+  auditId, item, notes, explanation, priority, evidenceRefs,
 }: {
   auditId: string;
   item: any;
   notes: string | null;
   explanation: string | null;
   priority: number;
+  evidenceRefs?: EvidenceRef[];
 }) {
   const [open, setOpen] = useState(true);
   // Generated as the card scrolls into view, so it's ready before it's opened
@@ -583,6 +699,12 @@ function FailedFindingCard({
             {notes && (
               <DetailRow label="Evidence">
                 <EvidenceBlocks notes={notes} />
+              </DetailRow>
+            )}
+
+            {evidenceRefs && evidenceRefs.length > 0 && (
+              <DetailRow label="Evidence references (see appendix)">
+                <EvidenceRefs refs={evidenceRefs} />
               </DetailRow>
             )}
           </div>

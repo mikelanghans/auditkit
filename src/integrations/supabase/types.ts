@@ -150,6 +150,7 @@ export type Database = {
           started_at: string
           status: Database["public"]["Enums"]["audit_status"]
           summary: string | null
+          summary_approved_at: string | null
           title: string
           updated_at: string
           website_url: string | null
@@ -164,6 +165,7 @@ export type Database = {
           started_at?: string
           status?: Database["public"]["Enums"]["audit_status"]
           summary?: string | null
+          summary_approved_at?: string | null
           title: string
           updated_at?: string
           website_url?: string | null
@@ -178,6 +180,7 @@ export type Database = {
           started_at?: string
           status?: Database["public"]["Enums"]["audit_status"]
           summary?: string | null
+          summary_approved_at?: string | null
           title?: string
           updated_at?: string
           website_url?: string | null
@@ -471,6 +474,48 @@ export type Database = {
           confirmed_count?: number
           needs_validation_count?: number
           rejected_count?: number
+        }
+        Relationships: []
+      }
+      audit_events: {
+        Row: {
+          id: number
+          audit_id: string
+          seq: number
+          event: string
+          entity: string
+          entity_id: string | null
+          actor: string
+          occurred_at: string
+          data: Json
+          prev_hash: string
+          row_hash: string
+        }
+        Insert: {
+          id?: number
+          audit_id: string
+          seq: number
+          event: string
+          entity: string
+          entity_id?: string | null
+          actor: string
+          occurred_at?: string
+          data?: Json
+          prev_hash: string
+          row_hash: string
+        }
+        Update: {
+          id?: number
+          audit_id?: string
+          seq?: number
+          event?: string
+          entity?: string
+          entity_id?: string | null
+          actor?: string
+          occurred_at?: string
+          data?: Json
+          prev_hash?: string
+          row_hash?: string
         }
         Relationships: []
       }
@@ -954,6 +999,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      verify_audit_chain: {
+        Args: { p_audit: string }
+        Returns: {
+          ok: boolean
+          events: number
+          head_hash: string | null
+          head_at: string | null
+          first_bad_seq: number | null
+          problem: string | null
+        }[]
+      }
+      log_report_export: {
+        Args: { p_audit: string; p_format: string; p_sha256: string | null; p_head_hash: string | null }
+        Returns: undefined
+      }
       am_i_app_owner: {
         Args: Record<PropertyKey, never>
         Returns: boolean
