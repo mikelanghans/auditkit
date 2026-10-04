@@ -7,6 +7,7 @@ import { AuditTargetsPanel } from "@/components/audit-targets-panel";
 import { EvidenceButton } from "@/components/evidence-dialog";
 import { FullAuditDialog } from "@/components/full-audit-dialog";
 import { CaptureInbox } from "@/components/capture-inbox";
+import { TimeTracker } from "@/components/time-tracker";
 import { FindingLifecycleDialog, LifecycleBadges } from "@/components/finding-lifecycle-dialog";
 import type { LifecycleFields } from "@/lib/finding-lifecycle";
 import { Card } from "@/components/ui/card";
@@ -318,6 +319,7 @@ function AuditView() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <TimeTracker auditId={id} auditTitle={audit.data?.title ?? "audit"} />
           <Link to="/audits/$id/activity" params={{ id }}>
             <Button variant="outline"><History className="h-4 w-4 mr-1" /> Activity</Button>
           </Link>

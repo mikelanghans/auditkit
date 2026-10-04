@@ -4,6 +4,7 @@ import { ShieldCheck, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { RunningTimerChip } from "@/components/time-tracker";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -64,6 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 )}
               </Link>
             ))}
+            <RunningTimerChip />
             <button
               onClick={signOut}
               className="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-white/80 hover:text-white hover:bg-white/5"
