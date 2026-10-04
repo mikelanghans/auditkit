@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeft, Printer, Download, ChevronDown, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Printer, Download, ChevronDown, ShieldCheck, ShieldAlert, AlertOctagon, Check, X, AlertTriangle, Minus, Brain, CheckCircle2, RefreshCw, ExternalLink, Wrench } from "lucide-react";
 import { SeverityBadge } from "@/components/severity-badge";
 import { EvidenceBlocks } from "@/components/evidence-blocks";
 import { explanationBullets, useFindingExplanation } from "@/components/explain-button";
@@ -377,6 +377,11 @@ function ReportPage() {
           <ArrowLeft className="h-4 w-4 mr-1" /> Back to audit
         </Link>
         <div className="flex items-center gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/audits/$id/fixes" params={{ id }}>
+              <Wrench className="h-4 w-4 mr-1" /> Fix plan
+            </Link>
+          </Button>
           <Button variant="outline" onClick={() => { void logReportExport(id, "print", null, extras.data?.chain?.head_hash ?? null); window.print(); }}>
             <Printer className="h-4 w-4 mr-1" /> Print
           </Button>

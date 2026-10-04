@@ -23,6 +23,7 @@ import { Route as AuthenticatedClientsIdRouteImport } from './routes/_authentica
 import { Route as AuthenticatedAuditsIdIndexRouteImport } from './routes/_authenticated/audits.$id.index'
 import { Route as AuthenticatedAuditsIdActivityRouteImport } from './routes/_authenticated/audits.$id.activity'
 import { Route as AuthenticatedAuditsIdCodeAuditRouteImport } from './routes/_authenticated/audits.$id.code-audit'
+import { Route as AuthenticatedAuditsIdFixesRouteImport } from './routes/_authenticated/audits.$id.fixes'
 import { Route as AuthenticatedAuditsIdReportRouteImport } from './routes/_authenticated/audits.$id.report'
 import { Route as ApiPublicHooksCodeAuditRouteImport } from './routes/api/public/hooks/code-audit'
 import { Route as ApiPublicHooksScheduledScansRouteImport } from './routes/api/public/hooks/scheduled-scans'
@@ -101,6 +102,12 @@ const AuthenticatedAuditsIdCodeAuditRoute =
     path: '/audits/$id/code-audit',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAuditsIdFixesRoute =
+  AuthenticatedAuditsIdFixesRouteImport.update({
+    id: '/audits/$id/fixes',
+    path: '/audits/$id/fixes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAuditsIdReportRoute =
   AuthenticatedAuditsIdReportRouteImport.update({
     id: '/audits/$id/report',
@@ -138,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/clients/': typeof AuthenticatedClientsIndexRoute
   '/audits/$id/activity': typeof AuthenticatedAuditsIdActivityRoute
   '/audits/$id/code-audit': typeof AuthenticatedAuditsIdCodeAuditRoute
+  '/audits/$id/fixes': typeof AuthenticatedAuditsIdFixesRoute
   '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/code-audit': typeof ApiPublicHooksCodeAuditRoute
   '/api/public/hooks/scheduled-scans': typeof ApiPublicHooksScheduledScansRoute
@@ -157,6 +165,7 @@ export interface FileRoutesByTo {
   '/clients': typeof AuthenticatedClientsIndexRoute
   '/audits/$id/activity': typeof AuthenticatedAuditsIdActivityRoute
   '/audits/$id/code-audit': typeof AuthenticatedAuditsIdCodeAuditRoute
+  '/audits/$id/fixes': typeof AuthenticatedAuditsIdFixesRoute
   '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/code-audit': typeof ApiPublicHooksCodeAuditRoute
   '/api/public/hooks/scheduled-scans': typeof ApiPublicHooksScheduledScansRoute
@@ -178,6 +187,7 @@ export interface FileRoutesById {
   '/_authenticated/clients/': typeof AuthenticatedClientsIndexRoute
   '/_authenticated/audits/$id/activity': typeof AuthenticatedAuditsIdActivityRoute
   '/_authenticated/audits/$id/code-audit': typeof AuthenticatedAuditsIdCodeAuditRoute
+  '/_authenticated/audits/$id/fixes': typeof AuthenticatedAuditsIdFixesRoute
   '/_authenticated/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/code-audit': typeof ApiPublicHooksCodeAuditRoute
   '/api/public/hooks/scheduled-scans': typeof ApiPublicHooksScheduledScansRoute
@@ -199,6 +209,7 @@ export interface FileRouteTypes {
     | '/clients/'
     | '/audits/$id/activity'
     | '/audits/$id/code-audit'
+    | '/audits/$id/fixes'
     | '/audits/$id/report'
     | '/api/public/hooks/code-audit'
     | '/api/public/hooks/scheduled-scans'
@@ -218,6 +229,7 @@ export interface FileRouteTypes {
     | '/clients'
     | '/audits/$id/activity'
     | '/audits/$id/code-audit'
+    | '/audits/$id/fixes'
     | '/audits/$id/report'
     | '/api/public/hooks/code-audit'
     | '/api/public/hooks/scheduled-scans'
@@ -238,6 +250,7 @@ export interface FileRouteTypes {
     | '/_authenticated/clients/'
     | '/_authenticated/audits/$id/activity'
     | '/_authenticated/audits/$id/code-audit'
+    | '/_authenticated/audits/$id/fixes'
     | '/_authenticated/audits/$id/report'
     | '/api/public/hooks/code-audit'
     | '/api/public/hooks/scheduled-scans'
@@ -357,6 +370,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAuditsIdCodeAuditRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/audits/$id/fixes': {
+      id: '/_authenticated/audits/$id/fixes'
+      path: '/audits/$id/fixes'
+      fullPath: '/audits/$id/fixes'
+      preLoaderRoute: typeof AuthenticatedAuditsIdFixesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/audits/$id/report': {
       id: '/_authenticated/audits/$id/report'
       path: '/audits/$id/report'
@@ -396,6 +416,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedClientsIndexRoute: typeof AuthenticatedClientsIndexRoute
   AuthenticatedAuditsIdActivityRoute: typeof AuthenticatedAuditsIdActivityRoute
   AuthenticatedAuditsIdCodeAuditRoute: typeof AuthenticatedAuditsIdCodeAuditRoute
+  AuthenticatedAuditsIdFixesRoute: typeof AuthenticatedAuditsIdFixesRoute
   AuthenticatedAuditsIdReportRoute: typeof AuthenticatedAuditsIdReportRoute
   AuthenticatedAuditsIdIndexRoute: typeof AuthenticatedAuditsIdIndexRoute
 }
@@ -408,6 +429,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedClientsIndexRoute: AuthenticatedClientsIndexRoute,
   AuthenticatedAuditsIdActivityRoute: AuthenticatedAuditsIdActivityRoute,
   AuthenticatedAuditsIdCodeAuditRoute: AuthenticatedAuditsIdCodeAuditRoute,
+  AuthenticatedAuditsIdFixesRoute: AuthenticatedAuditsIdFixesRoute,
   AuthenticatedAuditsIdReportRoute: AuthenticatedAuditsIdReportRoute,
   AuthenticatedAuditsIdIndexRoute: AuthenticatedAuditsIdIndexRoute,
 }
