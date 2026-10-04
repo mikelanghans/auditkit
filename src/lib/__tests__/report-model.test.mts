@@ -124,3 +124,22 @@ test("frameworks: per-control pass/fail/not assessed, failing checks named, natu
   assert.equal(controlLabel({ framework: "HIPAA", control_id: "164.312(a)(1)" }), "HIPAA §164.312(a)(1)");
   assert.equal(controlLabel({ framework: ASVS, control_id: "V3.4.1" }), "ASVS V3.4.1");
 });
+
+test("trend: state after each top-level run, children folded in, latest result per item wins", async () => {
+  const { trendFromHistory } = await import("../report-model.ts");
+  const runs = [
+    run({ id: "f1", scanner: "full", started_at: "2026-10-01T10:00:00Z", finished_at: "2026-10-01T10:05:00Z" }),
+    run({ id: "c1", scanner: "website", started_at: "2026-10-01T10:00:01Z", parent_run_id: "f1" }),
+    run({ id: "w2", scanner: "website", started_at: "2026-10-02T10:00:00Z", finished_at: "2026-10-02T10:01:00Z" }),
+    run({ id: "r", scanner: "repo", started_at: "2026-10-03T10:00:00Z", status: "running" }),
+  ];
+  const results = [
+    res({ run_id: "c1", checklist_item_id: "a", status: "fail", created_at: "2026-10-01T10:01:00Z" }),
+    res({ run_id: "c1", checklist_item_id: "b", status: "pass", created_at: "2026-10-01T10:01:00Z" }),
+    res({ run_id: "c1", checklist_item_id: "c", status: "inconclusive", created_at: "2026-10-01T10:01:00Z" }),
+    res({ run_id: "w2", checklist_item_id: "a", status: "pass", created_at: "2026-10-02T10:00:30Z" }),
+    res({ run_id: "w2", checklist_item_id: null, status: "fail", created_at: "2026-10-02T10:00:30Z" }),
+  ];
+  const t = trendFromHistory(runs, results);
+  assert.deepEqual(t.map((p) => [p.runId, p.passing, p.failing, p.unverified]), [["f1", 1, 1, 1], ["w2", 2, 0, 1]]);
+});

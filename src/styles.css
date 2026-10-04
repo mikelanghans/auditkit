@@ -40,6 +40,7 @@
 
   --color-status-pass: var(--status-pass);
   --color-status-fail: var(--status-fail);
+  --color-status-warn: var(--status-warn);
   --color-status-na: var(--status-na);
 
   --color-sidebar: var(--sidebar);
@@ -92,6 +93,7 @@
   /* Status */
   --status-pass: oklch(0.62 0.15 155);
   --status-fail: oklch(0.6 0.22 27);
+  --status-warn: oklch(0.68 0.15 70);
   --status-na: oklch(0.6 0.02 255);
 
   /* Sidebar (audit category nav) */

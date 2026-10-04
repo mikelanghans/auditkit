@@ -17,6 +17,7 @@ import {
 import { listAuditActivity, type AuditActivityEvent } from "@/lib/finding-resolution.functions";
 import { ScanHistoryPanel } from "@/components/scan-history-panel";
 import { AuditTrailPanel } from "@/components/audit-trail-panel";
+import { TrendCard } from "@/components/trend-card";
 
 export const Route = createFileRoute("/_authenticated/audits/$id/activity")({
   head: () => ({ meta: [{ title: "Activity Log — AuditKit" }] }),
@@ -117,6 +118,8 @@ function ActivityLogPage() {
           </DropdownMenu>
         </div>
       </div>
+
+      <TrendCard auditId={id} />
 
       <AuditTrailPanel auditId={id} />
 

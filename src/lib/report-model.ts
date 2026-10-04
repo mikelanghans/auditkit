@@ -376,3 +376,43 @@ export function buildReportMarkdown(m: ReportModel): string {
   L.push("");
   return L.join("\n");
 }
+
+// ---------------------------------------------------------------- trend
+
+export type TrendPoint = { runId: string; at: string; label: string; passing: number; failing: number; unverified: number };
+
+/**
+ * Where the scanner-checked items stood after each top-level run (a full or
+ * scheduled audit, or a single scan run on its own). Each item counts once,
+ * at its latest scanner result up to that point.
+ */
+export function trendFromHistory(runs: RunRow[], results: ResultRow[]): TrendPoint[] {
+  const top = runs
+    .filter((r) => !r.parent_run_id && r.status !== "running")
+    .sort((a, b) => (a.finished_at ?? a.started_at).localeCompare(b.finished_at ?? b.started_at));
+  const childrenOf = new Map<string, string[]>();
+  for (const r of runs) if (r.parent_run_id) childrenOf.set(r.parent_run_id, [...(childrenOf.get(r.parent_run_id) ?? []), r.id]);
+  const byRun = new Map<string, ResultRow[]>();
+  for (const r of results) byRun.set(r.run_id, [...(byRun.get(r.run_id) ?? []), r]);
+
+  const state = new Map<string, { status: string; at: string }>();
+  const out: TrendPoint[] = [];
+  for (const run of top) {
+    for (const id of [run.id, ...(childrenOf.get(run.id) ?? [])]) {
+      for (const r of byRun.get(id) ?? []) {
+        if (!r.checklist_item_id) continue;
+        if (r.status !== "pass" && r.status !== "fail" && r.status !== "inconclusive") continue;
+        const cur = state.get(r.checklist_item_id);
+        if (!cur || r.created_at >= cur.at) state.set(r.checklist_item_id, { status: r.status, at: r.created_at });
+      }
+    }
+    let passing = 0, failing = 0, unverified = 0;
+    for (const v of state.values()) {
+      if (v.status === "pass") passing++;
+      else if (v.status === "fail") failing++;
+      else unverified++;
+    }
+    out.push({ runId: run.id, at: run.finished_at ?? run.started_at, label: SCANNER_LABEL[run.scanner] ?? run.scanner, passing, failing, unverified });
+  }
+  return out;
+}
