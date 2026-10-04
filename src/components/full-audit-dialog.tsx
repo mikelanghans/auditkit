@@ -21,6 +21,7 @@ import { runSurfaceScan } from "@/lib/attack-surface.functions";
 import { runSupabaseScan } from "@/lib/supabase-scan.functions";
 import { runRepoScan } from "@/lib/repo-scan.functions";
 import { runAIScan } from "@/lib/ai-scan.functions";
+import { runAIDeepTests } from "@/lib/ai-deep.functions";
 import { startCodeAudit } from "@/lib/code-audit.functions";
 import type { CodeAuditProfile } from "@/lib/code-audit-contract";
 
@@ -33,6 +34,7 @@ const LABEL: Record<FullAuditStepScanner, string> = {
   supabase: "Supabase",
   repo: "Repo + dependencies",
   ai_endpoint: "AI endpoint",
+  ai_deep: "Deeper AI tests (auth, rate limit, tools, exfil)",
   code_audit: "Deep code audit (runner)",
 };
 
@@ -57,6 +59,7 @@ export function FullAuditDialog({
   const supa = useServerFn(runSupabaseScan);
   const repo = useServerFn(runRepoScan);
   const ai = useServerFn(runAIScan);
+  const aiDeep = useServerFn(runAIDeepTests);
   const deep = useServerFn(startCodeAudit);
 
   const [open, setOpen] = useState(false);
@@ -69,6 +72,7 @@ export function FullAuditDialog({
   const [ghToken, setGhToken] = useState("");
   const [aiToken, setAiToken] = useState("");
   const [deepOn, setDeepOn] = useState(false);
+  const [aiDeepOn, setAiDeepOn] = useState(false);
   const [deepConsent, setDeepConsent] = useState(false);
   const [profile, setProfile] = useState<CodeAuditProfile>("standard");
 
@@ -88,6 +92,7 @@ export function FullAuditDialog({
     if (!repoTargets.length) steps.push({ key: "repo", scanner: "repo", label: LABEL.repo, target: null });
     aiTargets.forEach((t) => steps.push({ key: `ai:${t.id}`, scanner: "ai_endpoint", label: LABEL.ai_endpoint, target: t.value, meta: t.meta }));
     if (!aiTargets.length) steps.push({ key: "ai", scanner: "ai_endpoint", label: LABEL.ai_endpoint, target: null });
+    aiTargets.forEach((t) => steps.push({ key: `aideep:${t.id}`, scanner: "ai_deep", label: LABEL.ai_deep, target: t.value, meta: t.meta }));
     if (repoTargets.length) steps.push({ key: "deep", scanner: "code_audit", label: LABEL.code_audit, target: repoTargets[0].value });
     return steps;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,6 +151,15 @@ export function FullAuditDialog({
           const r: any = await ai({ data: { auditId, endpointUrl: step.target, promptField: field, authToken: aiToken.trim() || null, parentRunId } });
           if (!r.ok) return failed(r.error);
           return { ...base, outcome: "done", reason: `${r.counts.passes} pass · ${r.counts.fails} fail · ${r.counts.inconclusive} unverified` };
+        }
+        case "ai_deep": {
+          if (!aiDeepOn) return notRun("Deeper AI tests not selected for this run.");
+          if (!scope.data?.write_tests_allowed) return notRun("Active tests aren't authorized in Targets & scope.");
+          const field = typeof step.meta?.prompt_field === "string" && step.meta.prompt_field ? (step.meta.prompt_field as string) : "prompt";
+          const msgs = typeof step.meta?.messages_field === "string" ? (step.meta.messages_field as string) : null;
+          const r: any = await aiDeep({ data: { auditId, endpointUrl: step.target!, promptField: field, messagesField: msgs, authToken: aiToken.trim() || null, parentRunId } });
+          if (!r.ok) return failed(r.error);
+          return { ...base, outcome: "done", reason: `${r.counts.pass} pass · ${r.counts.fail} fail · ${r.counts.inconclusive} unverified · ${r.requestsUsed} requests` };
         }
         case "code_audit": {
           if (!deepOn) return notRun("Deep code audit not selected for this run.");
@@ -242,6 +256,12 @@ export function FullAuditDialog({
             {aiTargets.length > 0 && (
               <div className="space-y-1"><Label className="text-xs">AI endpoint auth token (optional)</Label><Input type="password" className="h-8 text-xs" value={aiToken} onChange={(e) => setAiToken(e.target.value)} /></div>
             )}
+            {aiTargets.length > 0 && (
+              <label className={`flex items-center gap-2 ${writeOk ? "" : "opacity-60"}`}>
+                <Checkbox checked={aiDeepOn && writeOk} disabled={!writeOk} onCheckedChange={(v) => setAiDeepOn(!!v)} />
+                Also run the deeper AI tests (up to 40 requests per endpoint, including a short burst; costs the client tokens){writeOk ? "" : " — needs active tests allowed in scope"}
+              </label>
+            )}
             {repoTargets.length > 0 && (
               <div className="space-y-2">
                 <label className="flex items-center gap-2"><Checkbox checked={deepOn} onCheckedChange={(v) => setDeepOn(!!v)} /> Also start a deep code audit on the runner</label>
@@ -261,7 +281,7 @@ export function FullAuditDialog({
               </div>
             )}
             <p className="text-muted-foreground">
-              Passive checks only{writeOk ? "" : " (write and stress tests aren't authorized in scope)"}. Keys and tokens are used for this run and not saved.
+              {aiDeepOn && writeOk ? "Passive checks, plus the deeper AI tests you selected" : `Passive checks only${writeOk ? "" : " (write and stress tests aren't authorized in scope)"}`}. Keys and tokens are used for this run and not saved.
             </p>
           </div>
         )}

@@ -9,16 +9,24 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, ArrowLeft, Bot, ChevronDown, ChevronRight, GitBranch, Loader2, Plus, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { runAIScan, type AIPayloadResult } from "@/lib/ai-scan.functions";
+import { runAIDeepTests } from "@/lib/ai-deep.functions";
+import { Checkbox } from "@/components/ui/checkbox";
 import { detectAIEndpoints, type DetectedEndpoint } from "@/lib/ai-endpoint-detect.functions";
 import type { SavedRepo } from "@/components/repo-launcher";
 import { supabase } from "@/integrations/supabase/client";
 import { getCachedRepoToken, setCachedRepoToken, clearCachedRepoToken } from "@/lib/repo-token-cache";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { useAuditTargets } from "@/hooks/use-audit-targets";
+import { useAuditScope, useAuditTargets } from "@/hooks/use-audit-targets";
 import { firstTarget } from "@/lib/audit-targets";
 
 type Mode = "repo-pick" | "detecting" | "endpoint-pick" | "manual";
+
+type DeepRes = {
+  checks: { key: string; label: string; status: "pass" | "fail" | "inconclusive" | "not_run"; notes: string }[];
+  requestsUsed: number;
+  budget: number;
+};
 
 export type AIScanPreset = { url: string; promptField: string; source?: string };
 
@@ -42,6 +50,7 @@ export function AIScanDialog({
   hasRun?: boolean;
 }) {
   const scan = useServerFn(runAIScan);
+  const deepScan = useServerFn(runAIDeepTests);
   const detect = useServerFn(detectAIEndpoints);
 
   const [open, setOpen] = useState(false);
@@ -62,6 +71,11 @@ export function AIScanDialog({
   const [needTokenFor, setNeedTokenFor] = useState<SavedRepo | null>(null);
   const [pendingToken, setPendingToken] = useState("");
   const [savePendingToken, setSavePendingToken] = useState(true);
+  const [deepOn, setDeepOn] = useState(false);
+  const [messagesField, setMessagesField] = useState("");
+  const [deepRes, setDeepRes] = useState<DeepRes | null>(null);
+  const scope = useAuditScope(auditId);
+  const writeOk = !!scope.data?.write_tests_allowed;
 
   // Pre-fill from this audit's AI endpoint target when nothing is filled in yet.
   const targets = useAuditTargets(auditId);
@@ -72,6 +86,8 @@ export function AIScanDialog({
     setEndpointUrl(t.value);
     const pf = (t.meta as any)?.prompt_field;
     if (typeof pf === "string" && pf.trim()) setPromptField(pf.trim());
+    const mf = (t.meta as any)?.messages_field;
+    if (typeof mf === "string" && mf.trim()) setMessagesField(mf.trim());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, targets.data]);
 
@@ -103,6 +119,8 @@ export function AIScanDialog({
     setPromptField("prompt");
     setAuthToken("");
     setResults(null);
+    setDeepRes(null);
+    setMessagesField("");
     setEndpointLabel("");
     setDetected([]);
     setDetectMeta(null);
@@ -168,6 +186,7 @@ export function AIScanDialog({
     }
     setPending(true);
     setResults(null);
+    setDeepRes(null);
     const tid = toast.loading("Probing AI endpoint…");
     try {
       const res = await scan({
@@ -199,6 +218,24 @@ export function AIScanDialog({
         at: new Date().toISOString(),
       });
       onDone();
+      if (deepOn && writeOk) {
+        const dt = toast.loading("Running the deeper AI tests…");
+        const d = await deepScan({
+          data: {
+            auditId,
+            endpointUrl: endpointUrl.trim(),
+            promptField: promptField.trim() || "prompt",
+            messagesField: messagesField.trim() || null,
+            authToken: authToken.trim() || null,
+          },
+        });
+        if (!d.ok) toast.error(d.error, { id: dt });
+        else {
+          setDeepRes(d);
+          toast.success(`Deeper AI tests: ${d.counts.fail} fail · ${d.counts.pass} pass · ${d.counts.inconclusive} unverified`, { id: dt, description: `${d.requestsUsed} requests sent` });
+          onDone();
+        }
+      }
     } catch (err: any) {
       toast.error(err?.message ?? "AI scan failed", { id: tid });
     } finally {
@@ -413,6 +450,23 @@ export function AIScanDialog({
               <p className="text-xs text-muted-foreground">Sent as the Authorization header. "Bearer " prefix added automatically.</p>
             </div>
 
+            <div className="space-y-2 rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+              <label className={cn("flex items-start gap-2", !writeOk && "opacity-60")}>
+                <Checkbox className="mt-0.5" checked={deepOn && writeOk} disabled={!writeOk || pending} onCheckedChange={(v) => setDeepOn(!!v)} />
+                <span>
+                  Also run the deeper tests: login required, rate limit (short burst), encoded and indirect injection, exfiltration images, tool misuse, multi-turn leak. Up to 40 requests; costs the client tokens.
+                  {!writeOk && " Needs active tests allowed in Targets & scope."}
+                </span>
+              </label>
+              {deepOn && writeOk && (
+                <div className="space-y-1 pl-6">
+                  <Label htmlFor="ai-msgs" className="text-xs">Conversation field <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                  <Input id="ai-msgs" className="h-8 text-xs" placeholder="messages" value={messagesField} onChange={(e) => setMessagesField(e.target.value)} disabled={pending} autoComplete="off" />
+                  <p className="text-muted-foreground">If the endpoint takes an OpenAI-style messages array, name its field for a real multi-turn test. Otherwise it's simulated in one prompt.</p>
+                </div>
+              )}
+            </div>
+
             {pending && <Progress value={progress} />}
 
             {results && (
@@ -421,6 +475,13 @@ export function AIScanDialog({
                   Results <span className="text-xs text-muted-foreground font-normal truncate">{endpointLabel}</span>
                 </div>
                 {results.map((r, i) => <ResultRow key={i} r={r} />)}
+              </div>
+            )}
+
+            {deepRes && (
+              <div className="space-y-2 pt-2 border-t">
+                <div className="text-sm font-medium">Deeper tests <span className="text-xs text-muted-foreground font-normal">{deepRes.requestsUsed} of {deepRes.budget} requests used</span></div>
+                {deepRes.checks.map((c) => <DeepRow key={c.key} c={c} />)}
               </div>
             )}
 
@@ -479,6 +540,22 @@ function ResultRow({ r }: { r: AIPayloadResult }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DeepRow({ c }: { c: DeepRes["checks"][number] }) {
+  const [open, setOpen] = useState(c.status === "fail");
+  const tone = c.status === "fail" ? "border-l-status-fail bg-status-fail/[0.04]" : c.status === "pass" ? "border-l-status-pass bg-status-pass/[0.04]" : "border-l-status-na bg-status-na/[0.04]";
+  const label = { pass: "pass", fail: "fail", inconclusive: "unverified", not_run: "not run" }[c.status];
+  return (
+    <div className={cn("rounded-md border border-l-4 p-2.5 text-xs", tone)}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="w-full text-left flex items-center gap-2">
+        {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+        <span className="font-medium">{c.label}</span>
+        <Badge variant={c.status === "fail" ? "destructive" : c.status === "pass" ? "secondary" : "outline"} className="uppercase text-[10px]">{label}</Badge>
+      </button>
+      {open && <p className="mt-2 pl-5 whitespace-pre-wrap text-foreground/80">{c.notes}</p>}
     </div>
   );
 }

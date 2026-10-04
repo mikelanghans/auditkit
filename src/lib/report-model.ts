@@ -45,6 +45,7 @@ export const SCANNER_LABEL: Record<string, string> = {
   repo: "Repository scan",
   dependencies: "Dependency scan",
   ai_endpoint: "AI endpoint scan",
+  ai_deep: "Deeper AI tests",
   code_audit: "Deep code audit",
   full: "Full audit",
 };

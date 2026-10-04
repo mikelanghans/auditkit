@@ -39,6 +39,7 @@ const SCANNER_LABEL: Record<string, string> = {
   repo: "Repo",
   dependencies: "Dependencies",
   ai_endpoint: "AI endpoint",
+  ai_deep: "Deeper AI tests",
   code_audit: "Deep code audit",
   full: "Full audit",
 };

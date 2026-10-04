@@ -57,6 +57,7 @@ export function AuditTargetsPanel({
   const [value, setValue] = useState("");
   const [label, setLabel] = useState("");
   const [promptField, setPromptField] = useState("");
+  const [messagesField, setMessagesField] = useState("");
   const [adding, setAdding] = useState(false);
 
   const [form, setForm] = useState<Omit<AuditScope, "audit_id">>(EMPTY_SCOPE);
@@ -86,13 +87,16 @@ export function AuditTargetsPanel({
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdding(true);
-    const meta: Record<string, string> = kind === "ai_endpoint" && promptField.trim() ? { prompt_field: promptField.trim() } : {};
+    const meta: Record<string, string> = {};
+    if (kind === "ai_endpoint" && promptField.trim()) meta.prompt_field = promptField.trim();
+    if (kind === "ai_endpoint" && messagesField.trim()) meta.messages_field = messagesField.trim();
     const r = await insertTarget(kind, value, label, meta);
     setAdding(false);
     if (!r.ok) return toast.error(r.error);
     setValue("");
     setLabel("");
     setPromptField("");
+    setMessagesField("");
     refreshTargets();
   };
 
@@ -206,6 +210,7 @@ export function AuditTargetsPanel({
                           <div className="text-[11px] text-muted-foreground truncate">
                             {t.label}
                             {(t.meta as any)?.prompt_field ? `${t.label ? " · " : ""}prompt field "${(t.meta as any).prompt_field}"` : ""}
+                            {(t.meta as any)?.messages_field ? ` · conversation field "${(t.meta as any).messages_field}"` : ""}
                           </div>
                         )}
                       </div>
@@ -233,7 +238,10 @@ export function AuditTargetsPanel({
                 <div className="flex gap-2">
                   <Input className="h-8 text-xs" placeholder="Label (optional)" value={label} onChange={(e) => setLabel(e.target.value)} />
                   {kind === "ai_endpoint" && (
-                    <Input className="h-8 text-xs" placeholder='Prompt field, e.g. "message"' value={promptField} onChange={(e) => setPromptField(e.target.value)} />
+                    <>
+                      <Input className="h-8 text-xs" placeholder='Prompt field, e.g. "message"' value={promptField} onChange={(e) => setPromptField(e.target.value)} />
+                      <Input className="h-8 text-xs" placeholder='Conversation field, e.g. "messages" (optional)' title="Body field that takes a messages array. Lets the deeper AI tests run a real multi-turn conversation." value={messagesField} onChange={(e) => setMessagesField(e.target.value)} />
+                    </>
                   )}
                   <Button type="submit" size="sm" className="h-8" disabled={adding || !value.trim()}>
                     {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}

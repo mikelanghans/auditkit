@@ -13,7 +13,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-export type FullAuditStepScanner = "website" | "surface" | "supabase" | "repo" | "ai_endpoint" | "code_audit";
+export type FullAuditStepScanner = "website" | "surface" | "supabase" | "repo" | "ai_endpoint" | "ai_deep" | "code_audit";
 
 export type FullAuditStep = {
   scanner: FullAuditStepScanner;
@@ -23,7 +23,7 @@ export type FullAuditStep = {
   reason?: string | null;
 };
 
-const SCANNERS: FullAuditStepScanner[] = ["website", "surface", "supabase", "repo", "ai_endpoint", "code_audit"];
+const SCANNERS: FullAuditStepScanner[] = ["website", "surface", "supabase", "repo", "ai_endpoint", "ai_deep", "code_audit"];
 
 async function ownAudit(supabase: any, auditId: string, userId: string) {
   const { data } = await supabase.from("audits").select("id, created_by, title").eq("id", auditId).maybeSingle();
