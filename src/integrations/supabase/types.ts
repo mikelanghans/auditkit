@@ -747,6 +747,140 @@ export type Database = {
         }
         Relationships: []
       }
+      scan_results: {
+        Row: {
+          audit_id: string
+          change: string | null
+          checklist_item_id: string | null
+          checklist_key: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          previous_run_id: string | null
+          previous_status: string | null
+          run_id: string
+          scanner: string
+          status: string
+          stored: boolean
+        }
+        Insert: {
+          audit_id: string
+          change?: string | null
+          checklist_item_id?: string | null
+          checklist_key?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          previous_run_id?: string | null
+          previous_status?: string | null
+          run_id: string
+          scanner: string
+          status: string
+          stored?: boolean
+        }
+        Update: {
+          audit_id?: string
+          change?: string | null
+          checklist_item_id?: string | null
+          checklist_key?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          previous_run_id?: string | null
+          previous_status?: string | null
+          run_id?: string
+          scanner?: string
+          status?: string
+          stored?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scan_results_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_results_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_results_previous_run_id_fkey"
+            columns: ["previous_run_id"]
+            isOneToOne: false
+            referencedRelation: "scan_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_results_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "scan_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scan_runs: {
+        Row: {
+          audit_id: string
+          created_by: string
+          finished_at: string | null
+          id: string
+          parent_run_id: string | null
+          scanner: string
+          started_at: string
+          status: string
+          summary: Json
+          target: string | null
+          trigger: string
+        }
+        Insert: {
+          audit_id: string
+          created_by?: string
+          finished_at?: string | null
+          id?: string
+          parent_run_id?: string | null
+          scanner: string
+          started_at?: string
+          status?: string
+          summary?: Json
+          target?: string | null
+          trigger?: string
+        }
+        Update: {
+          audit_id?: string
+          created_by?: string
+          finished_at?: string | null
+          id?: string
+          parent_run_id?: string | null
+          scanner?: string
+          started_at?: string
+          status?: string
+          summary?: Json
+          target?: string | null
+          trigger?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scan_runs_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_runs_parent_run_id_fkey"
+            columns: ["parent_run_id"]
+            isOneToOne: false
+            referencedRelation: "scan_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       threat_feed_items: {
         Row: {
           advisory_url: string | null

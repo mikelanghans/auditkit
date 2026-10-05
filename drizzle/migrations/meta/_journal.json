@@ -64,6 +64,13 @@
       "when": 1791238784988,
       "tag": "0008_audit_targets_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791238821096,
+      "tag": "0009_scan_history",
+      "breakpoints": true
     }
   ]
 }
