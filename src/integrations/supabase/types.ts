@@ -404,6 +404,54 @@ export type Database = {
         }
         Relationships: []
       }
+      public_checks: {
+        Row: {
+          created_at: string
+          email: string | null
+          email_captured_at: string | null
+          error: string | null
+          findings: Json | null
+          hostname: string
+          id: string
+          ip_hash: string
+          lead_status: string
+          marketing_consent: boolean
+          status: string
+          summary: Json | null
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          email_captured_at?: string | null
+          error?: string | null
+          findings?: Json | null
+          hostname: string
+          id?: string
+          ip_hash: string
+          lead_status?: string
+          marketing_consent?: boolean
+          status?: string
+          summary?: Json | null
+          url: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          email_captured_at?: string | null
+          error?: string | null
+          findings?: Json | null
+          hostname?: string
+          id?: string
+          ip_hash?: string
+          lead_status?: string
+          marketing_consent?: boolean
+          status?: string
+          summary?: Json | null
+          url?: string
+        }
+        Relationships: []
+      }
       threat_feed_items: {
         Row: {
           advisory_url: string | null
@@ -522,6 +570,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      begin_public_check: {
+        Args: { p_hostname: string; p_ip_hash: string; p_url: string }
+        Returns: Json
+      }
       consume_quota: {
         Args: { p_amount?: number; p_kind: string }
         Returns: Json
