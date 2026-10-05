@@ -38,8 +38,9 @@ export async function logReportExport(auditId: string, format: "pdf" | "markdown
   const { error } = await supabase.rpc("log_report_export", {
     p_audit: auditId,
     p_format: format,
-    p_sha256: sha256,
-    p_head_hash: headHash,
+    // The SQL function accepts NULL for both; generated types mark them required.
+    p_sha256: sha256 as string,
+    p_head_hash: headHash as string,
   });
   if (error) console.warn("[audit-trail] export not logged:", error.message);
 }
