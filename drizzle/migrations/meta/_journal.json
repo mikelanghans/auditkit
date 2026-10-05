@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791238354662,
+      "tag": "0000_add_write_and_auth_checklist_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791238379160,
+      "tag": "0001_add_inconclusive_finding_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791238404826,
+      "tag": "0002_usage_quotas",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791238421456,
+      "tag": "0003_public_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791238467863,
+      "tag": "0004_code_audits",
+      "breakpoints": true
+    }
+  ]
+}
