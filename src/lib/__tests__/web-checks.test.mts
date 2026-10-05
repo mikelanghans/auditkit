@@ -120,9 +120,14 @@ test("open redirect: server redirect to the probe host fails; client hint needs 
 test("security headers roll-up", () => {
   const all = ["csp_header", "hsts_header", "xframe_header", "xcontent_type", "referrer_policy", "permissions_policy"];
   assert.equal(checkSecurityHeadersRollup(all.map((key) => ({ key, status: "pass" as const }))).status, "pass");
+  // CSP has its own finding: a CSP failure (or a missing CSP result) doesn't fail the roll-up.
   assert.equal(
     checkSecurityHeadersRollup(all.map((key) => ({ key, status: key === "csp_header" ? ("fail" as const) : ("pass" as const) }))).status,
-    "fail",
+    "pass",
   );
-  assert.equal(checkSecurityHeadersRollup(all.slice(1).map((key) => ({ key, status: "pass" as const }))).status, "inconclusive");
+  assert.equal(checkSecurityHeadersRollup(all.slice(1).map((key) => ({ key, status: "pass" as const }))).status, "pass");
+  const xf = checkSecurityHeadersRollup(all.map((key) => ({ key, status: key === "xframe_header" ? ("fail" as const) : ("pass" as const) })));
+  assert.equal(xf.status, "fail");
+  assert.match(xf.notes, /1 of 5 .*xframe_header/);
+  assert.equal(checkSecurityHeadersRollup(all.filter((k) => k !== "hsts_header").map((key) => ({ key, status: "pass" as const }))).status, "inconclusive");
 });

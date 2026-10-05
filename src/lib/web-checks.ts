@@ -346,14 +346,18 @@ export function checkOpenRedirect(
 
 export const HEADER_KEYS = ["csp_header", "hsts_header", "xframe_header", "xcontent_type", "referrer_policy", "permissions_policy"];
 
+// CSP has its own finding with its own rollout (Report-Only first), so the
+// roll-up leaves it out; otherwise one CSP problem counts as two failures.
+export const ROLLUP_HEADER_KEYS = HEADER_KEYS.filter((k) => k !== "csp_header");
+
 export function checkSecurityHeadersRollup(results: { key: string; status: WebStatus }[]): WebResult {
   const key = "security_headers";
-  const got = HEADER_KEYS.map((k) => ({ k, r: results.find((x) => x.key === k) }));
+  const got = ROLLUP_HEADER_KEYS.map((k) => ({ k, r: results.find((x) => x.key === k) }));
   const missing = got.filter((g) => !g.r || g.r.status === "inconclusive");
   const failed = got.filter((g) => g.r?.status === "fail");
   if (failed.length)
-    return { key, status: "fail", notes: `${failed.length} of ${HEADER_KEYS.length} security header checks failed: ${failed.map((f) => f.k).join(", ")}. See each header's finding for detail.` };
+    return { key, status: "fail", notes: `${failed.length} of ${ROLLUP_HEADER_KEYS.length} security header checks failed: ${failed.map((f) => f.k).join(", ")}. See each header's finding for detail. CSP is checked separately.` };
   if (missing.length)
     return { key, status: "inconclusive", notes: `Not all header checks could run: ${missing.map((m) => m.k).join(", ")}.` };
-  return { key, status: "pass", notes: `All ${HEADER_KEYS.length} security header checks passed.` };
+  return { key, status: "pass", notes: `All ${ROLLUP_HEADER_KEYS.length} security header checks passed (CSP is checked separately).` };
 }
