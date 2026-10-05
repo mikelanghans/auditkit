@@ -343,6 +343,35 @@ export type Database = {
           },
         ]
       }
+      checklist_item_controls: {
+        Row: {
+          checklist_item_id: string
+          control_id: string
+          control_title: string
+          framework: string
+        }
+        Insert: {
+          checklist_item_id: string
+          control_id: string
+          control_title: string
+          framework: string
+        }
+        Update: {
+          checklist_item_id?: string
+          control_id?: string
+          control_title?: string
+          framework?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_item_controls_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       checklist_items: {
         Row: {
           category: string
