@@ -6,7 +6,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Download, Copy, Check, RefreshCw, Wand2, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, Copy, Check, RefreshCw, Wand2, Loader2, ListChecks } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { generateRemediationSteps } from "@/lib/remediation-steps.functions";
 import { SeverityBadge } from "@/components/severity-badge";
 import { FixPromptButton } from "@/components/fix-prompt-dialog";
 import { toast } from "sonner";
@@ -32,10 +34,14 @@ function FixPlanPage() {
   const qc = useQueryClient();
   const resolve = useServerFn(resolveFinding);
   const gen = useServerFn(generateFixPrompt);
+  const genSteps = useServerFn(generateRemediationSteps);
   const [tool, setTool] = useState<FixTool>("lovable");
   const [retesting, setRetesting] = useState<string | null>(null);
   const [filling, setFilling] = useState<{ done: number; total: number } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [generatingSteps, setGeneratingSteps] = useState(false);
+  const [steps, setSteps] = useState<Record<string, { ok: boolean; text: string }>>({});
 
   const audit = useQuery({
     queryKey: ["audit", id, "fixes"],
@@ -103,6 +109,34 @@ function FixPlanPage() {
     setFilling(null);
     if (failed) toast.error(`${failed} prompt(s) couldn't be generated. Try those one at a time.`);
     else toast.success("All prompts ready");
+  };
+
+  const toggle = (itemId: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else if (next.size >= 10) toast.error("Select up to 10 findings at a time.");
+      else next.add(itemId);
+      return next;
+    });
+
+  const runSteps = async () => {
+    setGeneratingSteps(true);
+    try {
+      const res: any = await genSteps({ data: { auditId: id, checklistItemIds: [...selected] } });
+      if (!res.ok) { toast.error(res.error); return; }
+      const next: Record<string, { ok: boolean; text: string }> = {};
+      for (const r of res.results) next[r.checklistItemId] = r.ok ? { ok: true, text: r.steps } : { ok: false, text: r.error };
+      setSteps((prev) => ({ ...prev, ...next }));
+      const failed = res.results.filter((r: any) => !r.ok).length;
+      if (failed) toast.error(`${failed} finding(s) couldn't get steps.`);
+      else toast.success("Remediation steps ready");
+      setSelected(new Set());
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not generate remediation steps");
+    } finally {
+      setGeneratingSteps(false);
+    }
   };
 
   const retest = async (itemId: string) => {
@@ -198,6 +232,23 @@ function FixPlanPage() {
         )}
       </Card>
 
+      {plan.length > 0 && (
+        <Card className="p-4 flex items-center justify-between flex-wrap gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={selected.size > 0 && selected.size === plan.length ? true : selected.size > 0 ? "indeterminate" : false}
+              onCheckedChange={(v) => setSelected(v === true ? new Set(plan.slice(0, 10).map((p) => p.id)) : new Set())}
+              aria-label="Select all findings"
+            />
+            {selected.size ? `${selected.size} selected` : "Select findings for AI remediation steps (up to 10)"}
+          </label>
+          <Button size="sm" disabled={!selected.size || generatingSteps} onClick={runSteps}>
+            {generatingSteps ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <ListChecks className="h-4 w-4 mr-1" />}
+            {generatingSteps ? "Writing steps…" : "Generate remediation steps"}
+          </Button>
+        </Card>
+      )}
+
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !plan.length ? (
@@ -210,6 +261,11 @@ function FixPlanPage() {
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
+                      <Checkbox
+                        checked={selected.has(p.id)}
+                        onCheckedChange={() => toggle(p.id)}
+                        aria-label={`Select ${p.title}`}
+                      />
                       <span className="text-sm font-mono text-muted-foreground">{i + 1}.</span>
                       <span className="font-medium">{p.title}</span>
                       <SeverityBadge severity={p.severity} />
@@ -240,6 +296,21 @@ function FixPlanPage() {
                   </div>
                 </div>
                 {p.why && <p className="text-sm text-muted-foreground whitespace-pre-line">{p.why}</p>}
+                {steps[p.id] && (
+                  <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium uppercase tracking-wide text-primary flex items-center gap-1">
+                        <ListChecks className="h-3.5 w-3.5" /> AI remediation steps
+                      </span>
+                      {steps[p.id].ok && (
+                        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Copy steps" onClick={() => copy(`s-${p.id}`, steps[p.id].text)}>
+                          {copied === `s-${p.id}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        </Button>
+                      )}
+                    </div>
+                    <div className={cn("text-sm whitespace-pre-wrap", !steps[p.id].ok && "text-destructive")}>{steps[p.id].text}</div>
+                  </div>
+                )}
                 {p.prompt ? (
                   <div className="relative">
                     <pre className="text-xs bg-muted rounded p-3 pr-12 whitespace-pre-wrap max-h-48 overflow-auto">{p.prompt}</pre>
