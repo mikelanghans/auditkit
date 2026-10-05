@@ -447,6 +447,8 @@ export type Database = {
           needs_validation_count: number
           needs_validation_md: string | null
           profile: string
+          progress: Json | null
+          progress_at: string | null
           rejected_count: number
           repo_url: string
           report_md: string | null
@@ -472,6 +474,8 @@ export type Database = {
           needs_validation_count?: number
           needs_validation_md?: string | null
           profile: string
+          progress?: Json | null
+          progress_at?: string | null
           rejected_count?: number
           repo_url: string
           report_md?: string | null
@@ -497,6 +501,8 @@ export type Database = {
           needs_validation_count?: number
           needs_validation_md?: string | null
           profile?: string
+          progress?: Json | null
+          progress_at?: string | null
           rejected_count?: number
           repo_url?: string
           report_md?: string | null

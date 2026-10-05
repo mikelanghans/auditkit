@@ -50,6 +50,13 @@
       "when": 1791238719837,
       "tag": "0006_public_check_email",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791238754852,
+      "tag": "0007_code_audit_progress_and_audit_owner",
+      "breakpoints": true
     }
   ]
 }
