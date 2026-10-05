@@ -136,8 +136,17 @@ export type Database = {
           id: string
           lovable_prompt: string | null
           notes: string | null
+          remediation_due: string | null
+          remediation_owner: string | null
+          remediation_status: string | null
           resolved_at: string | null
           resolved_via: string | null
+          risk_accepted_at: string | null
+          risk_accepted_by: string | null
+          risk_accepted_reason: string | null
+          risk_accepted_until: string | null
+          severity_override: Database["public"]["Enums"]["severity"] | null
+          severity_override_reason: string | null
           status: Database["public"]["Enums"]["finding_status"] | null
           updated_at: string
         }
@@ -155,8 +164,17 @@ export type Database = {
           id?: string
           lovable_prompt?: string | null
           notes?: string | null
+          remediation_due?: string | null
+          remediation_owner?: string | null
+          remediation_status?: string | null
           resolved_at?: string | null
           resolved_via?: string | null
+          risk_accepted_at?: string | null
+          risk_accepted_by?: string | null
+          risk_accepted_reason?: string | null
+          risk_accepted_until?: string | null
+          severity_override?: Database["public"]["Enums"]["severity"] | null
+          severity_override_reason?: string | null
           status?: Database["public"]["Enums"]["finding_status"] | null
           updated_at?: string
         }
@@ -174,8 +192,17 @@ export type Database = {
           id?: string
           lovable_prompt?: string | null
           notes?: string | null
+          remediation_due?: string | null
+          remediation_owner?: string | null
+          remediation_status?: string | null
           resolved_at?: string | null
           resolved_via?: string | null
+          risk_accepted_at?: string | null
+          risk_accepted_by?: string | null
+          risk_accepted_reason?: string | null
+          risk_accepted_until?: string | null
+          severity_override?: Database["public"]["Enums"]["severity"] | null
+          severity_override_reason?: string | null
           status?: Database["public"]["Enums"]["finding_status"] | null
           updated_at?: string
         }
@@ -290,6 +317,9 @@ export type Database = {
       audits: {
         Row: {
           built_with: string | null
+          checklist_frozen_at: string | null
+          checklist_snapshot: Json | null
+          checklist_version: string | null
           client_id: string
           completed_at: string | null
           created_at: string
@@ -305,6 +335,9 @@ export type Database = {
         }
         Insert: {
           built_with?: string | null
+          checklist_frozen_at?: string | null
+          checklist_snapshot?: Json | null
+          checklist_version?: string | null
           client_id: string
           completed_at?: string | null
           created_at?: string
@@ -320,6 +353,9 @@ export type Database = {
         }
         Update: {
           built_with?: string | null
+          checklist_frozen_at?: string | null
+          checklist_snapshot?: Json | null
+          checklist_version?: string | null
           client_id?: string
           completed_at?: string | null
           created_at?: string
@@ -1160,6 +1196,7 @@ export type Database = {
         Returns: undefined
       }
       _audit_alive: { Args: { p_audit: string }; Returns: boolean }
+      _checklist_snapshot: { Args: never; Returns: Json }
       am_i_app_owner: { Args: never; Returns: boolean }
       audit_event_hash: {
         Args: {
@@ -1182,6 +1219,7 @@ export type Database = {
         Args: { p_amount?: number; p_kind: string }
         Returns: Json
       }
+      freeze_audit_checklist: { Args: { p_audit: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

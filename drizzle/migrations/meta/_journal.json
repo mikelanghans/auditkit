@@ -92,6 +92,13 @@
       "when": 1791238991336,
       "tag": "0012_compliance_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791239043553,
+      "tag": "0013_finding_lifecycle",
+      "breakpoints": true
     }
   ]
 }
