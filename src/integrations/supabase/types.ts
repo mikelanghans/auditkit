@@ -324,6 +324,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           created_by: string
+          evidence_retain_until: string | null
           id: string
           started_at: string
           status: Database["public"]["Enums"]["audit_status"]
@@ -342,6 +343,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by: string
+          evidence_retain_until?: string | null
           id?: string
           started_at?: string
           status?: Database["public"]["Enums"]["audit_status"]
@@ -360,6 +362,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string
+          evidence_retain_until?: string | null
           id?: string
           started_at?: string
           status?: Database["public"]["Enums"]["audit_status"]
@@ -732,6 +735,7 @@ export type Database = {
           id: string
           kind: string
           mime_type: string | null
+          purged_at: string | null
           run_id: string | null
           sha256: string
           size_bytes: number
@@ -748,6 +752,7 @@ export type Database = {
           id?: string
           kind: string
           mime_type?: string | null
+          purged_at?: string | null
           run_id?: string | null
           sha256: string
           size_bytes?: number
@@ -764,6 +769,7 @@ export type Database = {
           id?: string
           kind?: string
           mime_type?: string | null
+          purged_at?: string | null
           run_id?: string | null
           sha256?: string
           size_bytes?: number
@@ -1236,6 +1242,12 @@ export type Database = {
           p_sha256: string
         }
         Returns: undefined
+      }
+      purge_audit_evidence: {
+        Args: { p_audit: string }
+        Returns: {
+          storage_path: string
+        }[]
       }
       verify_audit_chain: {
         Args: { p_audit: string }
