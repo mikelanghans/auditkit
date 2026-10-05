@@ -14,6 +14,21 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_owners: {
+        Row: {
+          added_at: string
+          email: string
+        }
+        Insert: {
+          added_at?: string
+          email: string
+        }
+        Update: {
+          added_at?: string
+          email?: string
+        }
+        Relationships: []
+      }
       architectural_findings: {
         Row: {
           affected_files: Json
@@ -747,6 +762,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      am_i_app_owner: { Args: never; Returns: boolean }
       begin_public_check: {
         Args: { p_hostname: string; p_ip_hash: string; p_url: string }
         Returns: Json
@@ -762,6 +778,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_app_owner_session: { Args: never; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "auditor"
