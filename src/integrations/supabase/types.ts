@@ -79,6 +79,48 @@ export type Database = {
           },
         ]
       }
+      audit_events: {
+        Row: {
+          actor: string
+          audit_id: string
+          data: Json
+          entity: string
+          entity_id: string | null
+          event: string
+          id: number
+          occurred_at: string
+          prev_hash: string
+          row_hash: string
+          seq: number
+        }
+        Insert: {
+          actor: string
+          audit_id: string
+          data?: Json
+          entity: string
+          entity_id?: string | null
+          event: string
+          id?: never
+          occurred_at?: string
+          prev_hash: string
+          row_hash: string
+          seq: number
+        }
+        Update: {
+          actor?: string
+          audit_id?: string
+          data?: Json
+          entity?: string
+          entity_id?: string | null
+          event?: string
+          id?: never
+          occurred_at?: string
+          prev_hash?: string
+          row_hash?: string
+          seq?: number
+        }
+        Relationships: []
+      }
       audit_findings: {
         Row: {
           ai_assisted: boolean
@@ -256,6 +298,7 @@ export type Database = {
           started_at: string
           status: Database["public"]["Enums"]["audit_status"]
           summary: string | null
+          summary_approved_at: string | null
           title: string
           updated_at: string
           website_url: string | null
@@ -270,6 +313,7 @@ export type Database = {
           started_at?: string
           status?: Database["public"]["Enums"]["audit_status"]
           summary?: string | null
+          summary_approved_at?: string | null
           title: string
           updated_at?: string
           website_url?: string | null
@@ -284,6 +328,7 @@ export type Database = {
           started_at?: string
           status?: Database["public"]["Enums"]["audit_status"]
           summary?: string | null
+          summary_approved_at?: string | null
           title?: string
           updated_at?: string
           website_url?: string | null
@@ -1075,7 +1120,31 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _append_audit_event: {
+        Args: {
+          p_audit: string
+          p_data: Json
+          p_entity: string
+          p_entity_id: string
+          p_event: string
+        }
+        Returns: undefined
+      }
+      _audit_alive: { Args: { p_audit: string }; Returns: boolean }
       am_i_app_owner: { Args: never; Returns: boolean }
+      audit_event_hash: {
+        Args: {
+          p_actor: string
+          p_at: string
+          p_data: Json
+          p_entity: string
+          p_entity_id: string
+          p_event: string
+          p_prev: string
+          p_seq: number
+        }
+        Returns: string
+      }
       begin_public_check: {
         Args: { p_hostname: string; p_ip_hash: string; p_url: string }
         Returns: Json
@@ -1092,6 +1161,26 @@ export type Database = {
         Returns: boolean
       }
       is_app_owner_session: { Args: never; Returns: boolean }
+      log_report_export: {
+        Args: {
+          p_audit: string
+          p_format: string
+          p_head_hash: string
+          p_sha256: string
+        }
+        Returns: undefined
+      }
+      verify_audit_chain: {
+        Args: { p_audit: string }
+        Returns: {
+          events: number
+          first_bad_seq: number
+          head_at: string
+          head_hash: string
+          ok: boolean
+          problem: string
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "auditor"

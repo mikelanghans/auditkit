@@ -78,6 +78,13 @@
       "when": 1791238876409,
       "tag": "0010_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791238958874,
+      "tag": "0011_audit_trail",
+      "breakpoints": true
     }
   ]
 }
