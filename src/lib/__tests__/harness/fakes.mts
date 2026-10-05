@@ -17,6 +17,14 @@ export class FakeDb {
   client() { return new FakeClient(this); }
 }
 
+/** Column or JSON path ("output->>runId"). */
+function get(r: Row, k: string): unknown {
+  const m = k.match(/^(\w+)->>(\w+)$/);
+  if (!m) return r[k];
+  const v = r[m[1]]?.[m[2]];
+  return v == null ? null : String(v);
+}
+
 class Query implements PromiseLike<any> {
   private filters: ((r: Row) => boolean)[] = [];
   private op: "select" | "upsert" | "update" | "insert" | "delete" = "select";
@@ -27,15 +35,27 @@ class Query implements PromiseLike<any> {
   private table: string;
   constructor(db: FakeDb, table: string) { this.db = db; this.table = table; }
   select() { return this; }
-  eq(k: string, v: unknown) { this.filters.push((r) => r[k] === v); return this; }
+  eq(k: string, v: unknown) { this.filters.push((r) => get(r, k) === v); return this; }
   neq(k: string, v: unknown) { this.filters.push((r) => r[k] !== v); return this; }
   in(k: string, vals: unknown[]) { this.filters.push((r) => vals.includes(r[k])); return this; }
   lte(k: string, v: any) { this.filters.push((r) => r[k] <= v); return this; }
   gte(k: string, v: any) { this.filters.push((r) => r[k] >= v); return this; }
   is(k: string, v: unknown) { this.filters.push((r) => (r[k] ?? null) === v); return this; }
+  lt(k: string, v: any) { this.filters.push((r) => r[k] < v); return this; }
+  like(k: string, pattern: string) {
+    const re = new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`);
+    this.filters.push((r) => typeof r[k] === "string" && re.test(r[k]));
+    return this;
+  }
+  not(k: string, op: string, v: unknown) {
+    if (op === "is") this.filters.push((r) => (r[k] ?? null) !== v);
+    else this.filters.push((r) => r[k] !== v);
+    return this;
+  }
   limit(n: number) { this.limitN = n; return this; }
   order() { return this; }
-  upsert(p: any, opts?: { onConflict?: string }) { this.op = "upsert"; this.payload = p; this.conflict = (opts?.onConflict ?? "id").split(","); return this; }
+  private ignoreDup = false;
+  upsert(p: any, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) { this.op = "upsert"; this.payload = p; this.conflict = (opts?.onConflict ?? "id").split(","); this.ignoreDup = !!opts?.ignoreDuplicates; return this; }
   update(p: any) { this.op = "update"; this.payload = p; return this; }
   insert(p: any) { this.op = "insert"; this.payload = p; return this; }
   delete() { this.op = "delete"; return this; }
@@ -44,7 +64,7 @@ class Query implements PromiseLike<any> {
     if (this.op === "upsert") {
       for (const p of Array.isArray(this.payload) ? this.payload : [this.payload]) {
         const ex = rows.find((r) => this.conflict.every((c) => r[c] === p[c]));
-        if (ex) Object.assign(ex, p); else rows.push({ id: `${this.table}-${rows.length + 1}`, ...p });
+        if (ex) { if (!this.ignoreDup) Object.assign(ex, p); } else rows.push({ id: `${this.table}-${rows.length + 1}`, ...p });
       }
       return { data: null, error: null };
     }
@@ -58,7 +78,8 @@ class Query implements PromiseLike<any> {
       return { data: inserted, error: null };
     }
     const matched = rows.filter((r) => this.filters.every((f) => f(r)));
-    if (this.op === "update") { matched.forEach((r) => Object.assign(r, this.payload)); return { data: null, error: null }; }
+    // Like PostgREST with .select(): the updated rows.
+    if (this.op === "update") { matched.forEach((r) => Object.assign(r, this.payload)); return { data: matched, error: null }; }
     if (this.op === "delete") { this.db.tables[this.table] = rows.filter((r) => !matched.includes(r)); return { data: null, error: null }; }
     return { data: this.limitN ? matched.slice(0, this.limitN) : matched, error: null };
   }

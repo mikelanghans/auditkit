@@ -29,6 +29,10 @@ export const Route = createFileRoute("/api/public/hooks/scheduled-scans")({
           const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
           const { runDueSchedules } = await import("@/lib/scheduled-scans.server");
           const result = await runDueSchedules(supabaseAdmin);
+          // Close out full-audit pipelines nobody is driving any more.
+          await import("@/lib/pipeline-engine.server")
+            .then((m) => m.sweepStalePipelines(supabaseAdmin))
+            .catch((e) => console.error("[scheduled-scans hook] pipeline sweep failed", e?.message ?? e));
           return new Response(
             JSON.stringify({ ok: true, ran: result.ran.map((r) => ({ status: r.status, alerts: r.alerts, failed: !!r.error })) }),
             { headers: { "content-type": "application/json" } },

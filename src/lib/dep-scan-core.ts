@@ -295,6 +295,8 @@ export async function runDepScan(args: {
   supabase: SupabaseClient<any, any, any>;
   auditId: string;
   parentRunId?: string | null;
+  /** Owner recorded on the run when running with the service-role client. */
+  createdBy?: string | null;
 }): Promise<DepScanResult> {
   const { owner, repo, token, defaultBranch, supabase, auditId } = args;
 
@@ -485,6 +487,7 @@ export async function runDepScan(args: {
       target: `${owner}/${repo}`,
       trigger: args.parentRunId ? "full" : "manual",
       parentRunId: args.parentRunId ?? null,
+      createdBy: args.createdBy ?? null,
     },
     [{ checklist_item_id: itemId ?? null, checklist_key: "dep_vulns", status, notes: depNote, stored, evidence: ["deps"] }],
     {

@@ -63,6 +63,12 @@ export const Route = createFileRoute("/api/public/hooks/code-audit")({
           const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
           const { applyCallback } = await import("@/lib/code-audit-import");
           const res = await applyCallback(payload, { db: supabaseAdmin as any });
+          // A full-audit run waiting on this deep audit can now synthesize and close.
+          if (payload?.event === "completed" || payload?.event === "failed") {
+            await import("@/lib/pipeline-engine.server")
+              .then((m) => m.onCodeAuditFinished(supabaseAdmin, String(payload.runId)))
+              .catch((e) => console.error("[code-audit hook] pipeline update failed", e?.message ?? e));
+          }
           return json(res.status, res);
         } catch (e: any) {
           console.error("[code-audit hook] error", e?.message ?? e);

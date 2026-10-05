@@ -16,7 +16,7 @@ import {
   type DefinerFnRow,
   type ViewRow,
 } from "./supabase-policy-checks";
-import { consumeQuota } from "./quota";
+import { consumeQuota, type ScannerCoreOptions } from "./quota";
 import {
   SENSITIVE_COLUMN_SQL,
   checkAuthProviders,
@@ -580,8 +580,14 @@ async function fetchSensitiveColumns(projectRef: string, pat: string): Promise<{
 export const runSupabaseScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: SupabaseScanInput) => input)
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
+  .handler(async ({ data, context }) => supabaseScanCore(context.supabase, context.userId, data));
+
+/**
+ * runSupabaseScan without the request wrapper, so the full-audit pipeline can run it
+ * on the server. `supabase` may be the service-role client: ownership is still
+ * checked against `userId`, and the quota is spent up front by the pipeline.
+ */
+export async function supabaseScanCore(supabase: any, userId: string, data: SupabaseScanInput, opts: ScannerCoreOptions = { checkQuota: true }) {
     const projectUrl = normalizeProjectUrl(data.projectUrl);
     if (!projectUrl) {
       return { ok: false as const, error: "Project URL must look like https://xxxxx.supabase.co" };
@@ -622,7 +628,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       if (!allowed.ok) return { ok: false as const, error: allowed.error };
     }
 
-    const quota = await consumeQuota(supabase, "scan", 1);
+    const quota = opts.checkQuota ? await consumeQuota(supabase, "scan", 1) : ({ ok: true } as Awaited<ReturnType<typeof consumeQuota>>);
     if (!quota.ok) return { ok: false as const, error: quota.error };
 
     // 0) Validate service role key
@@ -1190,6 +1196,7 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
         target: projectUrl,
         trigger: data.parentRunId ? "full" : "manual",
         parentRunId: data.parentRunId ?? null,
+        createdBy: userId,
       },
       recorded,
       { evidence },
@@ -1212,4 +1219,4 @@ export const runSupabaseScan = createServerFn({ method: "POST" })
       results: written,
       history,
     };
-  });
+}

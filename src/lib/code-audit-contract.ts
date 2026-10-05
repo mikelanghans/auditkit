@@ -34,6 +34,12 @@ export type CodeAuditJob = {
   /** This run's callback signing key (hex). Signs callbacks for this run only. */
   callbackKey: string;
   issuedAt: string;
+  /**
+   * Leads from AuditKit's own repo scan ("path:line — what"), already filtered
+   * to plain path characters. Hints for the agent, not findings. Optional so
+   * older runners ignore it.
+   */
+  focus?: string[] | null;
 };
 
 /** Stages the runner reports, in order. */
@@ -107,10 +113,10 @@ async function hmacKey(secret: string) {
   );
 }
 
-async function aesKey(secret: string) {
+async function aesKey(secret: string, label = "job-aes") {
   return crypto.subtle.importKey(
     "raw",
-    await deriveBytes(secret, "job-aes"),
+    await deriveBytes(secret, label),
     { name: "AES-GCM" },
     false,
     ["encrypt", "decrypt"],
@@ -154,6 +160,22 @@ export async function decryptJob(blob: string, secret: string): Promise<CodeAudi
     bytes.slice(12),
   );
   return JSON.parse(new TextDecoder().decode(pt)) as CodeAuditJob;
+}
+
+/** AES-256-GCM seal for any JSON value under a key derived for `label`. */
+export async function sealJson(value: unknown, secret: string, label: string): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await aesKey(secret, label), enc.encode(JSON.stringify(value)));
+  const out = new Uint8Array(iv.length + ct.byteLength);
+  out.set(iv, 0);
+  out.set(new Uint8Array(ct), iv.length);
+  return b64encode(out);
+}
+
+export async function openJson<T>(blob: string, secret: string, label: string): Promise<T> {
+  const bytes = b64decode(blob);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(0, 12) }, await aesKey(secret, label), bytes.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt)) as T;
 }
 
 export async function signCallback(

@@ -16,6 +16,15 @@
   // Scans and AI calls need more than the free plan's 10 ms of CPU per request.
   "limits": { "cpu_ms": 60000 },
   "observability": { "enabled": true },
+  // "Run full audit" on the server: a durable Workflow (exports.cloudflare.ts)
+  // that runs one pipeline stage per step by calling back into this Worker
+  // over the SELF binding. Needs the FULL_AUDIT_SECRETS_KEY secret (32+
+  // characters); without it the app falls back to running the pipeline from
+  // the browser tab.
+  "workflows": [
+    { "name": "auditkit-full-audit", "binding": "FULL_AUDIT_WORKFLOW", "class_name": "FullAuditWorkflow" }
+  ],
+  "services": [{ "binding": "SELF", "service": "auditkit" }],
   "vars": {
     "SUPABASE_URL": "https://iczkayrpsdrliuqwowpe.supabase.co",
     // Publishable (anon) key: public by design, it ships in the browser bundle.

@@ -7,7 +7,7 @@ import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl 
 import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type RecordedResult } from "./scan-history";
 import type { EvidenceInput } from "./evidence";
-import { consumeQuota } from "./quota";
+import { consumeQuota, type ScannerCoreOptions } from "./quota";
 import { checkWriteTestsAllowed } from "./audit-targets";
 import { runDeepAiTests, DEFAULT_BUDGET, MAX_BUDGET, DEEP_TEST_LABEL, type Exchange, type Sender } from "./ai-deep-tests";
 
@@ -25,12 +25,20 @@ const fieldName = (s: string | null | undefined) => (s ?? "").trim().replace(/[^
 
 export const runAIDeepTests = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: AIDeepInput) => {
+  .inputValidator(validateAIDeepInput)
+  .handler(async ({ data, context }) => aiDeepCore(context.supabase, context.userId, data));
+
+export function validateAIDeepInput(input: AIDeepInput) {
     if (!input || typeof input.auditId !== "string" || typeof input.endpointUrl !== "string") throw new Error("Invalid input");
     return input;
-  })
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
+}
+
+/**
+ * runAIDeepTests without the request wrapper, so the full-audit pipeline can run it
+ * on the server. `supabase` may be the service-role client: ownership is still
+ * checked against `userId`, and the quota is spent up front by the pipeline.
+ */
+export async function aiDeepCore(supabase: any, userId: string, data: AIDeepInput, opts: ScannerCoreOptions = { checkQuota: true }) {
     const url = data.endpointUrl.trim();
     try {
       const u = new URL(url);
@@ -57,7 +65,7 @@ export const runAIDeepTests = createServerFn({ method: "POST" })
     const gate = await checkWriteTestsAllowed(supabase, data.auditId);
     if (!gate.ok) return { ok: false as const, error: gate.error };
 
-    const quota = await consumeQuota(supabase, "scan", 1);
+    const quota = opts.checkQuota ? await consumeQuota(supabase, "scan", 1) : ({ ok: true } as Awaited<ReturnType<typeof consumeQuota>>);
     if (!quota.ok) return { ok: false as const, error: quota.error };
 
     const baseHeaders: Record<string, string> = {
@@ -130,4 +138,4 @@ export const runAIDeepTests = createServerFn({ method: "POST" })
       counts,
       history,
     };
-  });
+}

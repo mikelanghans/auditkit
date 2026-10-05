@@ -7,11 +7,11 @@ import { decodeBase64Utf8 } from "./decode-blob";
 import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type RecordedResult } from "./scan-history";
 import type { EvidenceInput } from "./evidence";
-import { consumeQuota } from "./quota";
+import { consumeQuota, type ScannerCoreOptions } from "./quota";
 import { gitignoreIgnoresEnv, isEnvFilePath } from "./repo-hygiene";
 import { checkXss, findXssSinks, xssCandidatePaths, type XssHit } from "./xss-scan";
 import { findRuleHits, judgeRule, judgeHeadSecrets, secretCandidatePaths, type RuleHit } from "./code-rules";
-import { parseGithubRepo, judgeSiteMatch, siteHost } from "./github-repo";
+import { parseGithubRepo, judgeSiteMatch, siteHost, repoKey } from "./github-repo";
 
 
 const TIMEOUT_MS = 15_000;
@@ -96,30 +96,42 @@ async function pMap<T, R>(items: T[], n: number, fn: (it: T) => Promise<R>): Pro
   return out;
 }
 
+export type RepoScanRequest = { auditId: string; repoUrl: string; token: string; appUrl?: string | null; parentRunId?: string | null };
+export type RepoScanInput = RepoScanRequest & { appUrl: string | null };
+
 export const runRepoScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { auditId: string; repoUrl: string; token: string; appUrl?: string | null; parentRunId?: string | null }) => {
+  .inputValidator(validateRepoScanInput)
+
+  .handler(async ({ data, context }) => repoScanCore(context.supabase, context.userId, data));
+
+export function validateRepoScanInput(input: RepoScanRequest) {
     if (!input?.auditId || typeof input.auditId !== "string") throw new Error("auditId required");
     if (!input?.repoUrl || typeof input.repoUrl !== "string") throw new Error("repoUrl required");
     if (!input?.token || typeof input.token !== "string") throw new Error("token required");
     if (input.token.length < 20) throw new Error("token looks too short to be a valid PAT");
     return { ...input, appUrl: input.appUrl ?? null };
-  })
+}
 
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
+/**
+ * runRepoScan without the request wrapper, so the full-audit pipeline can run it
+ * on the server. `supabase` may be the service-role client: ownership is still
+ * checked against `userId`, and the quota is spent up front by the pipeline.
+ */
+export async function repoScanCore(supabase: any, userId: string, data: RepoScanInput, opts: ScannerCoreOptions = { checkQuota: true }) {
     const parsed = parseRepo(data.repoUrl);
     if (!parsed) return { ok: false as const, error: `Could not parse GitHub URL: ${data.repoUrl}` };
 
     // Check ownership before doing any work (RLS would also block the writes,
     // but only after the GitHub calls had run).
     const { data: auditRow, error: aerr } = await supabase
-      .from("audits").select("id, created_by").eq("id", data.auditId).single();
+      .from("audits").select("id, created_by, confirmed_repos").eq("id", data.auditId).single();
     if (aerr || !auditRow || (auditRow as any).created_by !== userId) {
       return { ok: false as const, error: "Audit not found or access denied." };
     }
+    const repoConfirmed = ((auditRow as any).confirmed_repos ?? []).includes(repoKey(parsed.owner, parsed.repo));
 
-    const quota = await consumeQuota(supabase, "scan", 1);
+    const quota = opts.checkQuota ? await consumeQuota(supabase, "scan", 1) : ({ ok: true } as Awaited<ReturnType<typeof consumeQuota>>);
     if (!quota.ok) return { ok: false as const, error: quota.error };
     const headers = ghHeaders(data.token);
 
@@ -297,13 +309,14 @@ export const runRepoScan = createServerFn({ method: "POST" })
     let ruleCoverage = { scanned: 0, total: 0, failed: 0 };
     let secretCoverage = { scanned: 0, total: 0, failed: 0 };
     const unreadable = { status: "inconclusive" as const, notes: "Not checked: the repository file listing could not be fetched." };
+    const xssHits: XssHit[] = [];
     if (!treePaths) {
       xssCheck = unreadable;
     } else {
       const { pick, total } = xssCandidatePaths(treePaths, MAX_XSS_FILES);
       xssFilesRead = true;
       let failed = 0;
-      const hits: XssHit[] = [];
+      const hits = xssHits;
       await pMap(pick, 8, async (path) => {
         try {
           const r = await timedFetch(
@@ -364,7 +377,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
     // ---- Does this repo belong to the audited website? ----
     let cname: string | null = null;
     const cnamePath = treePaths?.find((p) => /^(public\/|docs\/|static\/)?CNAME$/.test(p));
-    if (cnamePath && auditHost && !repoMentionsHost) {
+    if (cnamePath && auditHost && !repoMentionsHost && !repoConfirmed) {
       const r = await timedFetch(
         `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/contents/${cnamePath}?ref=${encodeURIComponent(defaultBranch)}`,
         { headers: { ...headers, accept: "application/vnd.github.raw" } },
@@ -372,7 +385,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
       if (r?.ok) cname = (await r.text()).trim();
     }
     let searchHits: number | null = null;
-    if (auditHost && !repoMentionsHost && !cname && xssFilesRead) {
+    if (auditHost && !repoMentionsHost && !cname && xssFilesRead && !repoConfirmed) {
       const r = await timedFetch(
         `https://api.github.com/search/code?q=${encodeURIComponent(`"${auditHost}" repo:${parsed.owner}/${parsed.repo}`)}&per_page=1`,
         { headers },
@@ -388,6 +401,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
       cname,
       texts: repoMentionsHost && auditHost ? [auditHost] : [],
       searchHits,
+      confirmed: repoConfirmed,
     });
 
     // ---- Persist findings by checklist title ----
@@ -478,6 +492,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
       supabase,
       auditId: data.auditId,
       parentRunId: data.parentRunId ?? null,
+      createdBy: userId,
     });
 
     // ---- Phase 3: AI endpoint discovery ----
@@ -542,6 +557,7 @@ export const runRepoScan = createServerFn({ method: "POST" })
         target: `${parsed.owner}/${parsed.repo}`,
         trigger: data.parentRunId ? "full" : "manual",
         parentRunId: data.parentRunId ?? null,
+        createdBy: userId,
       },
       recorded,
       { evidence },
@@ -560,6 +576,46 @@ export const runRepoScan = createServerFn({ method: "POST" })
       aiDetectError,
       siteMatch,
       history,
+      // For the full-audit pipeline: whether the code itself could be read
+      // (a token without Contents permission sees the repo but no files),
+      // and where the hits are, as leads for the deep audit. No secret values.
+      codeAccess: {
+        treeRead,
+        filesRead: secretCoverage.scanned,
+        filesFailed: secretCoverage.failed,
+      },
+      leads: {
+        rules: ruleHits.map((h) => ({ rule: h.rule, file: h.file, line: h.line })),
+        xss: xssHits.filter((h) => !h.sanitized).map((h) => ({ sink: h.sink, file: h.file, line: h.line })),
+        secrets: [...headSecrets.map((h) => ({ pattern: h.pattern, file: h.file })), ...unique.map((f) => ({ pattern: f.pattern, file: f.file }))],
+      },
     };
-  });
+}
 
+/**
+ * "This is the right repo": remembers the repo on the audit so later scans
+ * skip the repo/website mismatch warning.
+ */
+export const confirmAuditRepo = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { auditId: string; repo: string }) => {
+    if (!input?.auditId || typeof input.auditId !== "string") throw new Error("auditId required");
+    if (!input?.repo || typeof input.repo !== "string") throw new Error("repo required");
+    const parsed = parseGithubRepo(input.repo);
+    if (!parsed) throw new Error("Not a GitHub repo");
+    return { auditId: input.auditId, key: repoKey(parsed.owner, parsed.repo) };
+  })
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { data: row, error } = await supabase
+      .from("audits").select("id, created_by, confirmed_repos").eq("id", data.auditId).single();
+    if (error || !row || (row as any).created_by !== userId) {
+      return { ok: false as const, error: "Audit not found or access denied." };
+    }
+    const current: string[] = (row as any).confirmed_repos ?? [];
+    if (current.includes(data.key)) return { ok: true as const };
+    const { error: uerr } = await supabase
+      .from("audits").update({ confirmed_repos: [...current, data.key] }).eq("id", data.auditId);
+    if (uerr) return { ok: false as const, error: uerr.message };
+    return { ok: true as const };
+  });

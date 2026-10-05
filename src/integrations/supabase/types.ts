@@ -172,6 +172,7 @@ export type Database = {
           built_with: string | null
           client_id: string
           completed_at: string | null
+          confirmed_repos: string[]
           created_at: string
           created_by: string
           id: string
@@ -191,6 +192,7 @@ export type Database = {
           built_with?: string | null
           client_id: string
           completed_at?: string | null
+          confirmed_repos?: string[]
           created_at?: string
           created_by: string
           id?: string
@@ -210,6 +212,7 @@ export type Database = {
           built_with?: string | null
           client_id?: string
           completed_at?: string | null
+          confirmed_repos?: string[]
           created_at?: string
           created_by?: string
           id?: string
@@ -692,6 +695,87 @@ export type Database = {
           },
         ]
       }
+      pipeline_stages: {
+        Row: {
+          id: string
+          run_id: string
+          audit_id: string
+          key: string
+          stage: string
+          position: number
+          scanner: string
+          target: string | null
+          meta: Json
+          depends_on: string[]
+          status: string
+          reason: string | null
+          output: Json
+          attempts: number
+          started_at: string | null
+          finished_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          run_id: string
+          audit_id: string
+          key: string
+          stage: string
+          position: number
+          scanner: string
+          target?: string | null
+          meta?: Json
+          depends_on?: string[]
+          status?: string
+          reason?: string | null
+          output?: Json
+          attempts?: number
+          started_at?: string | null
+          finished_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          run_id?: string
+          audit_id?: string
+          key?: string
+          stage?: string
+          position?: number
+          scanner?: string
+          target?: string | null
+          meta?: Json
+          depends_on?: string[]
+          status?: string
+          reason?: string | null
+          output?: Json
+          attempts?: number
+          started_at?: string | null
+          finished_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      pipeline_secrets: {
+        Row: {
+          run_id: string
+          sealed: string
+          expires_at: string
+          created_at: string
+        }
+        Insert: {
+          run_id: string
+          sealed: string
+          expires_at: string
+          created_at?: string
+        }
+        Update: {
+          run_id?: string
+          sealed?: string
+          expires_at?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       scan_runs: {
         Row: {
           id: string
@@ -705,6 +789,8 @@ export type Database = {
           started_at: string
           finished_at: string | null
           summary: Json
+          pipeline_driver: string | null
+          workflow_instance: string | null
         }
         Insert: {
           id?: string
@@ -718,6 +804,8 @@ export type Database = {
           started_at?: string
           finished_at?: string | null
           summary?: Json
+          pipeline_driver?: string | null
+          workflow_instance?: string | null
         }
         Update: {
           id?: string
@@ -731,6 +819,8 @@ export type Database = {
           started_at?: string
           finished_at?: string | null
           summary?: Json
+          pipeline_driver?: string | null
+          workflow_instance?: string | null
         }
         Relationships: []
       }

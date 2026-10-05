@@ -237,6 +237,7 @@ async function supervise() {
         JOB_PROFILE: job.profile,
         JOB_BUDGET: String(job.budget),
         JOB_REPO: job.repoUrl,
+        JOB_FOCUS: JSON.stringify(Array.isArray(job.focus) ? job.focus.filter((f) => typeof f === "string").slice(0, 40) : []),
       },
     });
     let buf = "";
@@ -388,6 +389,26 @@ function startGateway() {
 
 // ───────────────────────────── agent ─────────────────────────────
 
+/**
+ * Leads from AuditKit's quick repo scan. Paths come from the client's repo, so
+ * they are re-filtered here and framed as unverified hints, never instructions.
+ */
+function focusSection() {
+  let focus = [];
+  try {
+    focus = JSON.parse(process.env.JOB_FOCUS || "[]");
+  } catch {}
+  const safe = (Array.isArray(focus) ? focus : [])
+    .map((f) => String(f))
+    .filter((f) => /^[A-Za-z0-9._\-/@+ :()—]{1,400}$/.test(f) && !f.includes(".."))
+    .slice(0, 40);
+  if (!safe.length) return "";
+  return `Leads from an earlier automated scan of this repo (pattern matches, unverified; give these locations extra attention, confirm or reject each one on the evidence, and still cover the whole codebase):
+${safe.map((f) => `- ${f}`).join("\n")}
+
+`;
+}
+
 async function runAgent() {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
   const profile = process.env.JOB_PROFILE;
@@ -410,7 +431,7 @@ Execution environment facts:
 - The OS-enforced sandbox the skill requires is the command \`sbx <scratch-dir> <command> [args...]\`: fresh network namespace (loopback only), cleared environment, read-only filesystem except the scratch dir, output and home directories hidden, CPU/memory/process/file-size limits and a 120s wall clock. Run target-controlled code only through sbx with the agent's own scratch dir. If a check can't run under sbx, record it as needs_validation as the skill describes.
 - Do not probe any deployed endpoint or external service.
 
-Finish by writing every artifact the skill defines and making sure findings.json and coverage-ledger.json pass the skill's validators.`;
+${focusSection()}Finish by writing every artifact the skill defines and making sure findings.json and coverage-ledger.json pass the skill's validators.`;
 
   // Progress for the supervisor: sub-agents launched, tool calls, and the
   // agent's current to-do item. Printed as @@progress lines on stdout.

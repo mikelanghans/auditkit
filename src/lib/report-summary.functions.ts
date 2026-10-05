@@ -7,7 +7,7 @@
 // client's systems) are never sent.
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { consumeQuota } from "./quota";
+import { consumeQuota, type ScannerCoreOptions } from "./quota";
 
 const SYSTEM = [
   "You write the executive summary of a security audit report for a SaaS founder who is not a security specialist.",
@@ -23,10 +23,16 @@ export const draftExecutiveSummary = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { auditId: string }) => {
     if (!input || typeof input.auditId !== "string") throw new Error("auditId required");
-    return input;
+    return { auditId: input.auditId };
   })
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
+  .handler(async ({ data, context }) => draftSummaryCore(context.supabase, context.userId, data));
+
+/**
+ * draftExecutiveSummary without the request wrapper, so the full-audit pipeline can run it
+ * on the server. `supabase` may be the service-role client: ownership is still
+ * checked against `userId`, and the quota is spent up front by the pipeline.
+ */
+export async function draftSummaryCore(supabase: any, userId: string, data: { auditId: string; extraFacts?: Record<string, unknown> | null }, opts: ScannerCoreOptions = { checkQuota: true }) {
     const { data: audit } = await supabase
       .from("audits")
       .select("id, created_by, title, website_url, client:clients(name)")
@@ -49,7 +55,7 @@ export const draftExecutiveSummary = createServerFn({ method: "POST" })
     const unverified = (items ?? []).filter((it: any) => status.get(it.id) === "inconclusive");
     const counts = { pass: 0, fail: 0, na: 0, inconclusive: 0, resolved: 0, unanswered: 0 };
     for (const it of items ?? []) {
-      const s = status.get((it as any).id);
+      const s = status.get((it as any).id) as string | undefined;
       if (s && s in counts) (counts as any)[s]++;
       else counts.unanswered++;
     }
@@ -67,9 +73,12 @@ export const draftExecutiveSummary = createServerFn({ method: "POST" })
       counts,
       open_issues: failed.slice(0, 25).map((it: any) => ({ title: it.title, category: it.category, severity: it.severity })),
       could_not_verify: unverified.slice(0, 15).map((it: any) => it.title),
+      // From a full-audit run's synthesis: the same issues merged across
+      // scanners, which ones more than one method found, and what wasn't tested.
+      ...(data.extraFacts ?? {}),
     };
 
-    const quota = await consumeQuota(supabase, "llm", 1);
+    const quota = opts.checkQuota ? await consumeQuota(supabase, "llm", 1) : ({ ok: true } as Awaited<ReturnType<typeof consumeQuota>>);
     if (!quota.ok) return { ok: false as const, error: quota.error };
     const key = process.env.ANTHROPIC_API_KEY;
     if (!key) return { ok: false as const, error: "ANTHROPIC_API_KEY is not configured." };
@@ -94,4 +103,4 @@ export const draftExecutiveSummary = createServerFn({ method: "POST" })
       .eq("id", data.auditId);
     if (error) return { ok: false as const, error: error.message };
     return { ok: true as const, text };
-  });
+}

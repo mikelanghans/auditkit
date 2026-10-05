@@ -9,43 +9,30 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as CheckRouteImport } from './routes/check'
-import { Route as MfaRouteImport } from './routes/mfa'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
-import { Route as AuthenticatedLeadsRouteImport } from './routes/_authenticated/leads'
+import { Route as MfaRouteImport } from './routes/mfa'
+import { Route as CheckRouteImport } from './routes/check'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedThreatFeedRouteImport } from './routes/_authenticated/threat-feed'
+import { Route as AuthenticatedLeadsRouteImport } from './routes/_authenticated/leads'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedClientsIndexRouteImport } from './routes/_authenticated/clients.index'
 import { Route as AuthenticatedClientsIdRouteImport } from './routes/_authenticated/clients.$id'
 import { Route as AuthenticatedAuditsIdIndexRouteImport } from './routes/_authenticated/audits.$id.index'
-import { Route as AuthenticatedAuditsIdActivityRouteImport } from './routes/_authenticated/audits.$id.activity'
-import { Route as AuthenticatedAuditsIdCodeAuditRouteImport } from './routes/_authenticated/audits.$id.code-audit'
-import { Route as AuthenticatedAuditsIdFixesRouteImport } from './routes/_authenticated/audits.$id.fixes'
-import { Route as AuthenticatedAuditsIdReportRouteImport } from './routes/_authenticated/audits.$id.report'
-import { Route as ApiPublicHooksCodeAuditRouteImport } from './routes/api/public/hooks/code-audit'
-import { Route as ApiPublicHooksScheduledScansRouteImport } from './routes/api/public/hooks/scheduled-scans'
 import { Route as ApiPublicHooksThreatFeedRouteImport } from './routes/api/public/hooks/threat-feed'
+import { Route as ApiPublicHooksScheduledScansRouteImport } from './routes/api/public/hooks/scheduled-scans'
+import { Route as ApiPublicHooksPipelineAdvanceRouteImport } from './routes/api/public/hooks/pipeline-advance'
+import { Route as ApiPublicHooksCodeAuditRouteImport } from './routes/api/public/hooks/code-audit'
+import { Route as AuthenticatedAuditsIdReportRouteImport } from './routes/_authenticated/audits.$id.report'
+import { Route as AuthenticatedAuditsIdFixesRouteImport } from './routes/_authenticated/audits.$id.fixes'
+import { Route as AuthenticatedAuditsIdCodeAuditRouteImport } from './routes/_authenticated/audits.$id.code-audit'
+import { Route as AuthenticatedAuditsIdActivityRouteImport } from './routes/_authenticated/audits.$id.activity'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthRoute = AuthRouteImport.update({
-  id: '/auth',
-  path: '/auth',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CheckRoute = CheckRouteImport.update({
-  id: '/check',
-  path: '/check',
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MfaRoute = MfaRouteImport.update({
@@ -53,14 +40,28 @@ const MfaRoute = MfaRouteImport.update({
   path: '/mfa',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
+const CheckRoute = CheckRouteImport.update({
+  id: '/check',
+  path: '/check',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedThreatFeedRoute = AuthenticatedThreatFeedRouteImport.update({
+  id: '/threat-feed',
+  path: '/threat-feed',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedLeadsRoute = AuthenticatedLeadsRouteImport.update({
@@ -68,9 +69,9 @@ const AuthenticatedLeadsRoute = AuthenticatedLeadsRouteImport.update({
   path: '/leads',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedThreatFeedRoute = AuthenticatedThreatFeedRouteImport.update({
-  id: '/threat-feed',
-  path: '/threat-feed',
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedClientsIndexRoute =
@@ -90,16 +91,33 @@ const AuthenticatedAuditsIdIndexRoute =
     path: '/audits/$id/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAuditsIdActivityRoute =
-  AuthenticatedAuditsIdActivityRouteImport.update({
-    id: '/audits/$id/activity',
-    path: '/audits/$id/activity',
-    getParentRoute: () => AuthenticatedRouteRoute,
+const ApiPublicHooksThreatFeedRoute =
+  ApiPublicHooksThreatFeedRouteImport.update({
+    id: '/api/public/hooks/threat-feed',
+    path: '/api/public/hooks/threat-feed',
+    getParentRoute: () => rootRouteImport,
   } as any)
-const AuthenticatedAuditsIdCodeAuditRoute =
-  AuthenticatedAuditsIdCodeAuditRouteImport.update({
-    id: '/audits/$id/code-audit',
-    path: '/audits/$id/code-audit',
+const ApiPublicHooksScheduledScansRoute =
+  ApiPublicHooksScheduledScansRouteImport.update({
+    id: '/api/public/hooks/scheduled-scans',
+    path: '/api/public/hooks/scheduled-scans',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksPipelineAdvanceRoute =
+  ApiPublicHooksPipelineAdvanceRouteImport.update({
+    id: '/api/public/hooks/pipeline-advance',
+    path: '/api/public/hooks/pipeline-advance',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksCodeAuditRoute = ApiPublicHooksCodeAuditRouteImport.update({
+  id: '/api/public/hooks/code-audit',
+  path: '/api/public/hooks/code-audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAuditsIdReportRoute =
+  AuthenticatedAuditsIdReportRouteImport.update({
+    id: '/audits/$id/report',
+    path: '/audits/$id/report',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedAuditsIdFixesRoute =
@@ -108,28 +126,17 @@ const AuthenticatedAuditsIdFixesRoute =
     path: '/audits/$id/fixes',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedAuditsIdReportRoute =
-  AuthenticatedAuditsIdReportRouteImport.update({
-    id: '/audits/$id/report',
-    path: '/audits/$id/report',
+const AuthenticatedAuditsIdCodeAuditRoute =
+  AuthenticatedAuditsIdCodeAuditRouteImport.update({
+    id: '/audits/$id/code-audit',
+    path: '/audits/$id/code-audit',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const ApiPublicHooksCodeAuditRoute = ApiPublicHooksCodeAuditRouteImport.update({
-  id: '/api/public/hooks/code-audit',
-  path: '/api/public/hooks/code-audit',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicHooksScheduledScansRoute =
-  ApiPublicHooksScheduledScansRouteImport.update({
-    id: '/api/public/hooks/scheduled-scans',
-    path: '/api/public/hooks/scheduled-scans',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicHooksThreatFeedRoute =
-  ApiPublicHooksThreatFeedRouteImport.update({
-    id: '/api/public/hooks/threat-feed',
-    path: '/api/public/hooks/threat-feed',
-    getParentRoute: () => rootRouteImport,
+const AuthenticatedAuditsIdActivityRoute =
+  AuthenticatedAuditsIdActivityRouteImport.update({
+    id: '/audits/$id/activity',
+    path: '/audits/$id/activity',
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -148,6 +155,7 @@ export interface FileRoutesByFullPath {
   '/audits/$id/fixes': typeof AuthenticatedAuditsIdFixesRoute
   '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/code-audit': typeof ApiPublicHooksCodeAuditRoute
+  '/api/public/hooks/pipeline-advance': typeof ApiPublicHooksPipelineAdvanceRoute
   '/api/public/hooks/scheduled-scans': typeof ApiPublicHooksScheduledScansRoute
   '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/audits/$id/': typeof AuthenticatedAuditsIdIndexRoute
@@ -168,6 +176,7 @@ export interface FileRoutesByTo {
   '/audits/$id/fixes': typeof AuthenticatedAuditsIdFixesRoute
   '/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/code-audit': typeof ApiPublicHooksCodeAuditRoute
+  '/api/public/hooks/pipeline-advance': typeof ApiPublicHooksPipelineAdvanceRoute
   '/api/public/hooks/scheduled-scans': typeof ApiPublicHooksScheduledScansRoute
   '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/audits/$id': typeof AuthenticatedAuditsIdIndexRoute
@@ -190,6 +199,7 @@ export interface FileRoutesById {
   '/_authenticated/audits/$id/fixes': typeof AuthenticatedAuditsIdFixesRoute
   '/_authenticated/audits/$id/report': typeof AuthenticatedAuditsIdReportRoute
   '/api/public/hooks/code-audit': typeof ApiPublicHooksCodeAuditRoute
+  '/api/public/hooks/pipeline-advance': typeof ApiPublicHooksPipelineAdvanceRoute
   '/api/public/hooks/scheduled-scans': typeof ApiPublicHooksScheduledScansRoute
   '/api/public/hooks/threat-feed': typeof ApiPublicHooksThreatFeedRoute
   '/_authenticated/audits/$id/': typeof AuthenticatedAuditsIdIndexRoute
@@ -212,6 +222,7 @@ export interface FileRouteTypes {
     | '/audits/$id/fixes'
     | '/audits/$id/report'
     | '/api/public/hooks/code-audit'
+    | '/api/public/hooks/pipeline-advance'
     | '/api/public/hooks/scheduled-scans'
     | '/api/public/hooks/threat-feed'
     | '/audits/$id/'
@@ -232,6 +243,7 @@ export interface FileRouteTypes {
     | '/audits/$id/fixes'
     | '/audits/$id/report'
     | '/api/public/hooks/code-audit'
+    | '/api/public/hooks/pipeline-advance'
     | '/api/public/hooks/scheduled-scans'
     | '/api/public/hooks/threat-feed'
     | '/audits/$id'
@@ -253,6 +265,7 @@ export interface FileRouteTypes {
     | '/_authenticated/audits/$id/fixes'
     | '/_authenticated/audits/$id/report'
     | '/api/public/hooks/code-audit'
+    | '/api/public/hooks/pipeline-advance'
     | '/api/public/hooks/scheduled-scans'
     | '/api/public/hooks/threat-feed'
     | '/_authenticated/audits/$id/'
@@ -266,38 +279,18 @@ export interface RootRouteChildren {
   MfaRoute: typeof MfaRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiPublicHooksCodeAuditRoute: typeof ApiPublicHooksCodeAuditRoute
+  ApiPublicHooksPipelineAdvanceRoute: typeof ApiPublicHooksPipelineAdvanceRoute
   ApiPublicHooksScheduledScansRoute: typeof ApiPublicHooksScheduledScansRoute
   ApiPublicHooksThreatFeedRoute: typeof ApiPublicHooksThreatFeedRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/check': {
-      id: '/check'
-      path: '/check'
-      fullPath: '/check'
-      preLoaderRoute: typeof CheckRouteImport
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mfa': {
@@ -307,18 +300,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MfaRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
+    '/check': {
+      id: '/check'
+      path: '/check'
+      fullPath: '/check'
+      preLoaderRoute: typeof CheckRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/dashboard': {
-      id: '/_authenticated/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/threat-feed': {
+      id: '/_authenticated/threat-feed'
+      path: '/threat-feed'
+      fullPath: '/threat-feed'
+      preLoaderRoute: typeof AuthenticatedThreatFeedRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/leads': {
@@ -328,11 +342,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLeadsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/threat-feed': {
-      id: '/_authenticated/threat-feed'
-      path: '/threat-feed'
-      fullPath: '/threat-feed'
-      preLoaderRoute: typeof AuthenticatedThreatFeedRouteImport
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/clients/': {
@@ -356,39 +370,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAuditsIdIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/audits/$id/activity': {
-      id: '/_authenticated/audits/$id/activity'
-      path: '/audits/$id/activity'
-      fullPath: '/audits/$id/activity'
-      preLoaderRoute: typeof AuthenticatedAuditsIdActivityRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/audits/$id/code-audit': {
-      id: '/_authenticated/audits/$id/code-audit'
-      path: '/audits/$id/code-audit'
-      fullPath: '/audits/$id/code-audit'
-      preLoaderRoute: typeof AuthenticatedAuditsIdCodeAuditRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/audits/$id/fixes': {
-      id: '/_authenticated/audits/$id/fixes'
-      path: '/audits/$id/fixes'
-      fullPath: '/audits/$id/fixes'
-      preLoaderRoute: typeof AuthenticatedAuditsIdFixesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/audits/$id/report': {
-      id: '/_authenticated/audits/$id/report'
-      path: '/audits/$id/report'
-      fullPath: '/audits/$id/report'
-      preLoaderRoute: typeof AuthenticatedAuditsIdReportRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/api/public/hooks/code-audit': {
-      id: '/api/public/hooks/code-audit'
-      path: '/api/public/hooks/code-audit'
-      fullPath: '/api/public/hooks/code-audit'
-      preLoaderRoute: typeof ApiPublicHooksCodeAuditRouteImport
+    '/api/public/hooks/threat-feed': {
+      id: '/api/public/hooks/threat-feed'
+      path: '/api/public/hooks/threat-feed'
+      fullPath: '/api/public/hooks/threat-feed'
+      preLoaderRoute: typeof ApiPublicHooksThreatFeedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/hooks/scheduled-scans': {
@@ -398,12 +384,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksScheduledScansRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/hooks/threat-feed': {
-      id: '/api/public/hooks/threat-feed'
-      path: '/api/public/hooks/threat-feed'
-      fullPath: '/api/public/hooks/threat-feed'
-      preLoaderRoute: typeof ApiPublicHooksThreatFeedRouteImport
+    '/api/public/hooks/pipeline-advance': {
+      id: '/api/public/hooks/pipeline-advance'
+      path: '/api/public/hooks/pipeline-advance'
+      fullPath: '/api/public/hooks/pipeline-advance'
+      preLoaderRoute: typeof ApiPublicHooksPipelineAdvanceRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/code-audit': {
+      id: '/api/public/hooks/code-audit'
+      path: '/api/public/hooks/code-audit'
+      fullPath: '/api/public/hooks/code-audit'
+      preLoaderRoute: typeof ApiPublicHooksCodeAuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/audits/$id/report': {
+      id: '/_authenticated/audits/$id/report'
+      path: '/audits/$id/report'
+      fullPath: '/audits/$id/report'
+      preLoaderRoute: typeof AuthenticatedAuditsIdReportRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/audits/$id/fixes': {
+      id: '/_authenticated/audits/$id/fixes'
+      path: '/audits/$id/fixes'
+      fullPath: '/audits/$id/fixes'
+      preLoaderRoute: typeof AuthenticatedAuditsIdFixesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/audits/$id/code-audit': {
+      id: '/_authenticated/audits/$id/code-audit'
+      path: '/audits/$id/code-audit'
+      fullPath: '/audits/$id/code-audit'
+      preLoaderRoute: typeof AuthenticatedAuditsIdCodeAuditRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/audits/$id/activity': {
+      id: '/_authenticated/audits/$id/activity'
+      path: '/audits/$id/activity'
+      fullPath: '/audits/$id/activity'
+      preLoaderRoute: typeof AuthenticatedAuditsIdActivityRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
   }
 }
@@ -445,6 +466,7 @@ const rootRouteChildren: RootRouteChildren = {
   MfaRoute: MfaRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiPublicHooksCodeAuditRoute: ApiPublicHooksCodeAuditRoute,
+  ApiPublicHooksPipelineAdvanceRoute: ApiPublicHooksPipelineAdvanceRoute,
   ApiPublicHooksScheduledScansRoute: ApiPublicHooksScheduledScansRoute,
   ApiPublicHooksThreatFeedRoute: ApiPublicHooksThreatFeedRoute,
 }

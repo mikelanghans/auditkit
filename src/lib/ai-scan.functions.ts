@@ -4,7 +4,7 @@ import { assertSafeOutboundUrl, safeFetch, SSRFBlockedError, describeBlockedUrl 
 import { upsertScanFinding } from "./finding-writer";
 import { saveScanRun, type RecordedResult } from "./scan-history";
 import type { EvidenceInput } from "./evidence";
-import { consumeQuota } from "./quota";
+import { consumeQuota, type ScannerCoreOptions } from "./quota";
 import { extractText, classify } from "./ai-probe";
 
 
@@ -71,8 +71,14 @@ function isValidHttpUrl(raw: string): boolean {
 export const runAIScan = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: AIScanInput) => input)
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
+  .handler(async ({ data, context }) => aiScanCore(context.supabase, context.userId, data));
+
+/**
+ * runAIScan without the request wrapper, so the full-audit pipeline can run it
+ * on the server. `supabase` may be the service-role client: ownership is still
+ * checked against `userId`, and the quota is spent up front by the pipeline.
+ */
+export async function aiScanCore(supabase: any, userId: string, data: AIScanInput, opts: ScannerCoreOptions = { checkQuota: true }) {
     const url = data.endpointUrl?.trim() ?? "";
     if (!isValidHttpUrl(url)) {
       return { ok: false as const, error: "Endpoint URL must be a valid http(s) URL." };
@@ -102,7 +108,7 @@ export const runAIScan = createServerFn({ method: "POST" })
       return { ok: false as const, error: "Audit not found or access denied." };
     }
 
-    const quota = await consumeQuota(supabase, "scan", 1);
+    const quota = opts.checkQuota ? await consumeQuota(supabase, "scan", 1) : ({ ok: true } as Awaited<ReturnType<typeof consumeQuota>>);
     if (!quota.ok) return { ok: false as const, error: quota.error };
 
     const headers: Record<string, string> = {
@@ -281,6 +287,7 @@ export const runAIScan = createServerFn({ method: "POST" })
         target: url,
         trigger: data.parentRunId ? "full" : "manual",
         parentRunId: data.parentRunId ?? null,
+        createdBy: userId,
       },
       recorded,
       { evidence },
@@ -304,4 +311,4 @@ export const runAIScan = createServerFn({ method: "POST" })
       written,
       history,
     };
-  });
+}

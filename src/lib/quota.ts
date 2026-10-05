@@ -28,3 +28,9 @@ export async function consumeQuota(supabase: SupabaseClient<any>, kind: QuotaKin
     error: `Daily limit reached for ${what} (${r.used ?? "?"} of ${r.limit ?? "?"} used today). The limit resets at midnight UTC.`,
   };
 }
+
+/** Options for a scanner run outside its own request (the full-audit pipeline). */
+export type ScannerCoreOptions = {
+  /** False when the caller already spent the quota (the pipeline does it up front). */
+  checkQuota: boolean;
+};
