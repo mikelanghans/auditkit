@@ -43,6 +43,13 @@
       "when": 1791238654930,
       "tag": "0005_owner_lock_and_mfa",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791238719837,
+      "tag": "0006_public_check_email",
+      "breakpoints": true
     }
   ]
 }

@@ -608,6 +608,8 @@ export type Database = {
           ip_hash: string
           lead_status: string
           marketing_consent: boolean
+          owner_notified_at: string | null
+          report_sent_at: string | null
           status: string
           summary: Json | null
           url: string
@@ -623,6 +625,8 @@ export type Database = {
           ip_hash: string
           lead_status?: string
           marketing_consent?: boolean
+          owner_notified_at?: string | null
+          report_sent_at?: string | null
           status?: string
           summary?: Json | null
           url: string
@@ -638,6 +642,8 @@ export type Database = {
           ip_hash?: string
           lead_status?: string
           marketing_consent?: boolean
+          owner_notified_at?: string | null
+          report_sent_at?: string | null
           status?: string
           summary?: Json | null
           url?: string
