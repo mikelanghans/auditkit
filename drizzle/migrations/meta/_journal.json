@@ -57,6 +57,13 @@
       "when": 1791238754852,
       "tag": "0007_code_audit_progress_and_audit_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791238784988,
+      "tag": "0008_audit_targets_scope",
+      "breakpoints": true
     }
   ]
 }

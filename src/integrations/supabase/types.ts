@@ -154,6 +154,97 @@ export type Database = {
           },
         ]
       }
+      audit_scope: {
+        Row: {
+          audit_id: string
+          authorization_ref: string | null
+          authorized_at: string | null
+          authorized_by: string | null
+          environment: string
+          notes: string | null
+          out_of_scope: string | null
+          testing_window: string | null
+          updated_at: string
+          write_tests_allowed: boolean
+        }
+        Insert: {
+          audit_id: string
+          authorization_ref?: string | null
+          authorized_at?: string | null
+          authorized_by?: string | null
+          environment?: string
+          notes?: string | null
+          out_of_scope?: string | null
+          testing_window?: string | null
+          updated_at?: string
+          write_tests_allowed?: boolean
+        }
+        Update: {
+          audit_id?: string
+          authorization_ref?: string | null
+          authorized_at?: string | null
+          authorized_by?: string | null
+          environment?: string
+          notes?: string | null
+          out_of_scope?: string | null
+          testing_window?: string | null
+          updated_at?: string
+          write_tests_allowed?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_scope_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: true
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_targets: {
+        Row: {
+          audit_id: string
+          created_at: string
+          id: string
+          in_scope: boolean
+          kind: string
+          label: string | null
+          meta: Json
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          audit_id: string
+          created_at?: string
+          id?: string
+          in_scope?: boolean
+          kind: string
+          label?: string | null
+          meta?: Json
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          audit_id?: string
+          created_at?: string
+          id?: string
+          in_scope?: boolean
+          kind?: string
+          label?: string | null
+          meta?: Json
+          updated_at?: string
+          value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_targets_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audits: {
         Row: {
           built_with: string | null
