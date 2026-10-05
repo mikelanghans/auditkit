@@ -223,6 +223,92 @@ export type Database = {
           },
         ]
       }
+      audit_packages: {
+        Row: {
+          audit_id: string
+          name: string
+          recorded_at: string
+          source: string
+          version: string
+        }
+        Insert: {
+          audit_id: string
+          name: string
+          recorded_at?: string
+          source: string
+          version: string
+        }
+        Update: {
+          audit_id?: string
+          name?: string
+          recorded_at?: string
+          source?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_packages_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_schedules: {
+        Row: {
+          alert_email: boolean
+          audit_id: string
+          cadence: string
+          enabled: boolean
+          last_error: string | null
+          last_run_at: string | null
+          last_run_id: string | null
+          next_run_at: string
+          scanners: string[]
+          updated_at: string
+        }
+        Insert: {
+          alert_email?: boolean
+          audit_id: string
+          cadence?: string
+          enabled?: boolean
+          last_error?: string | null
+          last_run_at?: string | null
+          last_run_id?: string | null
+          next_run_at?: string
+          scanners?: string[]
+          updated_at?: string
+        }
+        Update: {
+          alert_email?: boolean
+          audit_id?: string
+          cadence?: string
+          enabled?: boolean
+          last_error?: string | null
+          last_run_at?: string | null
+          last_run_id?: string | null
+          next_run_at?: string
+          scanners?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_schedules_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: true
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_schedules_last_run_id_fkey"
+            columns: ["last_run_id"]
+            isOneToOne: false
+            referencedRelation: "scan_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_scope: {
         Row: {
           audit_id: string
@@ -314,6 +400,50 @@ export type Database = {
           },
         ]
       }
+      audit_time_entries: {
+        Row: {
+          audit_id: string
+          category: string
+          created_at: string
+          created_by: string
+          ended_at: string | null
+          id: string
+          note: string | null
+          source: string
+          started_at: string
+        }
+        Insert: {
+          audit_id: string
+          category?: string
+          created_at?: string
+          created_by?: string
+          ended_at?: string | null
+          id?: string
+          note?: string | null
+          source?: string
+          started_at?: string
+        }
+        Update: {
+          audit_id?: string
+          category?: string
+          created_at?: string
+          created_by?: string
+          ended_at?: string | null
+          id?: string
+          note?: string | null
+          source?: string
+          started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_time_entries_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audits: {
         Row: {
           built_with: string | null
@@ -322,6 +452,7 @@ export type Database = {
           checklist_version: string | null
           client_id: string
           completed_at: string | null
+          confirmed_repos: string[]
           created_at: string
           created_by: string
           evidence_retain_until: string | null
@@ -341,6 +472,7 @@ export type Database = {
           checklist_version?: string | null
           client_id: string
           completed_at?: string | null
+          confirmed_repos?: string[]
           created_at?: string
           created_by: string
           evidence_retain_until?: string | null
@@ -360,6 +492,7 @@ export type Database = {
           checklist_version?: string | null
           client_id?: string
           completed_at?: string | null
+          confirmed_repos?: string[]
           created_at?: string
           created_by?: string
           evidence_retain_until?: string | null
@@ -858,6 +991,110 @@ export type Database = {
           },
         ]
       }
+      pipeline_secrets: {
+        Row: {
+          created_at: string
+          expires_at: string
+          run_id: string
+          sealed: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          run_id: string
+          sealed: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          run_id?: string
+          sealed?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_secrets_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: true
+            referencedRelation: "scan_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_stages: {
+        Row: {
+          attempts: number
+          audit_id: string
+          created_at: string
+          depends_on: string[]
+          finished_at: string | null
+          id: string
+          key: string
+          meta: Json
+          output: Json
+          position: number
+          reason: string | null
+          run_id: string
+          scanner: string
+          stage: string
+          started_at: string | null
+          status: string
+          target: string | null
+        }
+        Insert: {
+          attempts?: number
+          audit_id: string
+          created_at?: string
+          depends_on?: string[]
+          finished_at?: string | null
+          id?: string
+          key: string
+          meta?: Json
+          output?: Json
+          position: number
+          reason?: string | null
+          run_id: string
+          scanner: string
+          stage: string
+          started_at?: string | null
+          status?: string
+          target?: string | null
+        }
+        Update: {
+          attempts?: number
+          audit_id?: string
+          created_at?: string
+          depends_on?: string[]
+          finished_at?: string | null
+          id?: string
+          key?: string
+          meta?: Json
+          output?: Json
+          position?: number
+          reason?: string | null
+          run_id?: string
+          scanner?: string
+          stage?: string
+          started_at?: string | null
+          status?: string
+          target?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_stages_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_stages_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "scan_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -1023,12 +1260,14 @@ export type Database = {
           finished_at: string | null
           id: string
           parent_run_id: string | null
+          pipeline_driver: string | null
           scanner: string
           started_at: string
           status: string
           summary: Json
           target: string | null
           trigger: string
+          workflow_instance: string | null
         }
         Insert: {
           audit_id: string
@@ -1036,12 +1275,14 @@ export type Database = {
           finished_at?: string | null
           id?: string
           parent_run_id?: string | null
+          pipeline_driver?: string | null
           scanner: string
           started_at?: string
           status?: string
           summary?: Json
           target?: string | null
           trigger?: string
+          workflow_instance?: string | null
         }
         Update: {
           audit_id?: string
@@ -1049,12 +1290,14 @@ export type Database = {
           finished_at?: string | null
           id?: string
           parent_run_id?: string | null
+          pipeline_driver?: string | null
           scanner?: string
           started_at?: string
           status?: string
           summary?: Json
           target?: string | null
           trigger?: string
+          workflow_instance?: string | null
         }
         Relationships: [
           {
