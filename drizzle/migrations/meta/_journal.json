@@ -36,6 +36,83 @@
       "when": 1791238467863,
       "tag": "0004_code_audits",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791238654930,
+      "tag": "0005_owner_lock_and_mfa",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791238719837,
+      "tag": "0006_public_check_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791238754852,
+      "tag": "0007_code_audit_progress_and_audit_owner",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791238784988,
+      "tag": "0008_audit_targets_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791238821096,
+      "tag": "0009_scan_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791238876409,
+      "tag": "0010_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791238958874,
+      "tag": "0011_audit_trail",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791238991336,
+      "tag": "0012_compliance_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791239043553,
+      "tag": "0013_finding_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791239078721,
+      "tag": "0014_evidence_retention_surface_capture_inbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791239145592,
+      "tag": "0015_schedules_time_pipeline",
+      "breakpoints": true
     }
   ]
 }
