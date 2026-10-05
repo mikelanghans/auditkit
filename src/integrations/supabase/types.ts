@@ -612,6 +612,79 @@ export type Database = {
           },
         ]
       }
+      evidence: {
+        Row: {
+          audit_id: string
+          captured_at: string
+          checklist_item_id: string | null
+          content_text: string | null
+          created_by: string
+          id: string
+          kind: string
+          mime_type: string | null
+          run_id: string | null
+          sha256: string
+          size_bytes: number
+          source: string
+          storage_path: string | null
+          title: string
+        }
+        Insert: {
+          audit_id: string
+          captured_at?: string
+          checklist_item_id?: string | null
+          content_text?: string | null
+          created_by?: string
+          id?: string
+          kind: string
+          mime_type?: string | null
+          run_id?: string | null
+          sha256: string
+          size_bytes?: number
+          source?: string
+          storage_path?: string | null
+          title: string
+        }
+        Update: {
+          audit_id?: string
+          captured_at?: string
+          checklist_item_id?: string | null
+          content_text?: string | null
+          created_by?: string
+          id?: string
+          kind?: string
+          mime_type?: string | null
+          run_id?: string | null
+          sha256?: string
+          size_bytes?: number
+          source?: string
+          storage_path?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evidence_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "evidence_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "checklist_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "evidence_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "scan_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       finding_audit_log: {
         Row: {
           after_status: string | null
@@ -754,6 +827,7 @@ export type Database = {
           checklist_item_id: string | null
           checklist_key: string | null
           created_at: string
+          evidence_ids: string[]
           id: string
           notes: string | null
           previous_run_id: string | null
@@ -769,6 +843,7 @@ export type Database = {
           checklist_item_id?: string | null
           checklist_key?: string | null
           created_at?: string
+          evidence_ids?: string[]
           id?: string
           notes?: string | null
           previous_run_id?: string | null
@@ -784,6 +859,7 @@ export type Database = {
           checklist_item_id?: string | null
           checklist_key?: string | null
           created_at?: string
+          evidence_ids?: string[]
           id?: string
           notes?: string | null
           previous_run_id?: string | null

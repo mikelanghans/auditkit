@@ -71,6 +71,13 @@
       "when": 1791238821096,
       "tag": "0009_scan_history",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791238876409,
+      "tag": "0010_evidence",
+      "breakpoints": true
     }
   ]
 }
