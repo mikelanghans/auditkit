@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { runAutoScan } from "@/lib/scan.functions";
 
-import { runRepoScan } from "@/lib/repo-scan.functions";
+import { runRepoScan, confirmAuditRepo } from "@/lib/repo-scan.functions";
 import { recheckAIAssistItem } from "@/lib/ai-assist.functions";
 import { DeleteAuditButton } from "@/components/delete-audit-button";
 import { SupabaseScanDialog } from "@/components/supabase-scan-dialog";
@@ -1174,6 +1174,7 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
 }) {
 
   const scan = useServerFn(runRepoScan);
+  const confirmRepo = useServerFn(confirmAuditRepo);
   const qc = useQueryClient();
 
   return (
@@ -1204,7 +1205,23 @@ function RepoScanDialog({ auditId, appUrl, clientId, savedRepos, onDone, onRepoR
             { id: loadingToastId, description: `${res.repo} · ${res.commitsScanned} commits · ${res.findings.length} hit(s)${depDesc}${aiDesc}` },
           );
           if (res.siteMatch?.match === "no") {
-            toast.warning(`Is ${res.repo} the right repo?`, { description: res.siteMatch.note, duration: 15000 });
+            const repo = res.repo;
+            toast.warning(`Is ${repo} the right repo?`, {
+              description: res.siteMatch.note,
+              duration: 15000,
+              action: {
+                label: "This is the right repo",
+                onClick: async () => {
+                  try {
+                    const r = await confirmRepo({ data: { auditId, repo } });
+                    if (r.ok) toast.success(`Got it. Future scans of ${repo} won't ask again for this audit.`);
+                    else toast.error(r.error);
+                  } catch (err: any) {
+                    toast.error(err?.message ?? "Couldn't save that");
+                  }
+                },
+              },
+            });
           }
           onRepoResult({
             passes, fails, findings: res.findings.length, repo: res.repo, at: new Date().toISOString(),

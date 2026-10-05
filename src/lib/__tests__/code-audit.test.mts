@@ -172,6 +172,7 @@ test("start: dispatches one Fly machine with the job encrypted, and records the 
       return json({ id: "m-123" });
     }
     if (url === "https://api.github.com/repos/o/r") return json({ private: true, permissions: { pull: true } });
+    if (url.startsWith("https://github.com/o/r.git/info/refs")) return new Response("ok", { status: 200 });
     return undefined;
   });
   const res: any = await startCodeAudit({
@@ -300,6 +301,7 @@ test("start: checks GitHub access first, so a private repo without a token never
   const { startCodeAudit, checkRepoAccess } = await import("../code-audit.functions.ts");
   let machines = 0;
   let authSeen: string | null = null;
+  let gitAuthSeen: string | null = null;
   stubFetch((url, init) => {
     if (url.startsWith("https://api.machines.dev/")) {
       machines++;
@@ -309,6 +311,14 @@ test("start: checks GitHub access first, so a private repo without a token never
       authSeen = new Headers(init.headers as any).get("authorization");
       return authSeen ? json({ private: true, permissions: { pull: true } }) : json({ message: "Not Found" }, 404);
     }
+    if (url === "https://api.github.com/repos/o/metaonly")
+      return json({ private: true, permissions: { pull: true } });
+    if (url.startsWith("https://github.com/o/private.git/info/refs")) {
+      gitAuthSeen = new Headers(init.headers as any).get("authorization");
+      return new Response("ok", { status: 200 });
+    }
+    // Token sees the repo through the API (Metadata) but can't clone (no Contents).
+    if (url.startsWith("https://github.com/o/metaonly.git/info/refs")) return new Response("", { status: 401 });
     if (url === "https://api.github.com/repos/o/public") return json({ private: false });
     if (url === "https://api.github.com/repos/o/other") return json({ message: "Not Found" }, 404);
     return undefined;
@@ -318,6 +328,11 @@ test("start: checks GitHub access first, so a private repo without a token never
   r = await checkRepoAccess("https://github.com/o/private", "github_pat_0123456789abcdef");
   assert.equal(r.ok, true);
   assert.equal(authSeen, "Bearer github_pat_0123456789abcdef");
+  // Clone access is checked with the same header the runner's git sends.
+  assert.equal(gitAuthSeen, `Basic ${Buffer.from("x-access-token:github_pat_0123456789abcdef").toString("base64")}`);
+  r = await checkRepoAccess("https://github.com/o/metaonly", "github_pat_0123456789abcdef");
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Contents/);
   r = await checkRepoAccess("https://github.com/o/other", "github_pat_0123456789abcdef");
   assert.match(r.error, /can't see o\/other/);
   assert.equal((await checkRepoAccess("https://github.com/o/public", null)).ok, true);

@@ -27,6 +27,9 @@ test("site match: homepage, CNAME, code mention or search hit count; nothing fou
   assert.equal(no.match, "no");
   assert.match(no.note, /mikelanghans\.com/);
   assert.equal(judgeSiteMatch({ siteUrl: site, searchHits: null }).match, "unknown");
+  // A confirmed repo is a match even with no evidence in the code.
+  assert.equal(judgeSiteMatch({ siteUrl: site, searchHits: 0, confirmed: true }).match, "yes");
+  assert.equal(judgeSiteMatch({ siteUrl: site, confirmed: true }).match, "yes");
   assert.equal(judgeSiteMatch({ siteUrl: null }).match, "unknown");
 });
 

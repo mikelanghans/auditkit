@@ -35,6 +35,11 @@ export function parseGithubRepo(raw: string): { owner: string; repo: string } | 
   return { owner, repo };
 }
 
+/** Canonical key for a repo, used to remember confirmations: "owner/repo", lowercase. */
+export function repoKey(owner: string, repo: string): string {
+  return `${owner}/${repo}`.toLowerCase();
+}
+
 export function siteHost(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
@@ -58,6 +63,8 @@ export function judgeSiteMatch(input: {
   cname?: string | null;
   texts?: string[];
   searchHits?: number | null;
+  /** The auditor already confirmed this repo belongs to the audit. */
+  confirmed?: boolean;
 }): SiteMatch {
   const host = siteHost(input.siteUrl);
   if (!host) return { match: "unknown", note: "The audit has no website, so the repo couldn't be matched to one." };
@@ -66,6 +73,7 @@ export function judgeSiteMatch(input: {
     return { match: "yes", note: `The repo's CNAME file points at ${host}.` };
   if ((input.texts ?? []).some((t) => t.toLowerCase().includes(host))) return { match: "yes", note: `The repo's code mentions ${host}.` };
   if (typeof input.searchHits === "number" && input.searchHits > 0) return { match: "yes", note: `GitHub code search finds ${host} in the repo.` };
+  if (input.confirmed) return { match: "yes", note: `You confirmed this repo belongs to ${host}.` };
   if (input.searchHits === null || input.searchHits === undefined)
     return { match: "unknown", note: `Couldn't confirm this repo belongs to ${host} (code search unavailable).` };
   return {

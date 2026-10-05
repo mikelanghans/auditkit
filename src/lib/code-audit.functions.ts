@@ -2,7 +2,7 @@
 // See docs/security-audit/INTEGRATION-PLAN.md and runner/README.md.
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { consumeQuota } from "./quota";
+import { consumeQuota, type ScannerCoreOptions } from "./quota";
 import { PROFILE_BUDGETS, type CodeAuditProfile } from "./code-audit-contract";
 import { GITHUB_HOSTS, safeFetch } from "./ssrf-guard";
 
@@ -13,6 +13,8 @@ export type StartCodeAuditInput = {
   token?: string;
   profile: CodeAuditProfile;
   clientConsent: boolean;
+  /** Leads from the pipeline's repo stage (see deepAuditFocus). */
+  focus?: string[] | null;
 };
 
 /** Accept only plain https GitHub repo URLs; the runner clones exactly this. */
@@ -86,12 +88,43 @@ export async function checkRepoAccess(
   const meta = (await res.json().catch(() => ({}))) as { private?: boolean; permissions?: { pull?: boolean } };
   if (token && meta.permissions && meta.permissions.pull === false)
     return { ok: false, error: `That token can't read ${owner}/${repo}'s code. Give it Contents: Read-only.` };
+  // The API call above only proves the token can see the repo (Metadata). The
+  // runner clones over git, which also needs Contents: Read. Ask git's own
+  // endpoint, with the exact header the runner sends.
+  if (token) {
+    let git: Response;
+    try {
+      git = await safeFetch(
+        `https://github.com/${owner}/${repo}.git/info/refs?service=git-upload-pack`,
+        {
+          headers: {
+            "user-agent": "git/2.39 AuditKit-CodeAudit/1.0",
+            authorization: `Basic ${btoa(`x-access-token:${token}`)}`,
+          },
+        },
+        { timeoutMs: 10_000, allowHosts: GITHUB_HOSTS },
+      );
+    } catch (e: any) {
+      return { ok: false, error: `Couldn't reach GitHub to check clone access to ${owner}/${repo}: ${e?.message ?? "request failed"}. Try again.` };
+    }
+    await git.body?.cancel().catch(() => {});
+    if (git.status === 401 || git.status === 403 || git.status === 404)
+      return {
+        ok: false,
+        error: `That token can see ${owner}/${repo} but GitHub won't let it clone the code. For a fine-grained token, set Repository permissions → Contents to Read-only (Metadata alone isn't enough). For a classic token, give it the repo scope.`,
+      };
+    if (!git.ok)
+      return { ok: false, error: `GitHub returned HTTP ${git.status} when checking clone access to ${owner}/${repo}. Try again.` };
+  }
   return { ok: true, private: meta.private === true };
 }
 
 export const startCodeAudit = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: StartCodeAuditInput) => {
+  .inputValidator(validateStartCodeAuditInput)
+  .handler(async ({ data, context }) => startCodeAuditCore(context.supabase, context.userId, data));
+
+export function validateStartCodeAuditInput(input: StartCodeAuditInput) {
     if (
       !input ||
       typeof input.auditId !== "string" ||
@@ -102,9 +135,14 @@ export const startCodeAudit = createServerFn({ method: "POST" })
     )
       throw new Error("Invalid input");
     return input;
-  })
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
+}
+
+/**
+ * startCodeAudit without the request wrapper, so the full-audit pipeline can run it
+ * on the server. `supabase` may be the service-role client: ownership is still
+ * checked against `userId`, and the quota is spent up front by the pipeline.
+ */
+export async function startCodeAuditCore(supabase: any, userId: string, data: StartCodeAuditInput, opts: ScannerCoreOptions = { checkQuota: true }) {
     const { data: audit } = await supabase
       .from("audits")
       .select("id, created_by")
@@ -150,7 +188,7 @@ export const startCodeAudit = createServerFn({ method: "POST" })
     const access = await checkRepoAccess(repoUrl, token);
     if (!access.ok) return { ok: false as const, error: access.error };
 
-    const quota = await consumeQuota(supabase, "code_audit", 1);
+    const quota = opts.checkQuota ? await consumeQuota(supabase, "code_audit", 1) : ({ ok: true } as Awaited<ReturnType<typeof consumeQuota>>);
     if (!quota.ok) return { ok: false as const, error: quota.error };
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -178,6 +216,7 @@ export const startCodeAudit = createServerFn({ method: "POST" })
       profile: data.profile,
       budget,
       callbackUrl: dispatch.callbackUrl(),
+      focus: Array.isArray(data.focus) ? data.focus.filter((f) => typeof f === "string").slice(0, 40) : null,
       issuedAt: new Date().toISOString(),
     });
     if (!res.ok) {
@@ -192,7 +231,7 @@ export const startCodeAudit = createServerFn({ method: "POST" })
       .update({ status: "queued", runner_machine_id: res.machineId || null })
       .eq("id", run.id);
     return { ok: true as const, runId: run.id as string };
-  });
+}
 
 /**
  * Stop a deep audit that is queued or running: destroys the Fly machine and
@@ -227,6 +266,10 @@ export const stopCodeAudit = createServerFn({ method: "POST" })
         error: destroyed.ok ? "Stopped by you." : `Stopped by you (the runner machine may still be running: ${destroyed.error}).`,
       })
       .eq("id", data.runId);
+    // Let a full-audit run that was waiting on it synthesize and close.
+    await import("./pipeline-engine.server")
+      .then((m) => m.onCodeAuditFinished(supabaseAdmin, data.runId))
+      .catch(() => {});
     return { ok: true as const };
   });
 
