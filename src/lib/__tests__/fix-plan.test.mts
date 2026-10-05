@@ -27,5 +27,7 @@ test("fix plan: open issues only, accepted risks left out, overrides change the 
   assert.match(md, /\| 1 \| RLS off \| critical \| Dev \| 2026-10-01 \(overdue\) \|/);
   assert.match(md, /```text\nEnable RLS…\n```/);
   assert.match(md, /No Lovable prompt generated yet/);
+  assert.match(md, /may not get everything right/);
+  assert.match(md, /fixed only when the re-test passes/);
   assert.doesNotMatch(md, /Accepted thing|Passing thing/);
 });

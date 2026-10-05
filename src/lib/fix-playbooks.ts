@@ -10,11 +10,15 @@
 
 type Playbook = { id: string; text: string };
 
-const WHERE_HEADERS = `Where to set response headers depends on the app. Inspect the project to determine which case applies:
-- Server-rendered app with a server entry (TanStack Start: src/server.ts or a global request middleware; Next.js: middleware or next.config headers; Express/Hono: middleware): set the header there on every HTML response.
-- Static single-page app (Vite build served as files): set it at the hosting layer (vercel.json "headers", Netlify or Cloudflare Pages "_headers" file, or the host's header settings).
-- If the host offers no way to set headers, report that instead of inventing a workaround. Do not fall back to a <meta> tag for headers a meta tag can't express (HSTS, X-Frame-Options, frame-ancestors).
-Only change headers in production: the Lovable editor and similar tools show the app in an iframe, so framing restrictions must not apply to the preview.`;
+const WHERE_HEADERS = `Where to set response headers depends on the app. Inspect the project, say which case applies, then follow it:
+- Server-rendered app with a server entry: set the headers there on every HTML response.
+  - TanStack Start (Lovable's current template): either wrap the final Response in src/server.ts (copy its headers into a new Headers, add the security headers, return a new Response with them), or add a request middleware in src/start.ts. In a middleware, decide whether the page is HTML from the Response that next() returns: result.response.headers.get("content-type"). Do not use getResponseHeader("content-type") for that check: it only sees headers queued with setResponseHeader, never the page's own Content-Type, so the check fails on every page and no headers are sent.
+  - Next.js: middleware or next.config headers. Express/Hono: middleware.
+- Static single-page app (Vite build served as files): the headers must come from whatever serves the files. A vercel.json, netlify.toml or _headers file only works on the host that reads it; confirm which host serves the production domain before creating one, and never create one for a host that ignores it.
+- If the host offers no way to set headers (for example a static build on an app builder's own hosting), stop and report that: the fix is a proxy in front of the domain (such as Cloudflare response header rules) or moving to a host that supports headers. Do not report it as fixed.
+- Never use a <meta http-equiv> tag as the fix. The scan checks real response headers, and X-Frame-Options, HSTS, Permissions-Policy and frame-ancestors are ignored in meta tags anyway.
+Apply the headers in production only, because builder editors (Lovable's included) show the preview in an iframe. The production check must be true on the live domain (e.g. import.meta.env.PROD in a production build), not a hostname guess.
+Nothing changes on the live site until the app is published or deployed. Verify on the production URL, not the preview: the page response must carry every header, and an AuditKit re-scan of the live site must pass.`;
 
 const CSP: Playbook = {
   id: "csp",
@@ -22,11 +26,11 @@ const CSP: Playbook = {
 
 Content-Security-Policy requirements:
 1. First find every origin the app really loads from (scripts, styles, fonts, images, API and websocket targets) by searching the code and config, and list them before writing the policy. Never guess origins.
-2. script-src must not contain 'unsafe-inline', 'unsafe-eval' or wildcards. Server-rendered frameworks (TanStack Start, Next.js, Remix) emit inline scripts on every page, so use a per-request nonce: generate a random value per request, put 'nonce-<value>' in script-src and the same nonce attribute on every inline script the framework renders. A static Vite build normally has no inline scripts, so script-src 'self' plus any listed origins is enough there.
+2. script-src must not contain 'unsafe-inline', 'unsafe-eval' or wildcards. Server-rendered frameworks (TanStack Start, Next.js, Remix) emit inline scripts on every page, so use a per-request nonce: generate a random value per request, put 'nonce-<value>' in script-src and the same nonce attribute on every inline script the framework renders. In TanStack Start, pass the nonce to createRouter({ ssr: { nonce } }) so the router stamps it on its scripts. A static Vite build normally has no inline scripts, so script-src 'self' plus any listed origins is enough there.
 3. style-src 'self' 'unsafe-inline' is an acceptable trade-off for component libraries that inject styles; say that scripts are what matter.
 4. Always include: object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none' (or 'self' if the app frames itself).
 5. connect-src: 'self' plus only the API origins found in step 1. If the app uses Supabase (a supabase client or SUPABASE_URL is present), that means https://<project-ref>.supabase.co and, if it uses realtime, wss://<project-ref>.supabase.co.
-6. Roll out as Content-Security-Policy-Report-Only first. Only after the browser console shows no violations while using the app, rename the header to Content-Security-Policy.
+6. Roll out as Content-Security-Policy-Report-Only first. Only after the browser console shows no violations while using the published site, rename the header to Content-Security-Policy. Say up front that the AuditKit scan keeps failing this item while the policy is Report-Only (it only accepts an enforced Content-Security-Policy), and that switching to the enforced header is the step that clears it.
 7. Verify with DevTools → Network → the document request → Response Headers, and the console.`,
 };
 

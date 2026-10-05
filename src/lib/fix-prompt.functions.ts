@@ -15,14 +15,14 @@ export type FixTarget = "lovable" | "cursor" | "claude";
 // Extra guidance applied whenever the finding concerns Content-Security-Policy.
 const CSP_RULE =
   "If the finding is about a Content-Security-Policy header, the prompt MUST also: " +
-  "(a) say the header belongs in the server code that responds to every page request (e.g. the SSR/server entry), not vague 'deployment settings'; " +
+  "(a) say where the header goes using the playbook's rules: the server code that responds to every page request when the app has one (e.g. the SSR/server entry), or the host's header config for a static build. Never vague 'deployment settings' and never a <meta> tag; " +
   "(b) include these directives in the example policy: default-src 'self'; script-src; style-src; img-src; font-src; connect-src; " +
   "object-src 'none'; base-uri 'self'; frame-ancestors 'none' (or 'self'); form-action 'self'; " +
   "(c) forbid script-src 'unsafe-inline' and wildcards, but instruct that any inline scripts the framework needs for hydration " +
   "must be allowed via per-request nonces or SHA-256 hashes instead — warn that banning unsafe-inline without nonces/hashes can blank the page; " +
   "(d) note style-src may keep 'unsafe-inline' if inline styles are required (lower risk); " +
   "(e) roll out safely: ship first as Content-Security-Policy-Report-Only, check the browser console for violations, adjust the allowlist, " +
-  "then switch to the enforcing Content-Security-Policy header. Word budget for CSP prompts may extend to 300 words.";
+  "then switch to the enforcing Content-Security-Policy header, and say the AuditKit scan keeps failing CSP until that switch. Word budget for CSP prompts may extend to 300 words.";
 
 const GROUNDING_RULE =
   "CRITICAL — do not fabricate. Base the prompt ONLY on the finding evidence provided. " +
@@ -45,6 +45,7 @@ const SYSTEM_PROMPTS: Record<FixTarget, string> = {
     "2) Where the fix depends on what the app uses, tell Lovable to check the code first and list what it found before changing anything. " +
     "3) Describe the exact change and the constraints (what must never be done, what must keep working). " +
     "4) Steps only a person can do outside the code (for example rotating a key in a provider's dashboard or changing a hosting setting) go in as an instruction for Lovable to tell the founder at the end, e.g. \"When you're done, remind me to rotate the key in the Stripe dashboard.\" " +
+    "Any fix that changes what the live site sends (response headers, redirects, build output, served files) only takes effect after publishing, so always end by telling Lovable to remind the founder to click Publish → Update and then re-scan in AuditKit. " +
     '5) End with what Lovable should report back (the final values it set, what it kept enabled and why) and at most one simple check the founder can do in the app itself (e.g. "log in and complete a test payment"). ' +
     "6) Tell Lovable not to change unrelated code. " +
     '7) Plain text: no title or markdown headings, no "you need to", no explanation of the vulnerability. ' +

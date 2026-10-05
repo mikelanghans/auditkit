@@ -169,7 +169,7 @@ function FixPlanPage() {
       <div>
         <h1 className="text-2xl font-semibold">Fix plan</h1>
         <p className="text-sm text-muted-foreground">
-          {audit.data?.title}{audit.data?.client?.name ? ` · ${audit.data.client.name}` : ""}. Open issues, most urgent first, each with a prompt for the client's coding tool. Accepted risks are left out.
+          {audit.data?.title}{audit.data?.client?.name ? ` · ${audit.data.client.name}` : ""}. Open issues, most urgent first, each with a prompt for the client's coding tool. Prompts are AI-written starting points; an issue is only fixed when its re-test passes. Accepted risks are left out.
         </p>
       </div>
 

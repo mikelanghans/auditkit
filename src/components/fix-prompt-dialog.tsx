@@ -135,7 +135,7 @@ export function FixPromptButton({
               <Wand2 className="h-4 w-4 text-purple-500" /> Remediation prompt
             </DialogTitle>
             <DialogDescription>
-              Paste this into your AI coding tool of choice to fix the vulnerability.
+              AI-written starting point, not a guaranteed fix. Check what the tool changed, publish, then re-scan: only a passing re-scan closes it.
             </DialogDescription>
           </DialogHeader>
 

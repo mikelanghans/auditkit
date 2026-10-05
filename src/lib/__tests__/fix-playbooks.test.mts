@@ -78,3 +78,28 @@ test("Lovable prompts are instructions to Lovable, not steps for the founder", a
   assert.match(user, /Never use \*/);
   assert.doesNotMatch(user, /Tell the reader/);
 });
+
+test("header playbooks: TanStack Start content-type check, no meta or ignored-config fallbacks, verify on the live site", () => {
+  for (const key of ["xframe_header", "permissions_policy", "csp_header", "hsts_header"]) {
+    const t = playbookFor({ checklist_key: key })!.text;
+    assert.match(t, /result\.response\.headers\.get\("content-type"\)/, key);
+    assert.match(t, /Do not use getResponseHeader\("content-type"\)/, key);
+    assert.match(t, /Never use a <meta http-equiv> tag/, key);
+    assert.match(t, /only works on the host that reads it/, key);
+    assert.match(t, /re-scan of the live site/, key);
+  }
+  assert.match(playbookFor({ title: "Security headers configured" })!.text, /getResponseHeader/);
+});
+
+test("CSP playbook: says the scan keeps failing while Report-Only", () => {
+  const t = playbookFor({ checklist_key: "csp_header" })!.text;
+  assert.match(t, /keeps failing this item while the policy is Report-Only/);
+  assert.match(t, /ssr: \{ nonce \}/);
+});
+
+test("Lovable prompts end with a publish and re-scan reminder; CSP rule no longer forces server code", async () => {
+  const body = await generate({ title: "X-Frame-Options header set", category: "Frontend Security", checklist_key: "xframe_header" });
+  assert.match(body.system, /Publish → Update and then re-scan in AuditKit/);
+  assert.match(body.system, /host's header config for a static build/);
+  assert.match(body.system, /never a <meta> tag/);
+});

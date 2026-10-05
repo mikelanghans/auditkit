@@ -70,7 +70,7 @@ export function fixPlanMarkdown(plan: PlanItem[], o: { audit: string; client: st
     return L.join("\n");
   }
   L.push(
-    `${plan.length} issue(s), most urgent first. Each one has a prompt you can paste into ${TOOL_LABEL[o.tool]} to fix it. After a fix ships, tell us and we'll re-test it.`,
+    `${plan.length} issue(s), most urgent first. Each one has a prompt you can paste into ${TOOL_LABEL[o.tool]} to start the fix. The prompts are AI-written and may not get everything right, so check what ${TOOL_LABEL[o.tool]} changed and publish it, then tell us and we'll re-test. An issue counts as fixed only when the re-test passes.`,
     "",
     "| # | Issue | Severity | Owner | Due |",
     "|---|---|---|---|---|",
