@@ -18,6 +18,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedThreatFeedRouteImport } from './routes/_authenticated/threat-feed'
 import { Route as AuthenticatedProgressRouteImport } from './routes/_authenticated/progress'
 import { Route as AuthenticatedLeadsRouteImport } from './routes/_authenticated/leads'
+import { Route as AuthenticatedFixTrackerRouteImport } from './routes/_authenticated/fix-tracker'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedClientsIndexRouteImport } from './routes/_authenticated/clients.index'
 import { Route as AuthenticatedClientsIdRouteImport } from './routes/_authenticated/clients.$id'
@@ -73,6 +74,11 @@ const AuthenticatedProgressRoute = AuthenticatedProgressRouteImport.update({
 const AuthenticatedLeadsRoute = AuthenticatedLeadsRouteImport.update({
   id: '/leads',
   path: '/leads',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedFixTrackerRoute = AuthenticatedFixTrackerRouteImport.update({
+  id: '/fix-tracker',
+  path: '/fix-tracker',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/mfa': typeof MfaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/fix-tracker': typeof AuthenticatedFixTrackerRoute
   '/leads': typeof AuthenticatedLeadsRoute
   '/progress': typeof AuthenticatedProgressRoute
   '/threat-feed': typeof AuthenticatedThreatFeedRoute
@@ -174,6 +181,7 @@ export interface FileRoutesByTo {
   '/mfa': typeof MfaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/fix-tracker': typeof AuthenticatedFixTrackerRoute
   '/leads': typeof AuthenticatedLeadsRoute
   '/progress': typeof AuthenticatedProgressRoute
   '/threat-feed': typeof AuthenticatedThreatFeedRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/mfa': typeof MfaRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/fix-tracker': typeof AuthenticatedFixTrackerRoute
   '/_authenticated/leads': typeof AuthenticatedLeadsRoute
   '/_authenticated/progress': typeof AuthenticatedProgressRoute
   '/_authenticated/threat-feed': typeof AuthenticatedThreatFeedRoute
@@ -222,6 +231,7 @@ export interface FileRouteTypes {
     | '/mfa'
     | '/reset-password'
     | '/dashboard'
+    | '/fix-tracker'
     | '/leads'
     | '/progress'
     | '/threat-feed'
@@ -244,6 +254,7 @@ export interface FileRouteTypes {
     | '/mfa'
     | '/reset-password'
     | '/dashboard'
+    | '/fix-tracker'
     | '/leads'
     | '/progress'
     | '/threat-feed'
@@ -267,6 +278,7 @@ export interface FileRouteTypes {
     | '/mfa'
     | '/reset-password'
     | '/_authenticated/dashboard'
+    | '/_authenticated/fix-tracker'
     | '/_authenticated/leads'
     | '/_authenticated/progress'
     | '/_authenticated/threat-feed'
@@ -361,6 +373,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLeadsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/fix-tracker': {
+      id: '/_authenticated/fix-tracker'
+      path: '/fix-tracker'
+      fullPath: '/fix-tracker'
+      preLoaderRoute: typeof AuthenticatedFixTrackerRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -450,6 +469,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedFixTrackerRoute: typeof AuthenticatedFixTrackerRoute
   AuthenticatedLeadsRoute: typeof AuthenticatedLeadsRoute
   AuthenticatedProgressRoute: typeof AuthenticatedProgressRoute
   AuthenticatedThreatFeedRoute: typeof AuthenticatedThreatFeedRoute
@@ -464,6 +484,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedFixTrackerRoute: AuthenticatedFixTrackerRoute,
   AuthenticatedLeadsRoute: AuthenticatedLeadsRoute,
   AuthenticatedProgressRoute: AuthenticatedProgressRoute,
   AuthenticatedThreatFeedRoute: AuthenticatedThreatFeedRoute,

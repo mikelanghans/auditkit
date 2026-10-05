@@ -33,6 +33,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const nav = [
     { to: "/dashboard", label: "Dashboard" },
     { to: "/progress", label: "Fix Progress" },
+    { to: "/fix-tracker", label: "Fix Tracker" },
     { to: "/clients", label: "Clients" },
     { to: "/threat-feed", label: "Threat Feed" },
     { to: "/leads", label: "Leads" },
