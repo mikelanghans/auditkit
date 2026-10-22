@@ -21,6 +21,17 @@ export const Route = createFileRoute("/check")({
         content:
           "Free check for secret keys (Stripe, Supabase service role, OpenAI, AWS and more) exposed in your website's JavaScript.",
       },
+      { property: "og:title", content: "Is your app leaking API keys? — Free check" },
+      {
+        property: "og:description",
+        content: "Paste your URL. Finds secret keys (Stripe, Supabase, OpenAI, AWS and more) exposed in your site's code. Takes about a minute.",
+      },
+      { property: "og:url", content: "https://auditkit.syncopateddynamics.com/check" },
+      { name: "twitter:title", content: "Is your app leaking API keys? — Free check" },
+      {
+        name: "twitter:description",
+        content: "Paste your URL. Finds secret keys (Stripe, Supabase, OpenAI, AWS and more) exposed in your site's code.",
+      },
     ],
   }),
   component: PublicCheckPage,
